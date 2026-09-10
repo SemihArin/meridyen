@@ -9,5 +9,11 @@
   "android": {
     "backgroundColor": "#f7f5f1",
     "allowMixedContent": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_meridyen",
+      "iconColor": "#7c9cff"
+    }
   }
 }

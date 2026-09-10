@@ -67,6 +67,11 @@ jobs:
       - name: Web içeriğini senkronla
         run: npx cap sync android
 
+      # Bildirim köprüsünü yalnızca DERLENEN kopyaya ekliyoruz; www/index.html
+      # canlı sitedekiyle birebir aynı kalsın diye (bkz. scripts/inject_native_script.py).
+      - name: Bildirim köprüsünü ekle
+        run: python3 scripts/inject_native_script.py
+
       - name: APK derle (debug imzalı — doğrudan telefona kurulabilir)
         working-directory: android
         run: |

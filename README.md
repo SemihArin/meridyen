@@ -59,34 +59,67 @@ GitHub Actions'ın kuracağı sürümler burada doğrulananlarla birebir aynı o
   verilince akışı web tarafına geçiriyor. Yani ek bir native yama gerekmiyor;
   yine de ilk kurulumdan sonra bir arama başlatıp gerçek cihazda test etmekte
   fayda var.
+- **Bildirimler, uygulama açık/arka plandayken çalışıyor** — WebView'ın
+  sunmadığı `Notification` API'si yerel bildirim eklentisiyle desteklendi
+  (ayrıntı aşağıda).
 - `firebase-messaging-sw.js` yeniden oluşturuldu (önceki bir ortam
   sıfırlanmasında kaybolmuştu) — index.html'deki mevcut FIREBASE_CONFIG'le
   birebir aynı.
 
-## Bilinen sınırlama: bildirimler (önemli — önceki not yanlıştı)
+## Bildirimler
 
-Önceki README "uygulama açıkken bildirimler çalışır, sadece kapalıyken
-gecikebilir" diyordu. Kodu ve WebView'ın yeteneklerini inceleyince durumun
-bundan daha keskin olduğu ortaya çıktı, düzeltiyorum:
+Kısa özet: **uygulama açık ya da arka plandayken bildirimler artık çalışıyor.
+Uygulama tamamen kapatıldığında hâlâ çalışmıyor** — o son adım için senden
+`google-services.json` gerekiyor (aşağıda).
 
-**Android WebView, web'in `Notification` API'sini hiç sunmuyor** (Push API'yi
-de). Yani APK içinde `window.Notification` tanımsız. `index.html` bunu zaten
-her yerde kontrol ediyor (`if (!('Notification' in window)) return;`), o
-yüzden **hiçbir şey çökmez** — uygulama sorunsuz açılır, mesajlaşma ve
-aramalar çalışır. Ama:
+### Sorun neydi
 
-- Sistem bildirimi hiç çıkmaz (ne uygulama açıkken, ne kapalıyken).
-- Menüdeki "Bildirimlere izin ver" satırı kendini gizler, Ayarlar'da bildirim
-  durumu "Tarayıcın desteklemiyor" yazar. Bu bir hata değil, kodun kendi
-  zarif geri çekilmesi.
-- Manifest'e eklenen `POST_NOTIFICATIONS` izni bu yüzden şimdilik atıl
-  duruyor; native entegrasyon geldiğinde kullanılacak.
+Android'in WebView'ı, web'in `Notification` API'sini hiç sunmuyor (Push API'yi
+de). Yani APK içinde `window.Notification` tanımsızdı. `index.html` bunu her
+yerde kontrol ettiği için hiçbir şey çökmüyordu, ama Ayarlar'da "Tarayıcın
+desteklemiyor" yazıyor ve hiçbir bildirim çıkmıyordu.
 
-**Çözümü tek adım, sende:** Firebase konsolunda bu Android paketine
-(`com.meridyen.app`) özel bir uygulama kaydı aç, `google-services.json`
-dosyasını indirip bana gönder. Ardından `@capacitor/push-notifications` +
-`@capacitor/local-notifications` ekleyip native tarafa bağlarım — bildirimler
-uygulama kapalıyken de gelir, ki bu web sürümünden bile güvenilir olur.
+### Ne yapıldı
+
+Eksik API, Capacitor'un **yerel bildirim** eklentisiyle desteklenerek yerine
+kondu (`www/meridyen-native.js`). Uygulamanın kodu hiç değişmedi — hâlâ
+`new Notification(...)` çağırıyor, altta Android'in kendi bildirim sistemi
+çalışıyor. Köprünün karşıladıkları:
+
+- `Notification.permission` ve `Notification.requestPermission()` → Android'in
+  kendi izin penceresi (Android 13+ için gereken `POST_NOTIFICATIONS` izni
+  artık gerçekten isteniyor, manifestte atıl durmuyor).
+- `new Notification(baslik, {body, tag})` → gerçek bir Android bildirimi.
+  `tag` sabit bir sayısal id'ye çevriliyor, böylece aynı sohbetten gelen ikinci
+  mesaj web'deki gibi öncekinin üstüne yazıyor, alt alta yığılmıyor.
+- Bildirime dokunma → uygulamanın kendi `onclick` davranışı (ilgili sohbete
+  veya bildirime gitme) ve `close()`.
+
+Durum çubuğu için ayrıca logodan tek renk bir "M" ikonu üretildi
+(`scripts/make_notification_icon.py`). Android bildirim ikonlarını yalnız
+siluet olarak çizdiği için renkli launcher ikonu orada beyaz bir leke olarak
+görünürdü.
+
+`www/index.html` bilerek canlı sitedekiyle **birebir aynı** bırakıldı: köprü
+oraya elle eklenmiyor, `npx cap sync`'ten sonra yalnızca derlenen kopyaya bir
+`<script>` satırı olarak enjekte ediliyor (`scripts/inject_native_script.py`).
+Siteyi güncellediğinde dosyayı olduğu gibi kopyalayabilirsin.
+
+Köprü yalnız APK içinde devreye giriyor; tarayıcıda gerçek `Notification` API'si
+bulunduğu için hiçbir şeye dokunmadan çıkıyor. Eklenti bulunamazsa da sessizce
+devre dışı kalıyor, yani en kötü ihtimalle eski davranışa dönülüyor.
+
+### Kalan eksik: uygulama kapalıyken bildirim
+
+Yukarıdaki **yerel** bildirim, adı üstünde, cihazda çalışan koddan doğuyor.
+Uygulama görev listesinden tamamen kapatıldığında çalışan kod kalmadığı için
+bildirim üretilemez. Bunun için sunucudan gelen **native FCM push** gerekiyor.
+
+Tek adım sende: Firebase konsolunda bu Android paketine (`com.meridyen.app`)
+özel bir uygulama kaydı aç, `google-services.json` dosyasını indirip bana
+gönder. Ardından `@capacitor/push-notifications`'ı ekleyip native belirteci
+(token) mevcut `cihazlar/<uid>` düğümüne yazdırırım — senin Node.js sunucun
+zaten o düğümü okuduğu için sunucu tarafında değişiklik gerekmeyebilir.
 
 ## Diğer sıradaki adımlar
 
