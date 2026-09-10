@@ -12,20 +12,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Depoyu al
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: JDK 21 kur
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-          cache: gradle
 
       - name: Node 20 kur
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: npm
+
+      # setup-java'nın hazır `cache: gradle` seçeneği burada KULLANILAMIYOR:
+      # o, checkout anında bir Gradle dosyası bulup önbellek anahtarı üretmeye
+      # çalışıyor, ama bizim android/ klasörümüz henüz üretilmemiş oluyor —
+      # adım "No file ... matched" diye hata verip derlemeyi düşürüyor.
+      # Bağımlılıkları bu yüzden doğrudan önbelleğe alıyoruz. Anahtar
+      # package-lock.json'dan geliyor: Capacitor sürümü Android tarafındaki
+      # bağımlılıkları da belirlediğinden, kilit değişmedikçe önbellek geçerli.
+      - name: Gradle önbelleği
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json', '.github/workflows/build-apk.yml') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       # package-lock.json depoda: `npm ci` kilit dosyasındaki SÜRÜMLERİN
       # aynısını kurar, yani burada derlenen şey yerelde doğrulanan şeyle
