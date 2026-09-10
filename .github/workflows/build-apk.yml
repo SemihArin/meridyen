@@ -1,0 +1,66 @@
+name: APK derle
+
+on:
+  push:
+    # claude/** de dahil: derlemenin main'e birleştirilmeyi beklemeden,
+    # çalışıldığı dalda da APK üretmesi için.
+    branches: [main, master, 'claude/**']
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: JDK 21 kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Node 20 kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # package-lock.json depoda: `npm ci` kilit dosyasındaki SÜRÜMLERİN
+      # aynısını kurar, yani burada derlenen şey yerelde doğrulanan şeyle
+      # birebir aynı olur (`npm install` sürümleri sessizce yükseltebilirdi).
+      - name: npm bağımlılıklarını kur
+        run: npm ci
+
+      - name: Android SDK kur
+        uses: android-actions/setup-android@v3
+
+      # android/ klasörü bilerek depoya eklenmiyor: Capacitor'un KENDİ resmi
+      # şablonundan her derlemede TAZE üretiliyor, üstüne de aşağıdaki iki
+      # betikle (ikonlar + izinler) yamanıyor. Böylece elle taşınmış, zamanla
+      # bayatlayan bir Gradle projesi taşımak zorunda kalmıyoruz.
+      - name: Android projesini oluştur (Capacitor)
+        run: npx cap add android
+
+      - name: Uygulama ikonlarını yerleştir
+        run: bash scripts/copy_icons.sh
+
+      - name: Gerekli izinleri (kamera/mikrofon/bildirim) ekle
+        run: python3 scripts/patch_manifest.py
+
+      - name: Web içeriğini senkronla
+        run: npx cap sync android
+
+      - name: APK derle (debug imzalı — doğrudan telefona kurulabilir)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: APK'yı yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: meridyen-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
