@@ -6786,7 +6786,22 @@ function ayarKilitDurumuCiz(){
 }
 function ayarBildirimDurumuCiz(){
   const el = $('#ayarBildirimDurum'), btn = $('#ayarBildirimBtn');
-  if (!('Notification' in window)) { el.textContent = 'Tarayıcın desteklemiyor'; btn.disabled = true; return; }
+  if (!('Notification' in window)) {
+    /* Burada İKİ AYRI arıza aynı mesajı veriyordu ve ayırt edilemiyordu:
+       (a) bildirimi gerçekten desteklemeyen bir tarayıcı,
+       (b) uygulamanın içindeyiz ama native köprü yüklenmemiş.
+       (b) bir kez gerçekten yaşandı: derleme betiği köprünün <script>
+       etiketini koymamıştı, bildirimler sessizce tamamen kayboldu ve ekranda
+       yine "tarayıcın desteklemiyor" yazıyordu. Artık ayrılıyor. */
+    const uygulamaIcinde = !!(window.Capacitor &&
+      typeof window.Capacitor.isNativePlatform === 'function' &&
+      window.Capacitor.isNativePlatform());
+    el.textContent = !uygulamaIcinde ? 'Tarayıcın desteklemiyor'
+      : (window.MeridyenKopru ? 'Uygulama köprüsü bildirimi açamadı'
+                              : 'Uygulama köprüsü yüklenmedi');
+    btn.disabled = true;
+    return;
+  }
   const izin = Notification.permission;
   el.textContent = izin === 'granted' ? 'Açık' : izin === 'denied' ? 'Tarayıcı ayarlarından engellenmiş' : 'Kapalı';
   btn.textContent = izin === 'granted' ? 'Açık' : 'İzin ver';

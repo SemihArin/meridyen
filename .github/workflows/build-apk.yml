@@ -72,8 +72,26 @@ jobs:
 
       # Bildirim köprüsünü yalnızca DERLENEN kopyaya ekliyoruz; www/index.html
       # canlı sitedekiyle birebir aynı kalsın diye (bkz. scripts/inject_native_script.py).
+      # Bu testler bir kez gerçekten yaşanan bir arızayı kilitliyor: enjeksiyon
+      # betiği "zaten ekli mi?" denetimini dosya ADINA göre yapıyordu ve
+      # index.html'e o adı anan bir yorum eklenince etiketi hiç koymadı —
+      # köprü APK'ya girdi ama sayfaya yüklenmedi, bildirimler sessizce gitti.
+      - name: Enjeksiyon betiğini sına
+        run: python3 scripts/test_inject_native_script.py
+
       - name: Bildirim köprüsünü ekle
         run: python3 scripts/inject_native_script.py
+
+      # Son kontrol: etiket gerçekten derlenen kopyada mı? Köprünün sessizce
+      # eksik kaldığı bir APK bir daha üretilmesin.
+      - name: Köprünün yüklendiğini doğrula
+        run: |
+          DOSYA=android/app/src/main/assets/public/index.html
+          grep -q '<script src="meridyen-native.js"></script>' "$DOSYA" \
+            || { echo "HATA: bildirim köprüsü etiketi derlenen index.html'de yok"; exit 1; }
+          test -f android/app/src/main/assets/public/meridyen-native.js \
+            || { echo "HATA: meridyen-native.js kopyalanmamış"; exit 1; }
+          echo "köprü doğrulandı."
 
       - name: APK derle (debug imzalı — doğrudan telefona kurulabilir)
         working-directory: android

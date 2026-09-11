@@ -484,6 +484,61 @@ plan kipi, kapağı olmayan kayıt) ve galeri sınırı 8 (boşluk gizleniyor,
 türler bitince tamamı görünüyor, biten tür sınır dayatmıyor, yedek kipte
 sınır yok). Tüm takım — 14 dosya, 175 kontrol — geçti.
 
+## Bildirim arızası: köprü APK'ya giriyordu ama hiç yüklenmiyordu
+
+Bir süre bildirimler tamamen kayboldu ve Ayarlar yine "Tarayıcın
+desteklemiyor" dedi. Sebep WebView ya da izinler değildi — **kendi derleme
+betiğimdeki bir hataydı.**
+
+### Ne oldu
+
+`scripts/inject_native_script.py`, köprünün zaten ekli olup olmadığını
+`<script>` etiketine değil, yalnızca **dosya adına** bakarak anlıyordu:
+
+```python
+if "meridyen-native.js" in html:      # ESKİ, HATALI
+    print("köprü zaten ekli"); sys.exit(0)
+```
+
+Sonraki bir turda `www/index.html` içine o dosya adını anan bir **yorum**
+yazıldı ("bkz. meridyen-native.js"). Betik bunu görüp "zaten ekli" sandı ve
+`<script>` etiketini hiç koymadı. Yani:
+
+- `meridyen-native.js` APK'ya kopyalanmaya devam etti (dosya oradaydı),
+- ama sayfaya hiç yüklenmedi,
+- `window.Notification` tanımsız kaldı → "Tarayıcın desteklemiyor",
+- FCM belirteci de yazılmadı (aynı dosyadaki push kodu da çalışmadı),
+- ve hiçbir yerde hata görünmedi.
+
+### Üç katmanlı önlem
+
+1. **Kesin denetim.** Artık dosya adı değil, etiketin kendisi düzenli ifadeyle
+   aranıyor. Üstelik betik önce var olan etiketleri temizleyip tam bir tane
+   ekliyor — yani tanım gereği idempotent, kaç kez çalışırsa çalışsın.
+2. **Sessiz başarısızlık yok.** Betik işini bitirince etiketin gerçekten ve
+   tam bir kez orada olduğunu doğruluyor; değilse hata koduyla çıkıp derlemeyi
+   kırıyor. İş akışına ayrıca bir doğrulama adımı kondu: etiket ve dosya
+   derlenen kopyada yoksa APK hiç üretilmiyor.
+3. **Regresyon testi.** `scripts/test_inject_native_script.py` tam da bu
+   senaryoyu kilitliyor: "dosya adı yalnızca bir yorumda geçiyorsa etiket yine
+   de eklenmeli". Test her derlemede CI'da çalışıyor.
+
+### Arıza artık ekranda ayırt ediliyor
+
+Asıl can sıkıcı yanı, iki bambaşka arızanın aynı mesajı vermesiydi. Ayarlar
+ekranı artık ayırıyor:
+
+| Durum | Mesaj |
+|---|---|
+| Gerçekten desteklemeyen tarayıcı | "Tarayıcın desteklemiyor" |
+| Uygulamadayız, köprü hiç yüklenmemiş | "Uygulama köprüsü yüklenmedi" |
+| Köprü yüklenmiş ama bildirimi açamamış | "Uygulama köprüsü bildirimi açamadı" |
+
+Bunu mümkün kılan şey köprünün artık kendi imzasını bırakması
+(`window.MeridyenKopru` — yüklendi mi, native mi, hangi eklentiler var).
+İmza, erken çıkış yollarından ÖNCE yazılıyor; yani köprü işini yapamasa bile
+yüklendiğini söyleyebiliyor.
+
 ## Diğer sıradaki adımlar
 
 - **İmzalama / Play Store**: Şu anki APK "debug" imzalı — sideload (elle

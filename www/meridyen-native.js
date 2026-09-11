@@ -23,11 +23,25 @@
   'use strict';
 
   var cap = window.Capacitor;
-  if (!cap || typeof cap.isNativePlatform !== 'function' || !cap.isNativePlatform()) return;
-  // Gerçek API varsa (ileride WebView desteklerse) ona karışma.
-  if ('Notification' in window) return;
+  var YB = cap && cap.Plugins && cap.Plugins.LocalNotifications;
 
-  var YB = cap.Plugins && cap.Plugins.LocalNotifications;
+  /* KÖPRÜ İMZASI — teşhis için.
+     Bu dosya bir kez APK'ya girdiği hâlde sayfaya HİÇ yüklenmedi (enjeksiyon
+     betiği <script> etiketini koymamıştı) ve bildirimler sessizce kayboldu.
+     Dışarıdan bakınca "tarayıcı desteklemiyor" ile ayırt edilemiyordu.
+     Bu imza sayesinde uygulama artık "köprü yüklendi ama bildirimi açamadı"
+     ile "köprü hiç yüklenmedi" durumlarını ayırabiliyor. */
+  window.MeridyenKopru = {
+    yuklendi: true,
+    yerli: !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()),
+    yerelBildirim: !!YB,
+    push: !!(cap && cap.Plugins && cap.Plugins.PushNotifications)
+  };
+
+  if (!window.MeridyenKopru.yerli) return;
+  // Gerçek API varsa (ileride WebView desteklerse) ona karışma.
+  if ('Notification' in window) { window.MeridyenKopru.gercekApi = true; return; }
+
   if (!YB) return;
 
   var izin = 'default';           // Notification.permission ile aynı sözlük
