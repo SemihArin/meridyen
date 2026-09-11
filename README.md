@@ -581,6 +581,167 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Bildirimler sağlamlaştırıldı
+
+"Bildirim gelmiyor" tek bir arıza değil — birbirine hiç benzemeyen birkaç ayrı
+arızanın hepsi dışarıdan aynı görünüyor. Bu parti hem en büyük boşluğu
+kapatıyor hem de kalanları **söyleyebilir** hâle getiriyor.
+
+### 1) Uygulama kapalıyken bildirim: artık sunucunun ne gönderdiğine bağlı değil
+
+Asıl boşluk buydu. Capacitor'un push eklentisi gelen mesajı yalnızca
+JavaScript'e **iletiyor**, kendisi hiçbir bildirim çizmiyor
+(`PushNotificationsPlugin.sendRemoteMessage`). Uygulama kapalıyken çalışan bir
+WebView olmadığı için mesaj `lastMessage` alanında bekletiliyor ve kullanıcı
+hiçbir şey görmüyordu. Yani bildirim yalnızca sunucu yükünün içine bir
+`notification` bloğu koyduğunda çıkıyordu — onu da FCM'in kendi SDK'sı
+çiziyordu. Sunucu yalnız `data` gönderdiğinde bildirim **sessizce**
+kayboluyordu.
+
+Artık kendi FCM servisimiz var (`MeridyenMesajServisi`). Capacitor'unkini
+miras alıyor — JS'e iletim ve belirteç yenileme aynen sürüyor — ama üstüne,
+uygulama önde değilse bildirimi kendisi çiziyor. Alan adlarında hem Türkçe hem
+İngilizce karşılıklar kabul ediliyor (`baslik`/`title`, `metin`/`body`...), o
+yüzden **sunucu tarafında hiçbir değişiklik gerekmiyor**.
+
+Manifestte Capacitor'un servisi kaldırılıyor (`tools:node="remove"`). Aynı
+intent-filter'a sahip iki servis kalırsa FCM teslimi belirsiz bir sırayla
+birine gider; tek servis bırakmak bunu kesinleştiriyor. APK açılıp doğrulandı:
+`MessagingService` girişi 1 tane ve o bizimki.
+
+Küçük ama gerekli bir yan iş: kendi servisimiz uygulama modülünde derleniyor,
+`firebase-messaging`'i ise push eklentisi `implementation` olarak alıyor —
+Gradle bunu **aktarmıyor**, derleme `cannot find symbol: RemoteMessage` diye
+kırılıyordu. `scripts/patch_gradle.py` bağımlılığı uygulama modülüne ekliyor;
+sürümü eklentinin kendi `build.gradle`'ından okuyor ki sınıf yolunda iki farklı
+firebase-messaging çakışmasın.
+
+### 2) Aynı mesaj için iki bildirim çıkmıyor
+
+Bildirim iki ayrı yerden çıkabiliyor: uygulama açıkken web tarafı
+(`new Notification`), kapalıyken native servis. İkisi aynı etiket için aynı
+sayısal id üretmezse Android bunları ayrı bildirim sayar ve aynı mesaj iki kez
+görünür.
+
+İki ayrı dilde elle yazılmış iki karma fonksiyonu olduğu için bu sessizce
+ayrışmaya çok açık. `scripts/test_bildirim_id.py` ikisini de **gerçek kaynak
+dosyalardan çıkarıp** çalıştırıyor ve karşılaştırıyor — Türkçe harfler, emoji
+(vekil çiftler), boş etiket ve çok uzun etiket dahil. İş akışında da koşuyor.
+
+> Sınamayı ilk yazdığımda Türkçe harfli etikette fark çıktı. Sebep üründe
+> değildi: bu ortamda JVM komut satırı argümanlarını ASCII olarak çözüyor
+> (`sun.jnu.encoding=ANSI_X3.4-1968`) ve harfleri bozuyordu. Girdi artık kod
+> birimi listesi olarak veriliyor; 11/11 eşit.
+
+### 3) Bildirime dokununca doğru sohbet açılıyor
+
+Uygulama açıkken bunu `sistemBildirimi` kendi `onclick`'inde yapıyordu — ama
+kapalıyken gelen bildirime dokunulduğunda uygulama sıfırdan açılıyor ve o
+`onclick` artık yok. Hedef bilgisi şimdi bildirimin niyetinin (intent) içinde
+taşınıyor.
+
+İki ince nokta: her bildirimin `PendingIntent`'i kendi id'siyle üretiliyor
+(hepsine 0 verilseydi `FLAG_UPDATE_CURRENT` yüzünden açık olan tüm
+bildirimlerin hedefi sonuncusununkiyle değişir, her biri yanlış sohbeti
+açardı); ve soğuk açılışta köprü henüz yüklenmemiş olabildiği için native taraf
+hedefi saklıyor, web tarafı hazır olunca bir kez soruyor. Açılış her durumda
+`panelGirisTalebi` üzerinden geçiyor — kilit atlanmıyor.
+
+### 4) Mesajlar için ayrı, yüksek önemli kanal
+
+Android'de önem bildirim başına değil **kanal** başına. Gönderim ilerlemesi
+bilerek sessiz ve düşük önemli; mesaj bildirimi aynı kanalda kalsaydı o da
+sessiz olurdu. Artık ayrı bir `meridyen_mesaj` kanalı var: yüksek önem, ses ve
+titreşim, ekranın üstünde belirme. FCM'in kendi çizdiği bildirimler de
+manifestteki `default_notification_channel_id` sayesinde aynı kanala düşüyor.
+
+Kilit ekranı görünürlüğüne bilerek dokunulmadı: sabitleseydik uygulamanın kendi
+"bildirimde mesajı göster" tercihini ezerdik.
+
+### 5) Belirteç artık sessizce düşmüyor
+
+Belirteç ile oturum iki ayrı zamanda hazır oluyor ve **sırası garanti değil**.
+Eski kod yalnız "belirteç geldi" anında yazıyordu: belirteç oturumdan önce
+gelirse sessizce düşüyor ve o cihaza hiçbir push ulaşmıyordu. Artık ikisi de
+saklanıp ikisi birden hazır olduğunda yazılıyor.
+
+Yazma başarısız olursa (kurallar yayımlanmamış, ya da o an ağ yok) geri
+çekilerek en fazla beş kez yeniden deneniyor — yazılamazsa sunucu o cihaza hiç
+gönderemez, yani sessizce vazgeçmek bildirimleri tümden kapatmak demek. Belirteç
+yenilendiğinde (`onNewToken`) de yenisi yazılıyor; eski belirteç ölü olduğu için
+bu yapılmazsa cihaz bir gün sessizce erişilemez oluyor.
+
+### 6) İzin ilk açılışta bir kez isteniyor
+
+Android 13'ten beri bildirim ayrı bir çalışma-zamanı izni. Kullanıcı Ayarlar'a
+girip "İzin ver"e basana kadar tek bir bildirim bile çıkmıyor — ve çıkmadığı
+için kimse Ayarlar'a bakmayı akıl etmiyor. Artık ilk açılışta bir kez soruluyor
+(yalnız bir kez; reddedildiyse her açılışta rahatsız edilmiyor). Kullanıcı
+sistem ayarlarından izni değiştirip geri dönerse de durum tazeleniyor.
+
+### 7) Ayarlar artık *hangi* arızanın olduğunu söylüyor
+
+Ayarlar → Bildirimler altında yeni bir **Bildirim tanısı** satırı var. Her
+sebebi ayrı ayrı okuyup tek bir cümleye çeviriyor:
+
+- köprü yüklenmemiş
+- izin verilmemiş / engellenmiş
+- uygulamanın bildirimleri sistemden kapatılmış
+- **"Mesajlar" kanalı kapatılmış** — izin açık görünür ama tek bildirim çıkmaz;
+  en çok yanıltan durum bu
+- kanal sessize alınmış
+- belirteç alınamadı (FCM hatası aynen gösteriliyor)
+- belirteç veritabanına yazılamadı (kurallar?) — uygulama kapalıyken bildirim gelmez
+- pil iyileştirmesi açık — bildirim gecikebilir
+
+Bir şey kapalıysa düğme "Ayarlar" olup sistemin bildirim ekranını açıyor; değilse
+"Sına" olup **gerçek bildirim yolundan** bir sınama gönderiyor. Ayrı bir sınama
+kodu yazsaydık gerçek yolu değil kendisini sınamış olurduk.
+
+Web'de de çalışıyor (izin ve tarayıcı desteği kısmı); native ayrıntılar yalnız
+APK'da doldurulur.
+
+### Doğrulama
+
+- `scripts/test_bildirim_id.py` — native ↔ web bildirim id'leri, 11/11 eşit,
+  hepsi ilerleme bildiriminin bandının dışında.
+- Köprü sınamaları: 15 + 12 + 15 + 16 (yeni: belirteç sırası, yeniden deneme,
+  belirteç yenileme, bildirime dokunma, soğuk açılış, tanı/sınama API'si).
+- Tanı karar tablosu: 15 senaryo, hepsi doğru cümleyi üretiyor.
+- APK açıldı: FCM servisi tek ve bizimki, varsayılan kanal `meridyen_mesaj`,
+  `MeridyenBildirimler`/`MeridyenMesajServisi` derlenmiş dex içinde.
+- CI sırasının aynısıyla sıfırdan temiz derleme: `BUILD SUCCESSFUL`.
+
+### Sunucu tarafı: şart değil, ama önerilir
+
+Uygulama artık iki yükü de kaldırıyor, o yüzden **acele bir değişiklik
+gerekmiyor**. Yine de en temizi sunucunun yalnız `data` göndermesi:
+
+```json
+{
+  "token": "<cihazlar/<uid> altındaki belirteç>",
+  "android": { "priority": "high" },
+  "data": {
+    "baslik": "Ayşe",
+    "metin": "Yarın uğrayabilir misin?",
+    "gonderen": "<gönderenin uid'si>",
+    "tur": "mesaj"
+  }
+}
+```
+
+Neden: `notification` bloğu gönderildiğinde bildirimi FCM'in kendi SDK'sı
+çiziyor ve o bildirim bizim id mantığımızın dışında kalıyor — uygulama arka
+planda ama **açıkken** aynı mesaj için hem FCM'in hem web tarafının bildirimi
+çıkabiliyor. Yalnız `data` gönderilirse her bildirimi biz çiziyoruz: tek kanal,
+tek id, doğru sohbete dokunma. `"priority": "high"` da cihaz uykudayken teslimi
+geciktirmiyor.
+
+`gonderen` alanı zaten `bildirimKuyrugu` kaydında var; sunucunun tek yapması
+gereken onu `data` içine geçirmek. Veritabanı kurallarındaki `cihazlar` düğümü
+(bkz. `database.rules.json`) hâlâ yayımlanmış olmalı — o olmadan belirteç
+yazılamaz ve tanı satırı bunu açıkça söyler.
+
 ## Uygulama formuna doğru — 1. adım
 
 Site zaten bir APK'nın içinde çalışıyordu ama hâlâ "web sayfası" gibi

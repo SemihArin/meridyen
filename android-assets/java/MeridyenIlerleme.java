@@ -5,7 +5,10 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.Window;
 
 import androidx.core.app.NotificationCompat;
@@ -13,6 +16,7 @@ import androidx.core.app.NotificationManagerCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -45,6 +49,55 @@ public class MeridyenIlerleme extends Plugin {
      *  meridyen-native.js içinde `% 1900000000` ile o sınırın altına
      *  sıkıştırılıyor, böylece iki bildirim birbirinin üstüne yazamıyor. */
     private static final int BILDIRIM_ID = 2000000001;
+
+    /** Bildirime dokunularak açıldıysa, hangi sohbetin açılacağı.
+     *  JS dinleyicisi köprü yüklenmeden ÖNCE gelebildiği için (soğuk açılış)
+     *  değeri saklıyoruz; web tarafı hazır olunca `bekleyenAcilis` ile alıyor. */
+    private String bekleyenGonderen = null;
+
+    @Override
+    public void load() {
+        /* Kanallar uygulama daha ilk kez açılırken kurulmalı: bildirim
+           geldiğinde kanal yoksa Android bildirimi hiç göstermez. */
+        try { MeridyenBildirimler.mesajKanaliniKur(getContext()); } catch (Exception e) {}
+        try { kanaliKur(); } catch (Exception e) {}
+        if (getActivity() != null) niyetiIsle(getActivity().getIntent());
+    }
+
+    /** Uygulama zaten açıkken bildirime dokunulursa buraya düşer. */
+    @Override
+    protected void handleOnNewIntent(Intent niyet) {
+        super.handleOnNewIntent(niyet);
+        niyetiIsle(niyet);
+    }
+
+    private void niyetiIsle(Intent niyet) {
+        if (niyet == null) return;
+        String g;
+        try {
+            g = niyet.getStringExtra(MeridyenBildirimler.EK_GONDEREN);
+        } catch (Exception e) {
+            return;
+        }
+        if (g == null || g.length() == 0) return;
+        /* Aynı niyet Activity yeniden yaratıldığında tekrar okunabiliyor;
+           bir kez işlendikten sonra temizliyoruz ki her dönüşte sohbet
+           kendiliğinden açılmasın. */
+        try { niyet.removeExtra(MeridyenBildirimler.EK_GONDEREN); } catch (Exception e) {}
+        bekleyenGonderen = g;
+        JSObject veri = new JSObject();
+        veri.put("gonderen", g);
+        notifyListeners("bildirimAcildi", veri, true);
+    }
+
+    /** Soğuk açılışta kaçırılan "bildirime dokunuldu" olayını web tarafına verir. */
+    @PluginMethod
+    public void bekleyenAcilis(PluginCall call) {
+        JSObject sonuc = new JSObject();
+        sonuc.put("gonderen", bekleyenGonderen == null ? "" : bekleyenGonderen);
+        bekleyenGonderen = null;
+        call.resolve(sonuc);
+    }
 
     private void kanaliKur() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
@@ -151,6 +204,93 @@ public class MeridyenIlerleme extends Plugin {
     public void gizle(PluginCall call) {
         try {
             NotificationManagerCompat.from(getContext()).cancel(BILDIRIM_ID);
+        } catch (Exception e) {}
+        call.resolve();
+    }
+
+    /**
+     * Bildirimlerin neden çıkmadığını SÖYLER.
+     *
+     * Bildirimin sessizce kaybolmasının birkaç ayrı sebebi var ve dışarıdan
+     * hepsi birbirine benziyor ("bildirim gelmiyor"). Burada her birini ayrı
+     * ayrı okuyup web tarafına veriyoruz; Ayarlar ekranı bunu insan diline
+     * çeviriyor. Kullanıcının ekran görüntüsü göndermesine gerek kalmadan
+     * hangi ayarın kapalı olduğu görülebiliyor.
+     */
+    @PluginMethod
+    public void tani(PluginCall call) {
+        JSObject s = new JSObject();
+        try {
+            s.put("surum", Build.VERSION.SDK_INT);
+            s.put("bildirimAcik", NotificationManagerCompat.from(getContext()).areNotificationsEnabled());
+
+            int onem = -1;      // -1: kanal henüz yok
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationManager nm = (NotificationManager)
+                    getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    NotificationChannel k =
+                        nm.getNotificationChannel(MeridyenBildirimler.KANAL_MESAJ);
+                    if (k != null) onem = k.getImportance();
+                }
+            } else {
+                onem = 3;       // Android 8 öncesi: kanal kavramı yok
+            }
+            /* 0 = IMPORTANCE_NONE: kullanıcı KANALI kapatmış. Uygulama izni
+               açık göründüğü hâlde tek bir bildirim bile çıkmaz — en çok
+               yanıltan durum bu. */
+            s.put("kanalOnem", onem);
+
+            boolean pilSerbest = true;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+                if (pm != null) {
+                    pilSerbest = pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+                }
+            }
+            /* Pil iyileştirmesi açıkken üretici katmanları (Xiaomi, Huawei,
+               Samsung...) uygulamayı uyutup push teslimini geciktirebiliyor. */
+            s.put("pilSerbest", pilSerbest);
+        } catch (Exception e) {
+            s.put("hata", String.valueOf(e.getMessage()));
+        }
+        call.resolve(s);
+    }
+
+    /**
+     * Sınama bildirimi — GERÇEK mesaj bildirimiyle aynı yoldan.
+     *
+     * Bilerek MeridyenBildirimler.mesaj() çağrılıyor: sınama görünüyorsa
+     * kanal, izin, ikon ve dokunma niyeti çalışıyor demektir. Ayrı bir
+     * "sınama bildirimi" kodu yazsaydık gerçek yolu değil kendisini sınardı.
+     */
+    @PluginMethod
+    public void sina(PluginCall call) {
+        MeridyenBildirimler.mesaj(
+            getContext(),
+            "Meridyen",
+            "Sınama bildirimi — bunu gördüysen bildirimler çalışıyor.",
+            "meridyen-sinama",
+            null,
+            "sinama");
+        call.resolve();
+    }
+
+    /** Sistemin bildirim ayarlarını açar: tanı bir şeyin kapalı olduğunu
+     *  söylediğinde kullanıcı tek dokunuşla düzeltebilsin. */
+    @PluginMethod
+    public void bildirimAyarlariniAc(PluginCall call) {
+        try {
+            Intent i;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                i.putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());
+            } else {
+                i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                i.setData(Uri.parse("package:" + getContext().getPackageName()));
+            }
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
         } catch (Exception e) {}
         call.resolve();
     }

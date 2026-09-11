@@ -5168,6 +5168,11 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
               <div class="ayar-bilgi"><b>Yeni mesaj sesi</b><small>Sekme arkadayken kısa bir uyarı sesi çalar.</small></div>
               <button class="anahtar acik" id="ayarSes" role="switch" aria-checked="true" aria-label="Yeni mesaj sesi"></button>
             </div>
+            <div class="ayar-satir uzun" id="satirBildirimTani">
+              <span class="ay-ikon mor"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 8v5"/><circle cx="12" cy="16.5" r=".8"/></svg></span>
+              <div class="ayar-bilgi"><b>Bildirim tanısı</b><small id="ayarBildirimTani">Kontrol ediliyor…</small></div>
+              <button class="ayar-dugme" id="ayarBildirimSinaBtn">Sına</button>
+            </div>
           </div>
 
           <div class="ayar-bolum">
@@ -6724,6 +6729,7 @@ function ayarAc(){
   anahtarCiz('#ayarEnter', tercihler.enterGonder);
   ayarKilitDurumuCiz();
   ayarBildirimDurumuCiz();
+  bildirimTanisiCiz();
   ayarBagimlilikTazele();
   yonetimSatiriTazele();
   hafizaSatiriTazele();
@@ -6784,6 +6790,70 @@ function ayarKilitDurumuCiz(){
   $('#ayarKilitBtn').textContent = var_ ? 'Değiştir' : 'Belirle';
   $('#ayarKilitSilSatir').classList.toggle('gizli', !var_);
 }
+/* Bildirim tanısı — "bildirim gelmiyor"un HANGİ sebebi olduğunu söyler.
+
+   Bu tek cümle birbirine hiç benzemeyen bir sürü ayrı arızayı gizliyordu:
+   izin verilmemiş olabilir, kullanıcı sistemden kanalı kapatmış olabilir,
+   uygulamanın bildirimleri tümden kapalı olabilir, FCM belirteci alınamamış
+   ya da veritabanına yazılamamış olabilir. Dışarıdan hepsi aynı görünüyor.
+   Burada her biri ayrı ayrı okunup TEK bir cümleye çevriliyor; yanındaki
+   düğme de gerçek bildirim yolundan bir sınama gönderiyor.               */
+let bildirimTanisiSonucu = null;
+
+async function bildirimTanisiCiz(){
+  const el = $('#ayarBildirimTani');
+  if (!el) return;
+  const btn = $('#ayarBildirimSinaBtn');
+
+  let t = null;
+  if (window.MeridyenKopru && typeof window.MeridyenKopru.tani === 'function') {
+    try { t = await window.MeridyenKopru.tani(); } catch (e) {}
+  }
+  bildirimTanisiSonucu = t;
+
+  const uygulamada = !!(window.Capacitor &&
+    typeof window.Capacitor.isNativePlatform === 'function' &&
+    window.Capacitor.isNativePlatform());
+
+  // Sıralama önemli: en TEMELDEKİ engel önce söylensin, yoksa kullanıcı
+  // sonuçla uğraşırken asıl sebebi hiç görmez.
+  let mesaj, ayarGerek = false;
+  if (uygulamada && !t) {
+    mesaj = 'Uygulama köprüsü yüklenmedi — bildirimler çalışamaz.';
+  } else if (!('Notification' in window)) {
+    mesaj = 'Bu tarayıcı bildirimleri desteklemiyor.';
+  } else if (Notification.permission !== 'granted') {
+    mesaj = Notification.permission === 'denied'
+      ? 'İzin engellenmiş. Sistem ayarlarından açman gerekiyor.'
+      : 'Henüz izin verilmedi. Yukarıdan "İzin ver"e dokun.';
+    ayarGerek = Notification.permission === 'denied';
+  } else if (t && t.bildirimAcik === false) {
+    mesaj = 'Uygulamanın bildirimleri sistemden kapatılmış.';
+    ayarGerek = true;
+  } else if (t && t.kanalOnem === 0) {
+    // En yanıltıcı durum: izin "açık" görünür ama tek bildirim çıkmaz.
+    mesaj = '"Mesajlar" kanalı sistemden kapatılmış — bildirim çıkmaz.';
+    ayarGerek = true;
+  } else if (t && t.kayitHatasi) {
+    mesaj = 'Bildirim belirteci alınamadı: ' + t.kayitHatasi;
+  } else if (t && t.belirtecVar && t.belirtecYazildi === false) {
+    // Sunucu bu cihaza gönderemez: uygulama kapalıyken bildirim gelmez.
+    mesaj = 'Belirteç kaydedilemedi (veritabanı kuralları?): ' + (t.belirtecHatasi || '');
+  } else if (t && t.yerli && !t.belirtecVar) {
+    mesaj = 'Bildirim belirteci henüz alınmadı; uygulama kapalıyken bildirim gelmeyebilir.';
+  } else if (t && t.pilSerbest === false) {
+    mesaj = 'Çalışıyor. Pil iyileştirmesi açık olduğu için gecikebilir.';
+  } else if (t && t.kanalOnem >= 0 && t.kanalOnem < 3) {
+    mesaj = 'Çalışıyor ama "Mesajlar" kanalı sessize alınmış.';
+    ayarGerek = true;
+  } else {
+    mesaj = 'Her şey yolunda görünüyor. Sınamak için "Sına"ya dokun.';
+  }
+
+  el.textContent = mesaj;
+  if (btn) btn.textContent = ayarGerek ? 'Ayarlar' : 'Sına';
+}
+
 function ayarBildirimDurumuCiz(){
   const el = $('#ayarBildirimDurum'), btn = $('#ayarBildirimBtn');
   if (!('Notification' in window)) {
@@ -6976,7 +7046,30 @@ $('#ayarKilitSil').addEventListener('click', () => {
 });
 $('#ayarKilitSure').addEventListener('change', (e) => { tercihler.kilitSure = Number(e.target.value); tercihYaz(); });
 $('#ayarSayfaBoyu').addEventListener('change', (e) => { tercihler.sayfaBoyu = Number(e.target.value); tercihYaz(); });
-$('#ayarBildirimBtn').addEventListener('click', async () => { await bildirimIzniIste(); ayarBildirimDurumuCiz(); ayarBagimlilikTazele(); });
+$('#ayarBildirimBtn').addEventListener('click', async () => { await bildirimIzniIste(); ayarBildirimDurumuCiz(); ayarBagimlilikTazele(); bildirimTanisiCiz(); });
+$('#ayarBildirimSinaBtn').addEventListener('click', async () => {
+  const btn = $('#ayarBildirimSinaBtn');
+  // Tanı "kapalı" diyorsa sınama boşa gider; doğrudan ayarlara götür.
+  if (btn.textContent === 'Ayarlar') {
+    if (window.MeridyenKopru && window.MeridyenKopru.bildirimAyarlariniAc) {
+      await window.MeridyenKopru.bildirimAyarlariniAc();
+    } else {
+      bildir('Tarayıcı ayarlarından bu sitenin bildirimlerine izin vermen gerekiyor.');
+    }
+    return;
+  }
+  let oldu = false;
+  if (window.MeridyenKopru && typeof window.MeridyenKopru.sina === 'function') {
+    oldu = await window.MeridyenKopru.sina();
+  } else if ('Notification' in window && Notification.permission === 'granted') {
+    try {
+      new Notification('Meridyen', { body: 'Sınama bildirimi — bunu gördüysen bildirimler çalışıyor.', tag: 'meridyen-sinama' });
+      oldu = true;
+    } catch (e) {}
+  }
+  bildir(oldu ? 'Sınama bildirimi gönderildi.' : 'Sınama bildirimi gönderilemedi.');
+  bildirimTanisiCiz();
+});
 $('#ayarCikis').addEventListener('click', () => { ayarKapat(); $('#cikisBtn').click(); });
 $('#ayarYonetimBtn').addEventListener('click', yonetimAc);
 

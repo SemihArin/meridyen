@@ -9,6 +9,8 @@ gerekiyor. Elle bir android/ projesi taşımak yerine (SDK'sız burada test
 edilemez, hataya çok açık) her derlemede TAZE üretilen manifesti bu betikle
 yamıyoruz — böylece Capacitor'un kendi şablonu neyse ondan sapmıyoruz.
 """
+import io
+import json
 import re
 import sys
 
@@ -36,6 +38,11 @@ FEATURES = [
 META_VERILER = [
     '        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_meridyen" />',
     '        <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/meridyen_vurgu" />',
+    # FCM'in KENDİ çizdiği bildirim (sunucu yükünde `notification` bloğu
+    # varsa) da mesaj kanalımıza düşsün. Bu satır olmadan Android kendi
+    # "Miscellaneous" kanalını kullanır: kullanıcı sesi/önemi bizim
+    # kanalımızdan ayarlasa bile o bildirimlere uygulanmaz.
+    '        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="meridyen_mesaj" />',
 ]
 
 with open(MANIFEST_PATH, encoding="utf-8") as f:
@@ -82,3 +89,73 @@ if meta_eklenecek:
         print("  " + s2.strip())
 else:
     print("Bildirim meta-data'ları zaten mevcut.")
+
+# ---------------------------------------------------------------------------
+# FCM SERVİSİ
+#
+# Capacitor'un push eklentisi gelen mesajı yalnızca JavaScript'e İLETİYOR,
+# kendisi bildirim çizmiyor. Uygulama kapalıyken çalışan bir WebView olmadığı
+# için mesaj hiçbir yerde görünmüyordu — bildirim ancak sunucu yüke bir
+# `notification` bloğu koyduğunda çıkıyor, yalnız `data` gönderildiğinde
+# SESSİZCE kayboluyordu.
+#
+# Kendi servisimiz (MeridyenMesajServisi) Capacitor'unkini miras alıyor: JS'e
+# iletim ve belirteç yenileme aynen sürüyor, üstüne uygulama önde değilse
+# bildirimi kendisi çiziyor.
+#
+# Capacitor'un servisi KALDIRILIYOR. Aynı intent-filter'a sahip iki servis
+# bırakılırsa FCM teslimi hangisine yapacağını belirsiz bir sırayla seçer
+# (PackageManager'ın döndürdüğü ilk eşleşme); tek servis bunu kesinleştiriyor.
+# ---------------------------------------------------------------------------
+with io.open("capacitor.config.json", encoding="utf-8") as f:
+    PAKET = json.load(f)["appId"]
+
+CAP_SERVIS = "com.capacitorjs.plugins.pushnotifications.MessagingService"
+BIZIM_SERVIS = PAKET + ".MeridyenMesajServisi"
+
+SERVIS_BLOGU = (
+    '\n        <!-- Capacitor\'un kendi FCM servisi: bildirim çizmediği için\n'
+    '             kaldırılıyor, yerine aşağıdaki miras alan servis geçiyor. -->\n'
+    '        <service android:name="' + CAP_SERVIS + '" tools:node="remove" />\n'
+    '        <service android:name="' + BIZIM_SERVIS + '" android:exported="false">\n'
+    '            <intent-filter>\n'
+    '                <action android:name="com.google.firebase.MESSAGING_EVENT" />\n'
+    '            </intent-filter>\n'
+    '        </service>'
+)
+
+if BIZIM_SERVIS not in manifest:
+    # tools: ad alanı `tools:node="remove"` için şart; şablonda yok.
+    if "xmlns:tools=" not in manifest:
+        manifest = manifest.replace(
+            '<manifest xmlns:android="http://schemas.android.com/apk/res/android"',
+            '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n'
+            '    xmlns:tools="http://schemas.android.com/tools"',
+            1,
+        )
+        if "xmlns:tools=" not in manifest:
+            raise SystemExit("HATA: <manifest> etiketi beklenen biçimde değil, tools ad alanı eklenemedi.")
+
+    eslesme = re.search(r"<application\b[^>]*>", manifest)
+    if not eslesme:
+        raise SystemExit("HATA: <application> etiketi bulunamadı, FCM servisi eklenemedi.")
+    yer = eslesme.end()
+    manifest = manifest[:yer] + SERVIS_BLOGU + manifest[yer:]
+    with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+        f.write(manifest)
+    print("FCM servisi eklendi (Capacitor'unki kaldırıldı): " + BIZIM_SERVIS)
+else:
+    print("FCM servisi zaten tanımlı.")
+
+# DOĞRULAMA — bu üçü sessizce eksik kalırsa bildirimler yine kaybolur.
+with io.open(MANIFEST_PATH, encoding="utf-8") as f:
+    son = f.read()
+for beklenen, aciklama in (
+    (BIZIM_SERVIS, "kendi FCM servisimiz"),
+    ('tools:node="remove"', "Capacitor servisinin kaldırılması"),
+    ("default_notification_channel_id", "varsayılan bildirim kanalı"),
+    ("POST_NOTIFICATIONS", "bildirim izni"),
+):
+    if beklenen not in son:
+        raise SystemExit("HATA: manifestte %s yok (%s)." % (beklenen, aciklama))
+print("manifest doğrulandı.")

@@ -94,17 +94,28 @@
 
     var self = this;
     try {
-      YB.schedule({
-        notifications: [{
-          id: this._id,
-          title: String(baslik == null ? 'Meridyen' : baslik),
-          body: String(this.body),
-          // Kilit ekranında da okunabilsin diye tek satıra sığmayan metinler
-          // açılabilir olsun.
-          largeBody: String(this.body),
-          autoCancel: true
-        }]
-      }).then(function () {
+      var istek = {
+        id: this._id,
+        title: String(baslik == null ? 'Meridyen' : baslik),
+        body: String(this.body),
+        // Kilit ekranında da okunabilsin diye tek satıra sığmayan metinler
+        // açılabilir olsun.
+        largeBody: String(this.body),
+        autoCancel: true,
+        /* Bildirimler tek yerde toplansın: aynı gruba giren 4+ bildirimi
+           Android kendiliğinden tek satırda özetliyor. */
+        group: 'meridyen_mesajlar'
+      };
+      /* MESAJ KANALI: varsayılan kanal DÜŞÜK önemli — bildirim ekranın
+         üstünde belirmiyor, ses ve titreşim vermiyor. Mesaj bildiriminin
+         YÜKSEK önemli olması gerekiyor ve Android'de önem kanal başına
+         ayarlanıyor, bildirim başına değil. Kanalı native taraf açılışta
+         kuruyor (MeridyenBildirimler.mesajKanaliniKur); eklenti yoksa
+         kanal adı vermiyoruz, yoksa Android bildirimi hiç göstermez. */
+      if (cap && cap.Plugins && cap.Plugins.MeridyenIlerleme) {
+        istek.channelId = 'meridyen_mesaj';
+      }
+      YB.schedule({ notifications: [istek] }).then(function () {
         if (typeof self.onshow === 'function') { try { self.onshow(); } catch (e) {} }
       }).catch(function () {
         if (typeof self.onerror === 'function') { try { self.onerror(); } catch (e) {} }
@@ -153,12 +164,47 @@
     });
   } catch (e) {}
 
-  // Açılışta mevcut izni öğren (kullanıcı daha önce izin vermiş olabilir).
+  /* Açılışta mevcut izni öğren (kullanıcı daha önce izin vermiş olabilir) ve
+     hiç sorulmadıysa BİR KEZ sor.
+
+     Android 13'ten beri bildirim ayrı bir çalışma-zamanı izni. Kullanıcı
+     Ayarlar'a girip "İzin ver"e basana kadar tek bir bildirim bile çıkmıyor
+     — ve çıkmadığı için de kimse Ayarlar'a bakmayı akıl etmiyor. Gerçek
+     mesajlaşma uygulamaları izni ilk açılışta ister; biz de öyle yapıyoruz.
+
+     Yalnız bir kez: kullanıcı reddettiyse her açılışta tekrar sormuyoruz
+     (zaten Android ikinci redden sonra pencereyi hiç göstermiyor). */
+  var SORULDU = 'meridyen_bildirim_soruldu';
+
+  function izniHazirla() {
+    try {
+      YB.checkPermissions().then(function (sonuc) {
+        izin = durumCevir(sonuc);
+        arayuzuTazele();
+        if (izin !== 'default') return;
+        var soruldu = false;
+        try { soruldu = localStorage.getItem(SORULDU) === '1'; } catch (e) {}
+        if (soruldu) return;
+        try { localStorage.setItem(SORULDU, '1'); } catch (e) {}
+        Bildirim.requestPermission();
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  izniHazirla();
+
+  /* Kullanıcı sistem ayarlarından izni değiştirip geri dönebiliyor; o zaman
+     `izin` bayatlıyor ve Ayarlar ekranı yanlış durumu gösteriyordu. */
   try {
-    YB.checkPermissions().then(function (sonuc) {
-      izin = durumCevir(sonuc);
-      arayuzuTazele();
-    }).catch(function () {});
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      YB.checkPermissions().then(function (sonuc) {
+        var yeni = durumCevir(sonuc);
+        if (yeni === izin) return;
+        izin = yeni;
+        arayuzuTazele();
+      }).catch(function () {});
+    });
   } catch (e) {}
 })();
 
@@ -190,6 +236,9 @@
 
   var kuruldu = false;      // dinleyiciler bir kez bağlansın
   var yazilanYol = null;    // çıkışta temizlik için
+  var sonBelirtec = null;   // en son alınan FCM belirteci
+  var sonUid = null;        // o an oturum açmış kullanıcı
+  var yazmaDenemesi = 0;    // başarısız yazımlar için geri çekilme sayacı
 
   /* index.html'deki ile AYNI karma: belirteç, Firebase anahtarında yasak olan
      karakterleri içerebildiği için düğüm adı olarak kullanılamıyor. Uygulama
@@ -210,6 +259,38 @@
     try { return !!tercihler.bildirimIcerik; } catch (e) { return false; }
   }
 
+  /* Belirteç ile oturum İKİ AYRI zamanda hazır oluyor ve sırası garanti
+     değil: FCM belirteci oturum açılmadan önce de gelebiliyor, sonra da.
+     Eskiden yalnız "belirteç geldi" anında yazılıyordu; belirteç önce
+     gelirse sessizce düşüyordu ve o cihaza hiçbir push ulaşmıyordu.
+     Artık ikisini de saklayıp, ikisi birden hazır olduğunda yazıyoruz. */
+  function yazmayiDene() {
+    if (!sonBelirtec || !sonUid) return;
+    belirteciYaz(sonUid, sonBelirtec);
+  }
+
+  /* Bildirime dokunulduğunda ilgili sohbeti açar. index.html'in kendi
+     `sistemBildirimi` fonksiyonu bunu onclick içinde yapıyor ama o yalnız
+     uygulama ÇALIŞIRKEN gösterilen bildirimler için geçerli. Kapalıyken
+     gelen bildirime dokunulduğunda uygulama sıfırdan açılıyor ve o onclick
+     artık yok — hedef bilgisi niyetin (intent) içinden geliyor. */
+  function sohbeteGit(uid) {
+    if (!uid) return;
+    try {
+      if (typeof window.panelGirisTalebi !== 'function') return;
+      window.panelGirisTalebi(function () {
+        try { window.paneleGec(); } catch (e) {}
+        try { window.sohbetAc(uid); } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  function acilisiIsle(veri) {
+    var uid = veri && (veri.gonderen || (veri.notification && veri.notification.data &&
+      (veri.notification.data.gonderen || veri.notification.data.uid)));
+    if (uid) sohbeteGit(String(uid));
+  }
+
   function belirteciYaz(uid, belirtec) {
     var vt;
     try { vt = window.firebase.database(); } catch (e) { return; }
@@ -223,13 +304,26 @@
       icerikGoster: icerikGosterilsinMi(),
       tarayici: (navigator.userAgent || '').slice(0, 120)
     }).then(function () {
+      yazmaDenemesi = 0;
       // Uygulamanın kendi değişkenini dolduruyoruz: içerik tercihi değişince
       // ve çıkış yapılınca index.html'in mevcut kodu devreye girsin.
       try { cihazBelirteci = belirtec; } catch (e) {}
+      if (window.MeridyenKopru) window.MeridyenKopru.belirtecYazildi = true;
     }).catch(function (e) {
-      // En olası sebep: Realtime Database kurallarında `cihazlar` düğümü için
-      // yazma izni tanımlı değil. O zaman sunucu bu cihaza hiç gönderemez.
+      /* En olası iki sebep: (a) Realtime Database kurallarında `cihazlar`
+         düğümü için yazma izni yok, (b) o an ağ yok. İkisi de geçici
+         olabildiği için TEKRAR deniyoruz — yazılamazsa sunucu bu cihaza
+         hiç gönderemez, yani sessizce vazgeçmek bildirimleri tamamen
+         kapatmak demek. Geri çekilerek en fazla 5 kez. */
+      if (window.MeridyenKopru) {
+        window.MeridyenKopru.belirtecYazildi = false;
+        window.MeridyenKopru.belirtecHatasi = (e && e.message) || 'bilinmiyor';
+      }
       console.warn('Meridyen: bildirim belirteci yazılamadı —', e && e.message);
+      if (yazmaDenemesi >= 5) return;
+      var bekle = Math.pow(2, yazmaDenemesi) * 2000;   // 2, 4, 8, 16, 32 sn
+      yazmaDenemesi++;
+      setTimeout(yazmayiDene, bekle);
     });
   }
 
@@ -240,13 +334,23 @@
     PB.addListener('registration', function (belirtecBilgisi) {
       var belirtec = belirtecBilgisi && belirtecBilgisi.value;
       if (!belirtec) return;
-      var kullanici = null;
-      try { kullanici = window.firebase.auth().currentUser; } catch (e) {}
-      if (kullanici) belirteciYaz(kullanici.uid, belirtec);
+      /* Bu olay yalnız register() sonrası değil, FCM belirteci YENİLENDİĞİNDE
+         de geliyor (onNewToken). Eski belirteç artık ölü olduğu için yenisini
+         mutlaka yazmamız gerekiyor, yoksa cihaz sessizce erişilmez oluyor. */
+      sonBelirtec = belirtec;
+      if (window.MeridyenKopru) window.MeridyenKopru.belirtecVar = true;
+      yazmaDenemesi = 0;
+      try {
+        var k = window.firebase.auth().currentUser;
+        if (k) sonUid = k.uid;
+      } catch (e) {}
+      yazmayiDene();
     });
 
     PB.addListener('registrationError', function (hata) {
-      console.warn('Meridyen: push kaydı başarısız —', hata && (hata.error || hata.message));
+      var m = (hata && (hata.error || hata.message)) || 'bilinmiyor';
+      if (window.MeridyenKopru) window.MeridyenKopru.kayitHatasi = String(m);
+      console.warn('Meridyen: push kaydı başarısız —', m);
     });
 
     /* Uygulama ÖNDEYKEN gelen push'u yutuyoruz. index.html zaten veritabanı
@@ -254,6 +358,11 @@
        mesaj iki kez görünürdü. Web tarafı da aynısını yapıyor
        (`mesajlasma.onMessage(() => {})`). */
     PB.addListener('pushNotificationReceived', function () {});
+
+    /* Uygulama önde DEĞİLKEN bildirimi native taraf çiziyor
+       (MeridyenMesajServisi); bu dinleyici o durumda hiç çalışmıyor.
+       FCM'in kendi çizdiği bildirime dokunulduğunda ise buraya düşüyor. */
+    PB.addListener('pushNotificationActionPerformed', acilisiIsle);
   }
 
   // Firebase SDK'sı sayfaya sonradan (dinamik script ile) geliyor; hazır olana
@@ -272,9 +381,14 @@
         // Çıkışta silmeyi index.html'in `uzakBildirimiBirak()` fonksiyonu
         // yapıyor (biz `cihazBelirteci`'ni doldurduğumuz için çalışıyor).
         yazilanYol = null;
+        sonUid = null;
         return;
       }
-      // Belirteci iste: sonuç 'registration' dinleyicisine düşecek.
+      sonUid = kullanici.uid;
+      /* Belirteç zaten elimizdeyse (oturumdan ÖNCE geldiyse) beklemeden
+         yazıyoruz; yoksa register() sonucu 'registration' dinleyicisine
+         düşecek ve oradan yazılacak. */
+      yazmayiDene();
       try {
         PB.register().catch(function (e) {
           console.warn('Meridyen: push kaydı yapılamadı —', e && e.message);
@@ -282,6 +396,23 @@
       } catch (e) {}
     });
   }, 100);
+
+  /* Kendi çizdiğimiz bildirime dokunulduğunda: uygulama açıksa olay olarak
+     gelir; kapalıyken açılıyorsa köprü o an henüz yüklenmemiş olabildiği
+     için native taraf değeri saklıyor, biz burada bir kez soruyoruz. */
+  var IP = cap.Plugins && cap.Plugins.MeridyenIlerleme;
+  if (IP) {
+    try { IP.addListener('bildirimAcildi', acilisiIsle); } catch (e) {}
+    if (typeof IP.bekleyenAcilis === 'function') {
+      setTimeout(function () {
+        try {
+          IP.bekleyenAcilis().then(function (s) {
+            if (s && s.gonderen) sohbeteGit(String(s.gonderen));
+          }).catch(function () {});
+        } catch (e) {}
+      }, 1200);   // uygulamanın kendi açılışı bitsin
+    }
+  }
 })();
 
 /* ================= YÜKLEME İLERLEME BİLDİRİMİ =================
@@ -406,4 +537,73 @@
   } else {
     baslat();
   }
+})();
+
+/* ================= BİLDİRİM TANISI =================
+ *
+ * "Bildirim gelmiyor" tek bir arıza değil, birbirine benzeyen bir sürü ayrı
+ * arıza: izin verilmemiş olabilir, kullanıcı kanalı kapatmış olabilir,
+ * uygulamanın bildirimleri tümden kapalı olabilir, FCM belirteci alınamamış
+ * ya da veritabanına yazılamamış olabilir, ya da köprü hiç yüklenmemiştir.
+ * Dışarıdan hepsi aynı görünüyor ve her seferinde tahminle ilerlemek
+ * gerekiyordu.
+ *
+ * Burası hepsini ayrı ayrı okuyup tek bir nesne olarak veriyor; Ayarlar
+ * ekranı bunu insan diline çeviriyor. Ayrıca gerçek bildirim yolunun
+ * aynısını kullanan bir sınama düğmesi var: sınama görünüyorsa izin, kanal,
+ * ikon ve dokunma niyeti çalışıyor demektir.
+ */
+(function () {
+  'use strict';
+
+  var cap = window.Capacitor;
+  var yerli = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+  var IP = yerli && cap.Plugins && cap.Plugins.MeridyenIlerleme;
+  var K = window.MeridyenKopru || (window.MeridyenKopru = {});
+
+  K.tani = function () {
+    var temel = {
+      yerli: yerli,
+      kopru: true,
+      izin: (typeof Notification !== 'undefined' && Notification.permission) || 'yok',
+      belirtecVar: !!K.belirtecVar,
+      belirtecYazildi: K.belirtecYazildi === true,
+      belirtecHatasi: K.belirtecHatasi || '',
+      kayitHatasi: K.kayitHatasi || ''
+    };
+    if (!IP || typeof IP.tani !== 'function') return Promise.resolve(temel);
+    return IP.tani().then(function (n) {
+      for (var a in n) { if (Object.prototype.hasOwnProperty.call(n, a)) temel[a] = n[a]; }
+      return temel;
+    }).catch(function () { return temel; });
+  };
+
+  /* Sınama GERÇEK bildirim yolundan geçiyor (native tarafta
+     MeridyenBildirimler.mesaj). Ayrı bir sınama kodu yazsaydık gerçek yolu
+     değil kendisini sınamış olurduk. */
+  K.sina = function () {
+    if (IP && typeof IP.sina === 'function') {
+      return IP.sina().then(function () { return true; }).catch(function () { return false; });
+    }
+    // Tarayıcıda: web'in kendi Notification API'siyle aynı işi yap.
+    try {
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+        return Promise.resolve(false);
+      }
+      new Notification('Meridyen', {
+        body: 'Sınama bildirimi — bunu gördüysen bildirimler çalışıyor.',
+        tag: 'meridyen-sinama'
+      });
+      return Promise.resolve(true);
+    } catch (e) {
+      return Promise.resolve(false);
+    }
+  };
+
+  K.bildirimAyarlariniAc = function () {
+    if (IP && typeof IP.bildirimAyarlariniAc === 'function') {
+      try { return IP.bildirimAyarlariniAc().catch(function () {}); } catch (e) {}
+    }
+    return Promise.resolve();
+  };
 })();
