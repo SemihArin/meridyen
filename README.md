@@ -215,6 +215,73 @@ Bu değişiklik `www/index.html` üzerinde yapıldı, yani APK'daki kopya artık
 canlı sitedekinden farklı. Aynı dosyayı siteye de yüklemezsen web ve APK
 zamanla birbirinden ayrışır. Bu dosyayı yeni kaynak olarak almanı öneririm.
 
+## Video oynatma: kök nedenler giderildi
+
+Video tarafı üç yapısal eksikten dolayı kırılgandı. Üçü de giderildi.
+
+### 1) Yarım dosyadan oynatma (asıl kırılganlık)
+
+Oynatıcı, indirme sürerken `video.src`'i **henüz yarım inmiş** baytlardan
+kurulan yeni bir Blob'a düzenli aralıklarla değiştiriyordu. Bu yapısal olarak
+bozuk: `moov` kutusu videonun TAM süresini ve örnek tablosunu tarif ederken
+elimizdeki `mdat` yalnız bir ön ek oluyor. Tarayıcı bu tutarsızlıkta videoyu
+sonuna sıçratıyor ve oynatma erken kesiliyor — "6 saniyelik video 4 saniyede
+bitiyor, sürekli sona atlıyor" belirtisinin kaynağı buydu.
+
+İlginç olan: bu tespit dosyanın kendi yorumlarında **Storage yolu için zaten
+yapılmış** ve orada bu yöntem terk edilmişti; dilimli yolda gözden kaçmıştı.
+Artık kaynak yalnız bir kez, tamamı inmiş ve geçerli bir dosyadan kuruluyor;
+bütünlük başlıktaki `uzunluk` ile doğrulanıyor, eksikse hiç gösterilmiyor.
+
+Bunun yan etkisi: video oynamaya başlamadan önce tamamının inmesi bekleniyor.
+Doğru davranışın bedeli bu; yarım dosyadan oynatmanın düzgün yolu MSE ve
+parçalı MP4'tür, o da ayrı bir iş.
+
+### 2) Önden hazırlık yoktu — ve pahalıya mal oluyordu
+
+Telefon kameraları `moov` kutusunu dosyanın SONUNA yazar. Eski kodda bu
+durumda "dönüşüm gerekli" deniyor ve dosya **bütünüyle yeniden kodlanıyordu**
+(libx264, crf 27, 1280'e küçültme) — dakikalar süren, kaliteyi düşüren bir iş.
+Oysa gereken tek şey bir kutuyu başa taşımaktı.
+
+Artık saf JS bir **faststart remuxer** var (`mp4MoovBasaAl`): tek bir kare bile
+yeniden kodlanmıyor, hiçbir bayt kaybolmuyor. `moov` başa alınıyor ve
+içindeki chunk offset tabloları (`stco`/`co64`) yeni yerleşime göre
+düzeltiliyor — bu tablolar düzeltilmezse dosya sessizce bozulur, oynatıcı
+kareleri yanlış baytlarda arar. Dosyanın tamamı belleğe alınmıyor: yalnız
+`moov` okunuyor, gerisi Blob dilimi olarak referansla taşınıyor, yani 700 MB'lık
+bir dosyada bile maliyet birkaç yüz KB. Beceremediği bir dosyada `null` dönüp
+eski yola bırakıyor, yani davranış hiçbir zaman eskisinden kötü olmuyor.
+
+### 3) Tüm bilgiyi taşıyan bir başlık yoktu
+
+Medya kaydının `bilgi` düğümü artık oynatıcının medyanın tek bir baytı
+inmeden ihtiyaç duyduğu her şeyi taşıyor:
+
+```json
+{ "parca": 12, "dilimBayt": 262144, "ikili": true, "mime": "video/mp4",
+  "uzunluk": 3145728, "sure": 17, "en": 1920, "boy": 1080,
+  "hizliBaslangic": true, "uid": "...", "ts": 0 }
+```
+
+`sure`, `en` ve `boy` zaten gönderen tarafta kapak karesi alınırken
+ölçülüyordu ama hiçbir yere yazılmıyordu. Artık oynatıcı en-boy oranını daha
+ilk anda kurup yerleşim zıplamasını önlüyor ve tanılama günlüğüne tam künyeyi
+yazıyor.
+
+### Doğrulama
+
+- **Faststart remuxer, 21 test**: sentetik ama yapısal olarak geçerli MP4'ler
+  üzerinde, hem `stco` hem `co64` tablolarıyla. En kritik olanı: remux sonrası
+  offsetlerin **gerçekten doğru öbek baytlarını** gösterdiği bayt bayt
+  doğrulandı. Ayrıca boyut korunuyor, kutu sırası `ftyp,moov,mdat` oluyor,
+  `mdat` yükü bozulmuyor ve zaten faststart olan dosyada işlem tekrarlanınca
+  dosya değişmiyor.
+- **Başlık, 8 test**: süre/en/boy/dilim boyutu/uzunluk doğru yazılıyor, video
+  olmayan medyaya video alanları eklenmiyor.
+- **Medya gidiş-dönüş, 18 test**: değişikliklerden sonra da baytlar birebir
+  aynı geliyor.
+
 ## Diğer sıradaki adımlar
 
 - **İmzalama / Play Store**: Şu anki APK "debug" imzalı — sideload (elle

@@ -9143,7 +9143,8 @@ $('#paylasDosya').addEventListener('change', async (e) => {
       if (!boyutSinirTamam(dosya) || !buyukDosyaOnayi(dosya)) return;
       const hazir = await videoHazirla(dosya);
       if (!hazir) return;
-      akisEk = { dosya: hazir.dosya, kucuk: hazir.kucuk, video: true, sure: hazir.sure, boyut: hazir.boyut };
+      akisEk = { dosya: hazir.dosya, kucuk: hazir.kucuk, video: true, sure: hazir.sure,
+                 en: hazir.en, boy: hazir.boy, boyut: hazir.boyut };
       $('#paylasGorsel').src = hazir.kucuk || '';
       $('#paylasOnizleme').classList.remove('gizli');
       $('#paylasOnizleme').classList.add('video');
@@ -9198,7 +9199,8 @@ $('#paylasBtn').addEventListener('click', async () => {
     let medyaId = null;
     if (!anketMi && akisEk) {
       medyaId = db.ref('medya').push().key;
-      if (akisEk.dosya) await medyaYazDosya(medyaId, akisEk.dosya, (o) => yuklemeYuzde(o));
+      if (akisEk.dosya) await medyaYazDosya(medyaId, akisEk.dosya, (o) => yuklemeYuzde(o), null,
+                                           { sure: akisEk.sure, en: akisEk.en, boy: akisEk.boy });
       else await medyaYaz(medyaId, akisEk.tam, (o) => yuklemeYuzde(o));
     }
     const etiket = etiketleriTopla(metin);
@@ -13580,7 +13582,8 @@ async function gonder(){
           const medyaId = db.ref('medya').push().key;
           let kayit;
           try {
-            if (ek.dosya) await medyaYazDosya(medyaId, ek.dosya, (o) => geciciBaloncukIlerlemeGuncelle(gecici, o), gecici.iptalRef);
+            if (ek.dosya) await medyaYazDosya(medyaId, ek.dosya, (o) => geciciBaloncukIlerlemeGuncelle(gecici, o), gecici.iptalRef,
+                                              { sure: ek.sure, en: ek.en, boy: ek.boy });
             else await medyaYaz(medyaId, ek.tam, (o) => geciciBaloncukIlerlemeGuncelle(gecici, o), gecici.iptalRef);
             kayit = {
               ...temel(),
@@ -13739,6 +13742,27 @@ async function ekleriAl(liste){
 /* Bir video dosyasını göndermeye hazırlar: gerekiyorsa MP4'e çevirir,
    kapak karesini üretir, sınırları denetler. Sohbet ve akış aynı yolu
    kullanır ki davranış her yerde aynı olsun. */
+/* Dosya MP4 ise ve `moov` sonda duruyorsa, kabı yeniden düzenleyip moov'u
+   başa alır (yeniden kodlama YOK, kalite kaybı YOK, birkaç yüz KB bellek).
+   Beceremezse özgün dosyayı olduğu gibi döndürür — çağıran taraf için bu
+   adım her zaman güvenli. */
+async function videoHizliBaslangicHazirla(dosya){
+  const tur = (dosya.type || '').toLowerCase(), ad = (dosya.name || '').toLowerCase();
+  if (!/mp4/.test(tur) && !/\.mp4$/.test(ad)) return dosya;
+  try {
+    if (await mp4HizliBaslangicMi(dosya)) { videoGunluk.push('moov zaten başta'); return dosya; }
+    const yeni = await mp4MoovBasaAl(dosya);
+    if (!yeni || yeni === dosya) { videoGunluk.push('moov başa alınamadı — eski yola düşülüyor'); return dosya; }
+    videoGunluk.push('moov başa alındı (yeniden kodlama yok)');
+    /* Ad korunsun: çağıran taraf kullanilan.name okuyor. */
+    try { return new File([yeni], dosya.name || 'video.mp4', { type: 'video/mp4' }); }
+    catch (e) { return yeni; }
+  } catch (e) {
+    videoGunluk.push('moov düzenlemesi hata verdi: ' + ((e && e.message) || e));
+    return dosya;
+  }
+}
+
 async function videoHazirla(dosya){
   videoGunluk = [];
   videoSonHata = '';
@@ -13749,8 +13773,14 @@ async function videoHazirla(dosya){
            '(sınır ' + Math.round(VIDEO_KAYNAK_MAKS / 1048576) + ' MB).');
     return null;
   }
-  let kullanilan = dosya;
-  let gerek = await donusumGerekli(dosya);
+  /* ÖNDEN HAZIRLIK — moov'u başa al.
+     Telefon kameraları `moov` kutusunu (süre + örnek tablosu) dosyanın SONUNA
+     yazar. Eskiden bu durumda `donusumGerekli` "evet" diyor ve dosya BÜTÜNÜYLE
+     YENİDEN KODLANIYORDU; dakikalar süren, kaliteyi düşüren bir iş — oysa
+     gereken tek şey bir kutuyu başa taşımak. Artık önce onu deniyoruz: tek bir
+     kare bile yeniden kodlanmıyor, başarısız olursa eski yola düşülüyor. */
+  let kullanilan = await videoHizliBaslangicHazirla(dosya);
+  let gerek = await donusumGerekli(kullanilan);
   videoGunluk.push('dönüşüm gerekli mi: ' + (gerek ? 'evet' : 'hayır'));
   /* Çok büyük dosyada tarayıcıda yeniden kodlama dakikalar sürer; kap
      zaten uyumluysa (mp4) olduğu gibi gönderiyoruz. */
@@ -13798,8 +13828,11 @@ async function videoHazirla(dosya){
   /* Dosyanın kendisini taşıyoruz, içeriğini DEĞİL: yükleme sırasında
      dilim dilim okunacak. Eskiden burada dosyanın tamamı base64 metne
      çevriliyordu; 700 MB'lık bir videoda bu tek başına ~1,9 GB demek. */
+  /* en/boy da taşınıyor: medya kaydının başlığına yazılacak, böylece
+     oynatıcı daha ilk anda doğru en-boy oranını bilir ve yerleşim zıplamaz. */
   return { video: true, dosya: kullanilan, kucuk: bilgi.kapak, sure: bilgi.sure,
-           ad: kullanilan.name, boyut: kullanilan.size };
+           en: bilgi.en, boy: bilgi.boy,
+           ad: kullanilan.name || dosya.name, boyut: kullanilan.size };
 }
 
 function ekSeridiCiz(){
@@ -14347,6 +14380,109 @@ async function mp4HizliBaslangicMi(dosya){
     if (!moov || !mdat) return false;
     return moov.bas < mdat.bas;
   } catch (e) { return false; }
+}
+
+/* ---------- HIZLI BAŞLANGIÇ (faststart) İÇİN KAP YENİDEN DÜZENLEME ----------
+   SORUN: Telefon kameralarının çoğu `moov` kutusunu (süre + örnek tablosu:
+   hangi baytın hangi kareye ait olduğu) dosyanın SONUNA yazar, çünkü bunlar
+   ancak kayıt bitince bilinir. Böyle bir dosyada oynatıcı, tek bir kareyi
+   bile çizebilmek için önce dosyanın SONUNU okumak zorunda.
+
+   ESKİ ÇÖZÜM PAHALIYDI: `donusumGerekli` bu durumda "dönüşüm gerekli" diyor
+   ve dosya bütünüyle YENİDEN KODLANIYORDU (libx264, 1280'e küçültme) —
+   dakikalar süren, görüntü kalitesini düşüren bir iş. Oysa yapılması gereken
+   tek şey bir kutuyu dosyanın başına taşımak.
+
+   BU FONKSİYON tam olarak onu yapıyor: tek bir kare bile yeniden
+   kodlanmıyor, hiçbir bayt kaybolmuyor. `moov` başa alınıyor ve içindeki
+   chunk offset tabloları (`stco`/`co64` — her öbeğin dosyadaki MUTLAK
+   konumu) yeni yerleşime göre düzeltiliyor. Bu tablolar düzeltilmezse
+   dosya sessizce bozulur: oynatıcı kareleri yanlış baytlarda arar.
+
+   Bellek: dosyanın tamamı belleğe ALINMIYOR. Yalnız `moov` (birkaç yüz KB)
+   okunuyor; geri kalan her şey Blob dilimi olarak referansla taşınıyor, yani
+   700 MB'lık bir dosyada bile maliyet birkaç yüz KB.
+
+   Çeviremeyeceği bir şeyle karşılaşırsa (parçalı MP4, aşırı büyük moov,
+   32 bitlik tabloya sığmayan yeni konumlar) null döner — çağıran taraf eski
+   yola düşer, davranış hiçbir zaman eskisinden kötü olmaz. */
+const MOOV_MAKS_BAYT = 64 * 1024 * 1024;
+const MP4_KAPSAYICI = new Set(['trak', 'mdia', 'minf', 'stbl', 'edts', 'moof', 'traf']);
+
+async function mp4MoovBasaAl(dosya){
+  const kutular = await ustKutular(dosya);
+  const moovK = kutular.find(k => k.tur === 'moov');
+  const mdatK = kutular.find(k => k.tur === 'mdat');
+  if (!moovK || !mdatK) return null;
+  if (moovK.bas < mdatK.bas) return dosya;                    // zaten hızlı başlangıç
+  if (moovK.son - moovK.bas > MOOV_MAKS_BAYT) return null;
+
+  const moovBayt = new Uint8Array(await dosya.slice(moovK.bas, moovK.son).arrayBuffer());
+  const dv = new DataView(moovBayt.buffer, moovBayt.byteOffset, moovBayt.byteLength);
+  const moovBas = kutuBasligi(dv, 0);
+  if (!moovBas || moovBas.tur !== 'moov') return null;
+
+  /* Yeni yerleşim: moov dışındaki kutular özgün sırasıyla, moov ise ilk
+     mdat'ın hemen ÖNÜNE eklenmiş. */
+  const sira = [];
+  for (const k of kutular) {
+    if (k.tur === 'moov') continue;
+    if (k.bas === mdatK.bas) sira.push(null);                 // moov buraya
+    sira.push(k);
+  }
+
+  const yeniBas = new Map();
+  let konum = 0;
+  for (const k of sira) {
+    if (k === null) { konum += moovBayt.length; continue; }
+    yeniBas.set(k.bas, konum);
+    konum += (k.son - k.bas);
+  }
+
+  /* Bir MUTLAK dosya konumunun yeni karşılığı: konumu içeren kutuyu bulup o
+     kutunun kayma miktarını ekliyoruz. */
+  const kaydir = (o) => {
+    for (const k of kutular) {
+      if (k.tur === 'moov') continue;
+      if (o >= k.bas && o < k.son) return o + (yeniBas.get(k.bas) - k.bas);
+    }
+    return null;                                              // hiçbir kutuda değil: bozuk dosya
+  };
+
+  let bozuk = false;
+  const tablolariDuzelt = (bas, son) => {
+    kutuGez(dv, bas, son, (k) => {
+      if (bozuk) return false;
+      if (k.tur === 'stco' || k.tur === 'co64') {
+        const adet = dv.getUint32(k.ic + 4);                  // sürüm+bayrak(4) sonrası
+        const genislik = k.tur === 'stco' ? 4 : 8;
+        if (k.ic + 8 + adet * genislik > k.son) { bozuk = true; return false; }
+        let q = k.ic + 8;
+        for (let i = 0; i < adet; i++, q += genislik) {
+          const eski = k.tur === 'stco'
+            ? dv.getUint32(q)
+            : dv.getUint32(q) * 4294967296 + dv.getUint32(q + 4);
+          const yeni = kaydir(eski);
+          if (yeni === null) { bozuk = true; return false; }
+          if (k.tur === 'stco') {
+            if (yeni > 4294967295) { bozuk = true; return false; }   // 32 bite sığmıyor
+            dv.setUint32(q, yeni);
+          } else {
+            dv.setUint32(q, Math.floor(yeni / 4294967296));
+            dv.setUint32(q + 4, yeni % 4294967296);
+          }
+        }
+      } else if (MP4_KAPSAYICI.has(k.tur)) {
+        tablolariDuzelt(k.ic, k.son);
+      }
+    });
+  };
+  tablolariDuzelt(moovBas.ic, moovBas.son);
+  if (bozuk) return null;
+
+  const parcalar = [];
+  for (const k of sira) parcalar.push(k === null ? moovBayt : dosya.slice(k.bas, k.son));
+  return new Blob(parcalar, { type: dosya.type || 'video/mp4' });
 }
 
 /* ---------- örnek (sample) tablosu ---------- */
@@ -16266,8 +16402,12 @@ async function rtdbMedyaYaz(medyaId, blob, mime, ilerleme, iptalRef, ekBilgi){
   }
   if (await iptalMi()) throw yuklemeIptalHatasi();
 
+  /* BAŞLIK ("ilk dosya"): oynatıcının medyanın tek bir baytını bile
+     indirmeden ihtiyaç duyduğu HER ŞEY burada. Böylece süreyi, en-boy
+     oranını ve toplam boyutu tahmin etmesi gerekmiyor. */
   await parcaDene(() => kok.child('bilgi').set(Object.assign({
-    parca: adet, ikili: true, mime, uzunluk: blob.size, uid: ben.uid, ts: Date.now()
+    parca: adet, dilimBayt: DILIM_BAYT, ikili: true, mime,
+    uzunluk: blob.size, uid: ben.uid, ts: Date.now()
   }, ekBilgi || {})));
 }
 
@@ -16338,7 +16478,7 @@ async function medyaYaz(medyaId, veri, ilerleme, iptalRef){
   if (ilerleme) ilerleme(1);
 }
 
-async function medyaYazDosya(medyaId, dosya, ilerleme, iptalRef){
+async function medyaYazDosya(medyaId, dosya, ilerleme, iptalRef, ustveri){
   if (iptalRef && iptalRef.iptal) throw yuklemeIptalHatasi();
   const mime = dosya.type || 'application/octet-stream';
   /* Video ise "hızlı başlangıç" durumunu tespit edip kayda not düşüyoruz.
@@ -16351,8 +16491,18 @@ async function medyaYazDosya(medyaId, dosya, ilerleme, iptalRef){
   if (mime.startsWith('video/')) {
     try { hizliBaslangic = await mp4HizliBaslangicMi(dosya); } catch (e) {}
   }
+  /* Videoda süre ve en/boy da başlığa yazılıyor (gönderen taraf bunları
+     kapak karesini alırken zaten ölçmüştü); oynatıcı böylece daha ilk anda
+     doğru süreyi ve en-boy oranını biliyor. */
+  const ek = {};
+  if (mime.startsWith('video/')) {
+    ek.hizliBaslangic = hizliBaslangic;
+    if (ustveri && ustveri.sure) ek.sure = ustveri.sure;
+    if (ustveri && ustveri.en)   ek.en   = ustveri.en;
+    if (ustveri && ustveri.boy)  ek.boy  = ustveri.boy;
+  }
   await rtdbMedyaYaz(medyaId, dosya, mime, ilerleme, iptalRef,
-                     mime.startsWith('video/') ? { hizliBaslangic } : null);
+                     Object.keys(ek).length ? ek : null);
   if (ilerleme) ilerleme(1);
 }
 
@@ -16572,6 +16722,24 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
       if (iptalEdildi) return;
       const bilgi = bilgiAn.val();
 
+      /* ---- BAŞLIKTAN ÖNDEN BİLGİ ----
+         Medyanın tek bir baytı inmeden elimizde süre, en-boy ve toplam boyut
+         var. En-boy oranını hemen kuruyoruz ki video gelince yerleşim
+         zıplamasın; kalanını hem tanılama günlüğüne hem (isteyen varsa)
+         çağırana veriyoruz. */
+      if (bilgi) {
+        if (bilgi.en && bilgi.boy) {
+          try { video.style.aspectRatio = bilgi.en + ' / ' + bilgi.boy; } catch (e) {}
+        }
+        oynatmaLogla(kisaId + ' başlık: ' + (bilgi.mime || 'tür yok') +
+          ' ' + (bilgi.uzunluk || 0) + 'B' +
+          (bilgi.sure ? ' / ' + bilgi.sure + 'sn' : '') +
+          (bilgi.en ? ' / ' + bilgi.en + 'x' + bilgi.boy : '') +
+          (bilgi.parca ? ' / ' + bilgi.parca + ' dilim' : '') +
+          (bilgi.hizliBaslangic ? ' / hızlı başlangıç' : ''));
+        if (secenek.onBilgi) { try { secenek.onBilgi(bilgi); } catch (e) {} }
+      }
+
       // YENİ: Firebase Storage'a yüklenmiş video.
       //
       // İKİ YAKLAŞIM DENENDİ, İKİSİ DE GERÇEK KULLANIMDA BOZUK ÇIKTI:
@@ -16644,85 +16812,25 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
 
       if (!bilgi || !bilgi.parca) throw new Error('kayıt yok');
 
-      if (!bilgi.ikili || !bilgi.hizliBaslangic || bilgi.parca <= 1) {
-        // Aşamalı oynatma güvenli değil (bkz. mp4HizliBaslangicMi): eskisi
-        // gibi medyaGetir ile tamamını bekleyip öyle aç.
-        const adres = await medyaGetir(medyaId, (o) => onIndirme(o, false));
-        if (iptalEdildi) return;
-        if (!adres) throw new Error('medya alınamadı');
-        return dogrudanGoster(adres, true);
-      }
+      /* ---- TEK KAYNAK, TEK SEFERDE ----
+         Eskiden burada video.src, henüz YARIM inmiş baytlardan kurulan yeni
+         bir Blob'a düzenli aralıklarla değiştiriliyordu ("aşamalı oynatma").
+         Bu yöntem yapısal olarak bozuk: `moov` videonun TAM süresini ve örnek
+         tablosunu tarif ederken elimizdeki `mdat` yalnız bir ÖN EK oluyor.
+         Tarayıcı bu tutarsızlıkta videoyu sonuna sıçratıyor ve oynatma erken
+         kesiliyor — "6 saniyelik video 4 saniyede bitiyor, sürekli sona
+         atlıyor" şikayetinin kaynağı tam olarak buydu. Aynı tespit bu dosyada
+         Storage yolu için zaten yapılmış ve orada bu yöntem terk edilmişti;
+         dilimli yolda gözden kaçmıştı.
 
-      // ---- aşamalı yol ----
-      const adet = bilgi.parca;
-      const parcalar = new Array(adet);
-      let hazirOnEk = 0;      // baştan itibaren ARDIŞIK hazır parça sayısı
-      let sonAdres = null;
-      let ilkGosterildi = false;
-      let sonSwapZaman = 0;
-
-      const onEkiIlerlet = () => { while (hazirOnEk < adet && parcalar[hazirOnEk] !== undefined) hazirOnEk++; };
-
-      const swapUygula = (tamamlandi) => {
-        const dilim = parcalar.slice(0, hazirOnEk);
-        if (!dilim.length) return;
-        const blob = new Blob(dilim, { type: bilgi.mime || 'video/mp4' });
-        const eskiAdres = sonAdres;
-        const adres = URL.createObjectURL(blob);
-        sonAdres = adres;
-        const t = video.currentTime, oynuyorMu = !video.paused && !video.ended;
-        video.src = adres;
-        if (t > 0) {
-          const konumaGetir = () => {
-            video.removeEventListener('loadedmetadata', konumaGetir);
-            try { video.currentTime = t; } catch (e) {}
-            if (otoOynat && oynuyorMu && !iptalEdildi) video.play().catch(() => {});
-          };
-          video.addEventListener('loadedmetadata', konumaGetir, { once: true });
-        } else if (otoOynat && !iptalEdildi) {
-          video.play().catch(() => {});
-        }
-        // Eski adresi hemen iptal etmiyoruz: geçiş anında tarayıcı hâlâ ona
-        // bakıyor olabilir, kısa bir gecikmeyle bırakıyoruz.
-        if (eskiAdres) setTimeout(() => { try { URL.revokeObjectURL(eskiAdres); } catch (e) {} }, 4000);
-        if (!ilkGosterildi) { ilkGosterildi = true; onHazir(); }
-        onIndirme(hazirOnEk / adet, tamamlandi);
-        if (tamamlandi) medyaBlobKes.set(medyaId, adres);   // sonraki açılış anında olsun
-      };
-
-      // 1) İLK PARÇAYI ÖNCELİKLE indir, hemen göster/oynat. (Geçici bir ağ
-      // hatasında baştan vazgeçmemek için birkaç kez deneniyor — bkz. parcaDene.)
-      const p0 = await parcaDene(() => kok.child('parca/0').get());
+         Artık kaynak YALNIZ BİR KEZ, tamamı inmiş ve geçerli bir dosyadan
+         kuruluyor. medyaGetir dilimleri paralel indiriyor, başlıktaki
+         `uzunluk` ile bütünlüğü doğruluyor ve eksikse hiç göstermiyor.
+         İndirme boyunca kapak karesi ve gerçek yüzde ekranda kalıyor. */
+      const adres = await medyaGetir(medyaId, (o) => onIndirme(o, false));
       if (iptalEdildi) return;
-      if (!p0.exists()) throw new Error('ilk parça yok');
-      parcalar[0] = base64Blob(p0.val());
-      onEkiIlerlet();
-      sonSwapZaman = Date.now();
-      swapUygula(adet === 1);
-      if (adet === 1) return;
-
-      // 2) Geri kalanı arka planda, birkaç eşzamanlı istekle indir.
-      let sira = 1, hataVar = false;
-      const isci = async () => {
-        while (!iptalEdildi && !hataVar) {
-          const i = sira++;
-          if (i >= adet) return;
-          let p;
-          try { p = await parcaDene(() => kok.child('parca/' + i).get()); }
-          catch (e) { hataVar = true; onHata(e); return; }
-          if (iptalEdildi) return;
-          if (!p.exists()) { hataVar = true; onHata(new Error('eksik parça: ' + i)); return; }
-          parcalar[i] = base64Blob(p.val());
-          onEkiIlerlet();
-          const simdi = Date.now();
-          const tamamlandi = hazirOnEk === adet;
-          // Her parçada değil, en fazla ~700ms'de bir (ya da bitince) yeni
-          // Blob'a geç: sık geçiş kısa takılmalara yol açabiliyordu.
-          if (tamamlandi || simdi - sonSwapZaman > 700) { sonSwapZaman = simdi; swapUygula(tamamlandi); }
-          else onIndirme(hazirOnEk / adet, false);
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(ESZAMANLI, adet - 1) }, isci));
+      if (!adres) throw new Error('medya alınamadı');
+      return dogrudanGoster(adres, true);
     } catch (e) {
       if (!iptalEdildi) onHata(e);
     }
