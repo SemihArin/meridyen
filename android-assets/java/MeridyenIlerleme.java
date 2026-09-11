@@ -6,9 +6,12 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.view.Window;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -109,6 +112,39 @@ public class MeridyenIlerleme extends Plugin {
         } catch (Exception e) {
             call.resolve();
         }
+    }
+
+    /**
+     * Durum çubuğu ve gezinme çubuğu SİMGELERİNİN rengini ayarlar.
+     *
+     * Uygulamanın iki ayrı yüzü var: vitrin açık zeminli, sohbet paneli koyu.
+     * Sistem çubuklarının simgeleri sabit kalırsa birinde görünmez oluyor —
+     * açık zeminde beyaz simge, koyu zeminde siyah simge. Gerçek uygulamalar
+     * bunu ekrana göre değiştirir; web tarafı hangi yüzde olduğunu bildiği
+     * için kararı oradan alıp burada uyguluyoruz.
+     *
+     * Çubukların ZEMİN rengine dokunmuyoruz: Android 15'te (targetSdk 35)
+     * statusBarColor artık yok sayılıyor, ekran zaten kenardan kenara
+     * çiziliyor ve arkasını uygulamanın kendi içeriği dolduruyor.
+     */
+    @PluginMethod
+    public void durumCubugu(PluginCall call) {
+        final Boolean k = call.getBoolean("koyuSimge", Boolean.TRUE);
+        final boolean koyuSimge = !Boolean.FALSE.equals(k);
+        if (getActivity() == null) { call.resolve(); return; }
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Window p = getActivity().getWindow();
+                    WindowInsetsControllerCompat d =
+                        WindowCompat.getInsetsController(p, p.getDecorView());
+                    d.setAppearanceLightStatusBars(koyuSimge);
+                    d.setAppearanceLightNavigationBars(koyuSimge);
+                } catch (Exception e) {}
+            }
+        });
+        call.resolve();
     }
 
     @PluginMethod

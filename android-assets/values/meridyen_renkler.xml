@@ -4,4 +4,9 @@
          aynı). FCM, uygulama kapalıyken bildirimi kendisi çizerken bu rengi
          kullanıyor. -->
     <color name="meridyen_vurgu">#7c9cff</color>
+
+    <!-- Açılış ekranının zemini. index.html'deki "kagit" değişkeniyle aynı:
+         uygulama açılınca ilk boyanan renk bu, yani açılış ekranından
+         uygulamaya geçişte renk sıçraması olmuyor. -->
+    <color name="meridyen_acilis">#e7e4dd</color>
 </resources>

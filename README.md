@@ -581,6 +581,73 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Uygulama formuna doğru — 1. adım
+
+Site zaten bir APK'nın içinde çalışıyordu ama hâlâ "web sayfası" gibi
+duruyordu. İlk parti, en çok göze batan iki farkı kapatıyor. İkisi de görsel
+ve düşük riskli: yerleşime, gezinmeye ya da klavye davranışına dokunulmadı.
+
+### Zaten hazır olanlar (değiştirmeye gerek yoktu)
+
+İncelemede iki şey beklediğimden iyi çıktı, bu yüzden bunlara dokunmadım:
+
+- **Donanım geri tuşu çalışıyor.** Uygulamada `pushState`/`popstate` üzerine
+  kurulu gerçek bir gezinme yığını var (`gezYigin`); geri tuşu katmanları
+  sırayla kapatıyor, uygulamadan düşmüyor.
+- **Güvenli alanlar (çentik/durum çubuğu) hesaba katılmış.** `viewport-fit=cover`
+  ve 49 ayrı yerde `env(safe-area-inset-*)` kullanılıyor.
+
+### 1) Markalı açılış ekranı
+
+Capacitor'un şablonu jenerik bir `splash.png` ile geliyor; uygulama her
+açılışta onu gösteriyordu. Artık zemini uygulamanın vitrin rengi (`#e7e4dd`)
+olan ve ortasında Meridyen'in kendi "M" işareti bulunan bir açılış ekranı var.
+
+Zemin rengi bilerek `index.html`'in ilk boyadığı renkle aynı: açılış
+ekranından uygulamaya geçerken göze çarpan bir renk sıçraması olmuyor.
+`capacitor.config.json`'daki `backgroundColor` da aynı değere hizalandı.
+
+**Burada sessiz bir tuzak vardı:** şablon `splash.png`'yi yalnız `drawable/`
+altına değil, yönelim ve yoğunluğa göre **on ayrı klasöre** daha koyuyor
+(`drawable-port-xxhdpi` gibi). Android daha özel olanı seçtiği için, yalnız
+`drawable/splash.png`'yi silmek markalı ekranı neredeyse hiçbir cihazda
+göstermezdi. APK'yı açıp baktığımda on jenerik dosyanın da durduğunu gördüm;
+hepsi temizlendi ve iş akışına "hiç `splash.png` kalmasın" doğrulaması eklendi.
+
+### 2) Durum çubuğu ekrana uyuyor
+
+Meridyen'in iki yüzü var: vitrin **açık** zeminli, sohbet paneli **koyu**.
+Sistem çubuğunun simgeleri sabit kalınca birinde okunmaz oluyordu — açık
+zeminde beyaz saat/pil, koyu zeminde siyah.
+
+Artık ekranla birlikte değişiyor. Hangi yüzde olduğumuzu web tarafı zaten
+biliyor (`<body>` panel açıkken `panel-acik` sınıfını taşıyor); köprü o sınıfı
+izleyip native tarafa bildiriyor, native taraf da
+`WindowInsetsControllerCompat` ile simge rengini ayarlıyor. Gereksiz köprü
+çağrısı yok: yalnız değer değiştiğinde gidiyor.
+
+Çubukların **zeminine** bilerek dokunulmadı: Android 15'te (targetSdk 35)
+`statusBarColor` yok sayılıyor, ekran zaten kenardan kenara çiziliyor ve
+arkasını uygulamanın kendi içeriği dolduruyor.
+
+### Doğrulama
+
+APK açılıp içine bakıldı: jenerik `splash.png`'lerin hiçbiri kalmamış, markalı
+`splash.xml` ve logo yerinde, açılış zemin rengi `#ffe7e4dd` olarak gömülü,
+`durumCubugu` metodu ve `setAppearanceLightStatusBars` çağrısı derlenmiş dex
+içinde. Köprü testleri de geçti.
+
+### Sırada ne var
+
+Riskli oldukları için bilerek bu partiye alınmadı; istersen tek tek ele alırız:
+
+- **Geri tuşuyla çıkışta onay** ("çıkmak için tekrar bas") — geri tuşunu
+  yakalamak gerekiyor, mevcut çalışan gezinmeyi bozma riski var.
+- **Klavye davranışı** (`windowSoftInputMode`) — uygulamanın kendi görsel
+  viewport mantığı var, native ayarla çakışabilir.
+- **Dokunsal geri bildirim (haptics)** ve **paylaşım sayfasına bağlanma**
+  (dışarıdan Meridyen'e dosya paylaşma).
+
 ## Diğer sıradaki adımlar
 
 - **İmzalama / Play Store**: Şu anki APK "debug" imzalı — sideload (elle

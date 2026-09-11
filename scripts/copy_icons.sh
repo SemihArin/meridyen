@@ -29,3 +29,21 @@ for d in drawable-mdpi drawable-hdpi drawable-xhdpi drawable-xxhdpi drawable-xxx
 done
 
 echo "bildirim ikonu kopyalandı."
+
+# Açılış (splash) ekranı: Capacitor'un şablonu jenerik bir splash.png ile
+# geliyor. Onu siliyoruz ve yerine kendi layer-list'imizi koyuyoruz (zemin
+# rengi + ortada logo). PNG ile XML aynı adı taşıyamaz: kalırsa aapt
+# "duplicate resource" diye derlemeyi kırar.
+# DİKKAT: şablon splash.png'yi yalnız drawable/ altına değil, yönelim ve
+# yoğunluğa göre ONA YAKIN klasörlere de koyuyor (drawable-port-xxhdpi vb.).
+# Android daha ÖZEL olanı seçtiği için yalnız drawable/splash.png'yi silmek
+# yetmez: markalı açılış ekranı neredeyse hiçbir cihazda görünmez, jenerik
+# görsel çıkmaya devam ederdi. Hepsini siliyoruz.
+rm -f "$HEDEF"/drawable/splash.png
+rm -f "$HEDEF"/drawable-land-*/splash.png
+rm -f "$HEDEF"/drawable-port-*/splash.png
+mkdir -p "$HEDEF/drawable" "$HEDEF/drawable-xxhdpi"
+cp "$KAYNAK/drawable/splash.xml" "$HEDEF/drawable/splash.xml"
+cp "$KAYNAK/drawable-xxhdpi/splash_logo.png" "$HEDEF/drawable-xxhdpi/splash_logo.png"
+
+echo "açılış ekranı kopyalandı."

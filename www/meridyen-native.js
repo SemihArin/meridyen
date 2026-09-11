@@ -357,3 +357,53 @@
     }
   };
 })();
+
+/* ================= SİSTEM ÇUBUKLARINI EKRANA UYDUR =================
+ *
+ * "Uygulama formu"na doğru küçük ama çok belli olan bir adım: durum çubuğu
+ * simgelerinin ekranla uyumlu olması.
+ *
+ * Meridyen'in iki yüzü var — vitrin AÇIK zeminli (kagit), sohbet paneli KOYU
+ * (gece). Sistem çubuğunun simgeleri sabit kalırsa birinde okunmaz oluyor:
+ * açık zeminde beyaz saat/pil, koyu zeminde siyah. Gerçek uygulamalar bunu
+ * ekrana göre değiştirir.
+ *
+ * Hangi yüzde olduğumuzu web tarafı zaten biliyor: panel açıkken <body>
+ * "panel-acik" sınıfını taşıyor. O sınıfı izleyip native tarafa bildiriyoruz.
+ * Çubukların ZEMİNİNE dokunmuyoruz — Android 15'te ekran zaten kenardan
+ * kenara çiziliyor ve arkasını uygulamanın kendi içeriği dolduruyor.
+ */
+(function () {
+  'use strict';
+
+  var cap = window.Capacitor;
+  var IP = cap && cap.Plugins && cap.Plugins.MeridyenIlerleme;
+  if (!cap || typeof cap.isNativePlatform !== 'function' || !cap.isNativePlatform()) return;
+  if (!IP || typeof IP.durumCubugu !== 'function') return;
+
+  var sonKoyu = null;
+
+  function uygula() {
+    /* panel-acik => koyu zemin => simgeler AÇIK renk olmalı (koyuSimge:false) */
+    var panelde = document.body && document.body.classList.contains('panel-acik');
+    var koyuSimge = !panelde;
+    if (koyuSimge === sonKoyu) return;          // gereksiz köprü çağrısı yok
+    sonKoyu = koyuSimge;
+    try { IP.durumCubugu({ koyuSimge: koyuSimge }).catch(function () {}); } catch (e) {}
+  }
+
+  function baslat() {
+    if (!document.body) return;
+    uygula();
+    try {
+      new MutationObserver(uygula)
+        .observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    } catch (e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', baslat, { once: true });
+  } else {
+    baslat();
+  }
+})();

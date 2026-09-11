@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Meridyen açılış ekranı.
+     Capacitor'un şablonu jenerik bir splash.png ile geliyordu; her açılışta
+     o görünüyordu. Burada zemin uygulamanın açılışta gerçekten gösterdiği
+     renk (vitrin zemini) ve ortada uygulamanın kendi "M" işareti var.
+     Zemin ile uygulamanın ilk boyadığı renk aynı olduğu için açılışta
+     göze çarpan bir renk sıçraması olmuyor. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/meridyen_acilis" />
+    <item>
+        <bitmap
+            android:src="@drawable/splash_logo"
+            android:gravity="center" />
+    </item>
+</layer-list>

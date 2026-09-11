@@ -2,12 +2,12 @@
   "appId": "com.meridyen.app",
   "appName": "Meridyen",
   "webDir": "www",
-  "backgroundColor": "#f7f5f1",
+  "backgroundColor": "#e7e4dd",
   "server": {
     "androidScheme": "https"
   },
   "android": {
-    "backgroundColor": "#f7f5f1",
+    "backgroundColor": "#e7e4dd",
     "allowMixedContent": false
   },
   "plugins": {
