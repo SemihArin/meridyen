@@ -40,7 +40,10 @@
     var h = 0;
     var s = String(etiket == null ? Math.random() : etiket);
     for (var i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; }
-    h = Math.abs(h) % 2147483647;
+    /* Üst bant (1_900_000_000 ve üstü) yükleme ilerleme bildirimlerine
+       ayrıldı; mesaj bildirimleri oraya hiç düşmesin diye burada
+       daraltıyoruz, yoksa ikisi birbirinin bildirimini ezebilirdi. */
+    h = Math.abs(h) % 1900000000;
     return h === 0 ? 1 : h;
   }
 
@@ -264,4 +267,87 @@
       } catch (e) {}
     });
   }, 100);
+})();
+
+/* ================= YÜKLEME İLERLEME BİLDİRİMİ =================
+ *
+ * "Bir şey gönderirken ilerleme bildirimi olsun, sunucudan bağımsız olsun."
+ * Buradaki bildirim tamamen YEREL: hiçbir sunucuya, FCM'e ya da ağa bağlı
+ * değil. Cihazın kendi bildirim sistemine yazılıyor, yükleme ilerledikçe
+ * güncelleniyor, bitince kaldırılıyor.
+ *
+ * Neden işe yarıyor: Capacitor'un yerel bildirim eklentisi her bildirimde
+ * setOnlyAlertOnce(true) kuruyor. Yani AYNI id ile yeniden yazmak bildirimi
+ * SESSİZCE güncelliyor — her yüzdede telefon yeniden titremiyor/ses
+ * çıkarmıyor. `ongoing` ise kullanıcının kaydırarak silmesini engelliyor,
+ * böylece yükleme sürerken bildirim yerinde kalıyor.
+ *
+ * Tarayıcıda bu nesne yine tanımlı ama hiçbir şey yapmıyor; index.html
+ * koşulsuz çağırabilsin diye.
+ */
+(function () {
+  'use strict';
+
+  var cap = window.Capacitor;
+  var YB = cap && cap.Plugins && cap.Plugins.LocalNotifications;
+  var yerli = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform() && YB);
+
+  var ID_TABAN = 1900000000;      // etiketId() bu bandın altında kalıyor
+  var sonraki = 0;
+  var kayitlar = {};              // anahtar -> { id, baslik, yuzde, sonYazim }
+
+  function idAl(anahtar) {
+    if (!kayitlar[anahtar]) {
+      kayitlar[anahtar] = { id: ID_TABAN + (sonraki++ % 100000), yuzde: -1, sonYazim: 0 };
+    }
+    return kayitlar[anahtar];
+  }
+
+  function yaz(kayit, govde) {
+    try {
+      YB.schedule({
+        notifications: [{
+          id: kayit.id,
+          title: kayit.baslik || 'Gönderiliyor',
+          body: govde,
+          ongoing: true,        // kaydırarak silinemesin: iş hâlâ sürüyor
+          autoCancel: false,
+          silent: true          // ilerleme sesi/titreşimi olmaz
+        }]
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  window.MeridyenYukleme = {
+    baslat: function (anahtar, baslik) {
+      if (!yerli || !anahtar) return;
+      var k = idAl(anahtar);
+      k.baslik = baslik || 'Gönderiliyor';
+      k.yuzde = -1;
+      yaz(k, 'Hazırlanıyor…');
+    },
+
+    /* oran: 0..1. Bildirimi her ilerleme olayında değil, yüzde TAM SAYI
+       olarak değiştiğinde ve en fazla saniyede bir kez güncelliyoruz —
+       büyük bir dosyada saniyede onlarca köprü çağrısı yapmanın anlamı yok. */
+    guncelle: function (anahtar, oran) {
+      if (!yerli || !anahtar) return;
+      var k = kayitlar[anahtar];
+      if (!k) return;
+      var y = Math.max(0, Math.min(100, Math.round((oran || 0) * 100)));
+      var simdi = Date.now();
+      if (y === k.yuzde) return;
+      if (y < 100 && simdi - k.sonYazim < 1000) return;
+      k.yuzde = y; k.sonYazim = simdi;
+      yaz(k, '%' + y);
+    },
+
+    bitir: function (anahtar) {
+      if (!yerli || !anahtar) return;
+      var k = kayitlar[anahtar];
+      if (!k) return;
+      delete kayitlar[anahtar];
+      try { YB.cancel({ notifications: [{ id: k.id }] }).catch(function () {}); } catch (e) {}
+    }
+  };
 })();

@@ -13526,6 +13526,49 @@ function geciciBaloncukHata(gecici, tekrarFn){
   gecici.kutu.classList.add('basarisiz');
 }
 
+/* ================= ARKA PLAN YÜKLEME KUYRUĞU =================
+   WhatsApp davranışı: "gönder"e bastığın an kompoze çubuğu boşalır, ek
+   "gönderiliyor" baloncuğuyla konuşmada belirir ve SEN BAŞKA İŞE GEÇEBİLİRSİN —
+   başka sohbeti açabilir, yazabilir, yeni mesaj yollayabilirsin.
+
+   Eskiden gonder() bütün eklerin yüklenmesini await ediyordu ve bu sırada
+   `gonderimSuruyor` bayrağı açık kalıyordu: 60 MB'lık bir video giderken
+   HİÇBİR sohbete mesaj gönderilemiyordu, gönder düğmesi de kapalıydı.
+
+   Yüklemeler artık burada, arayüzden bağımsız akıyor. Kuyruk bilerek TEK
+   İŞLİ: gönderim sırası korunuyor ve aynı anda birden çok büyük dosya yazıp
+   ağı/veritabanını boğmuyoruz. */
+const yuklemeSirasi = [];
+let yuklemeCalisiyor = false;
+
+function yuklemeSiraya(is){
+  yuklemeSirasi.push(is);
+  yuklemeSirasiniIsle();
+}
+
+async function yuklemeSirasiniIsle(){
+  if (yuklemeCalisiyor) return;
+  yuklemeCalisiyor = true;
+  try {
+    while (yuklemeSirasi.length) {
+      const is = yuklemeSirasi.shift();
+      /* Bir yükleme patlarsa kuyruk durmamalı: sıradakiler gitmeye devam
+         etsin. Hata zaten kendi baloncuğunda "tekrar dene" olarak görünüyor. */
+      try { await is(); } catch (e) { console.error(e); }
+    }
+  } finally { yuklemeCalisiyor = false; }
+}
+
+/* Yükleme sürerken gösterilecek YEREL ilerleme bildirimi. Sunucuyla,
+   FCM'le, ağla hiçbir ilgisi yok: doğrudan cihazın bildirim sistemine
+   yazılıyor (bkz. meridyen-native.js). Tarayıcıda sessizce hiçbir şey
+   yapmıyor, o yüzden koşulsuz çağırabiliyoruz. */
+const yuklemeBildirimi = {
+  baslat(a, b){ try { window.MeridyenYukleme && window.MeridyenYukleme.baslat(a, b); } catch (e) {} },
+  guncelle(a, o){ try { window.MeridyenYukleme && window.MeridyenYukleme.guncelle(a, o); } catch (e) {} },
+  bitir(a){ try { window.MeridyenYukleme && window.MeridyenYukleme.bitir(a); } catch (e) {} }
+};
+
 /* Gönderim sürerken ikinci kez girilmesin. Tek koruma gonderBtn.disabled'dı
    ama Enter yolu düğmeye hiç bakmıyordu: büyük bir ek yüklenirken ikinci
    Enter aynı mesajı bir daha yolluyordu. */
@@ -13568,6 +13611,21 @@ async function gonder(){
       ekSeridiCiz();
       const geciciler = gonderilecek.map(ek => geciciBaloncukEkle(ek));
 
+      /* Metin ilk ekin üstünde gidiyor. Kompoze çubuğunu ve yanıtı HEMEN
+         boşaltıyoruz: kullanıcı yüklemenin bitmesini beklemeden yazmaya
+         devam edebilsin. (Eskiden metin, ilk ek yüklendikten SONRA
+         temizleniyordu — büyük bir videoda dakikalarca orada duruyordu.) */
+      if (metin) { metinGitti = true; metniTemizle(); }
+
+      /* Asıl değişiklik: bundan sonrası ARKA PLANDA. gonder() burada bitiyor,
+         gonderimSuruyor kapanıyor ve arayüz serbest kalıyor — başka sohbete
+         geçip oraya da mesaj yollayabilirsin. */
+      yuklemeSiraya(async () => {
+      const bildirimAnahtari = 'yukleme-' + hedef.sid + '-' + Date.now();
+      yuklemeBildirimi.baslat(bildirimAnahtari,
+        gonderilecek.length > 1 ? gonderilecek.length + ' dosya gönderiliyor' : 'Gönderiliyor');
+      let biten = 0;
+      try {
       for (let i = 0; i < gonderilecek.length; i++) {
         const ek = gonderilecek[i];
         const gecici = geciciler[i];
@@ -13582,9 +13640,15 @@ async function gonder(){
           const medyaId = db.ref('medya').push().key;
           let kayit;
           try {
-            if (ek.dosya) await medyaYazDosya(medyaId, ek.dosya, (o) => geciciBaloncukIlerlemeGuncelle(gecici, o), gecici.iptalRef,
+            /* Hem baloncuktaki halka hem de yerel bildirim aynı ilerlemeyi
+               alıyor; bildirim, TÜM parti üzerinden hesaplanıyor. */
+            const ilerlet = (o) => {
+              geciciBaloncukIlerlemeGuncelle(gecici, o);
+              yuklemeBildirimi.guncelle(bildirimAnahtari, (biten + o) / gonderilecek.length);
+            };
+            if (ek.dosya) await medyaYazDosya(medyaId, ek.dosya, ilerlet, gecici.iptalRef,
                                               { sure: ek.sure, en: ek.en, boy: ek.boy });
-            else await medyaYaz(medyaId, ek.tam, (o) => geciciBaloncukIlerlemeGuncelle(gecici, o), gecici.iptalRef);
+            else await medyaYaz(medyaId, ek.tam, ilerlet, gecici.iptalRef);
             kayit = {
               ...temel(),
               tip: ek.gorsel ? 'gorsel' : ek.video ? 'video' : 'dosya',
@@ -13600,7 +13664,9 @@ async function gonder(){
           } catch (hata) {
             if (hata && hata.iptalEdildi) { geciciBaloncukKaldir(gecici); return; }
             console.error(hata);
-            geciciBaloncukHata(gecici, () => denemeYap(false));
+            /* Tekrar deneme de kuyruğa giriyor: büyük bir dosyanın yeniden
+               denenmesi, o sırada akan başka bir yüklemeyle yarışmasın. */
+            geciciBaloncukHata(gecici, () => yuklemeSiraya(() => denemeYap(false)));
             return;
           }
           geciciBaloncukKaldir(gecici);
@@ -13609,9 +13675,9 @@ async function gonder(){
           // Geç (elle) tekrar deneme artık toplu bildirime dahil olamaz —
           // o zaten yollanıp gitti — kendi bildirimini kendisi yollar.
           else bildirimKuyruguna(hedef.uid, 'mesaj', benimAdim, ozetle(kayit).slice(0, 120), { sid: hedef.sid });
-          if (i === 0 && !metinGitti) { metinGitti = true; metniTemizle(); }
         };
         await denemeYap(true);
+        biten++;
       }
 
       /* Tek bildirim: 6 ek gönderince karşı tarafa 6 push gidiyordu. */
@@ -13620,6 +13686,13 @@ async function gonder(){
           (gonderilenler.length > 1 ? gonderilenler.length + ' dosya' : ozetle(sonKayit)).slice(0, 120),
           { sid: hedef.sid });
       }
+      } finally {
+        yuklemeBildirimi.bitir(bildirimAnahtari);
+        /* "yazıyor" göstergesi yüklemenin GERÇEK sonunda kalkmalı; gonder()
+           çoktan döndüğü için oradaki finally bu iş için artık erken. */
+        db.ref('yaziyor/' + hedef.sid + '/' + ben.uid).remove().catch(() => {});
+      }
+      });
     } else {
       const kayit = { ...temel(), tip: 'metin', metin };
       if (yanit) Object.assign(kayit, { yanitId: yanit.id, yanitAd: yanit.ad, yanitOzet: yanit.ozet });
@@ -15388,6 +15461,77 @@ async function videoBilgisi(dosya){
   }
 }
 
+/* ================= VİDEO ÖN YÜKLEME =================
+   Video artık oynatılmadan önce tamamının inmesini bekliyor (bkz.
+   medyaParcaliOynatBaslat: yarım dosyadan oynatmak yapısal olarak bozuktu).
+   Bunun bedeli "oynata bas → bekle". Onu ortadan kaldırmak için: bir video
+   kutusu ekranda görününce, KÜÇÜKSE arka planda sessizce indirmeye
+   başlıyoruz. Kullanıcı oynata bastığında dosya çoktan önbellekte oluyor ve
+   video anında açılıyor.
+
+   Bunu yapabilmemizi sağlayan şey yeni BAŞLIK: tek bir küçük okumayla
+   dosyanın boyutunu öğreniyoruz, yani indirmeden karar verebiliyoruz.
+
+   Sınırlar bilerek dar tutuldu:
+     - yalnız başlıktaki `uzunluk` ON_YUKLEME_MAKS'ın altındaysa (mobil
+       veriyi habersiz tüketmeyelim; büyük videolar eskisi gibi yalnız
+       oynata basılınca iniyor),
+     - aynı anda tek ön yükleme,
+     - ve bir gönderim sürerken ön yükleme BEKLER: kullanıcının gönderdiği
+       dosya her zaman önceliklidir. */
+const ON_YUKLEME_MAKS = 8 * 1024 * 1024;
+const onYuklemeSirasi = [];
+const onYuklemeIstenen = new Set();
+let onYuklemeCalisiyor = false;
+
+function videoOnYuklemeIste(medyaId){
+  if (!medyaId || !db) return;
+  if (onYuklemeIstenen.has(medyaId)) return;
+  onYuklemeIstenen.add(medyaId);
+  onYuklemeSirasi.push(medyaId);
+  onYuklemeSirasiniIsle();
+}
+
+async function onYuklemeSirasiniIsle(){
+  if (onYuklemeCalisiyor) return;
+  onYuklemeCalisiyor = true;
+  try {
+    while (onYuklemeSirasi.length) {
+      /* Gönderim varsa ona yol ver: ön yükleme her zaman ikinci önceliktir. */
+      while (yuklemeCalisiyor) await new Promise(r => setTimeout(r, 1500));
+      const medyaId = onYuklemeSirasi.shift();
+      try {
+        if (medyaBlobKes.has(medyaId)) continue;
+        const bilgi = (await db.ref('medya/' + medyaId + '/bilgi').get()).val();
+        if (!bilgi || !bilgi.uzunluk || bilgi.uzunluk > ON_YUKLEME_MAKS) continue;
+        if (medyaBlobKes.has(medyaId)) continue;
+        await medyaGetir(medyaId);
+      } catch (e) {
+        /* Ön yükleme sessizdir: başarısız olması oynatmayı etkilemez,
+           kullanıcı oynata bastığında normal yol zaten yeniden dener. */
+      }
+    }
+  } finally { onYuklemeCalisiyor = false; }
+}
+
+/* Görünür hâle gelen video kutularını bir kez izler ve ön yüklemeyi tetikler.
+   rootMargin sayesinde kutu ekrana girmeden biraz önce başlıyor. */
+let videoGorunurIzleyici = null;
+function videoGorunurIzle(sar, medyaId){
+  if (!medyaId || !('IntersectionObserver' in window)) return;
+  if (!videoGorunurIzleyici) {
+    videoGorunurIzleyici = new IntersectionObserver((girisler) => {
+      for (const g of girisler) {
+        if (!g.isIntersecting) continue;
+        videoGorunurIzleyici.unobserve(g.target);
+        videoOnYuklemeIste(g.target.dataset.medyaId);
+      }
+    }, { rootMargin: '200px' });
+  }
+  sar.dataset.medyaId = medyaId;
+  try { videoGorunurIzleyici.observe(sar); } catch (e) {}
+}
+
 /* Kapak + oynat düğmesi olan bir video kutusu kurar; video verisi ancak
    oynata basılınca çekilir. Hem sohbette hem akışta kullanılır. */
 function videoKutusuYap(m, seceneklerVar){
@@ -15415,6 +15559,10 @@ function videoKutusuYap(m, seceneklerVar){
     sar.appendChild(sr);
   }
 
+  /* Küçükse arka planda şimdiden indirmeye başla (bkz. VİDEO ÖN YÜKLEME):
+     oynata basıldığında dosya hazır olsun. */
+  videoGorunurIzle(sar, m.medyaId);
+
   let yukleniyor = false;
   const baslat = (ev) => {
     if (ev) ev.stopPropagation();
@@ -15427,11 +15575,10 @@ function videoKutusuYap(m, seceneklerVar){
     v.playsInline = true;
     v.preload = 'auto';
     if (m.kucuk) v.poster = m.kucuk;
-    /* Tüm dosyanın inmesini beklemek yerine (bkz. medyaParcaliOynatBaslat):
-       ilk parça inince hemen ekle ve oynat, geri kalanı arka planda inmeye
-       devam etsin — <video> elemanı zaten sahnede olduğu için bu sırada
-       kullanıcı normal denetimlerle (ilerleme çubuğu dâhil) oynatmayı
-       sürdürebilir. */
+    /* Kaynak, dosyanın TAMAMI indikten sonra tek seferde kuruluyor (bkz.
+       medyaParcaliOynatBaslat: yarım dosyadan oynatmak videoyu sona
+       sıçratıyordu). Bekleme hissini ön yükleme ortadan kaldırıyor — video
+       ekranda görününce küçükse zaten inmeye başlamış oluyor. */
     medyaParcaliOynatBaslat(v, m.medyaId, {
       otoOynat: true,
       onHazir: () => {

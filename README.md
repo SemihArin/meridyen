@@ -282,6 +282,74 @@ yazıyor.
 - **Medya gidiş-dönüş, 18 test**: değişikliklerden sonra da baytlar birebir
   aynı geliyor.
 
+## Arka planda gönderim ve yerel ilerleme bildirimi
+
+### Gönderirken arayüz artık kilitlenmiyor
+
+`gonder()` bütün eklerin yüklenmesini `await` ediyordu ve bu sırada global
+`gonderimSuruyor` bayrağı açık kalıyordu. Sonuç: 60 MB'lık bir video giderken
+**hiçbir sohbete** mesaj gönderilemiyor, gönder düğmesi kapalı kalıyordu.
+
+Artık yüklemeler arayüzden bağımsız bir kuyrukta akıyor:
+
+- "Gönder"e basıldığı an kompoze çubuğu ve yanıt temizleniyor, ek
+  "gönderiliyor" baloncuğuyla konuşmada beliriyor ve `gonder()` bitiyor.
+- Başka sohbete geçebilir, yazabilir, oraya da mesaj yollayabilirsin; yükleme
+  arka planda devam eder ve **yakalanmış hedefe** gider (sohbet değiştirmek
+  mesajı yanlış kişiye göndermez, bu koruma zaten vardı).
+- Kuyruk bilerek tek işli: gönderim sırası korunuyor ve aynı anda birden çok
+  büyük dosya yazıp ağı boğmuyoruz. Başarısız bir yükleme kuyruğu durdurmuyor.
+- "Tekrar dene" de kuyruğa giriyor, akan bir yüklemeyle yarışmıyor.
+
+Bilinen sınır: yükleme sürerken başka sohbete geçip geri dönersen o sohbetin
+görünümü yeniden çizildiği için "gönderiliyor" baloncuğu kaybolur. Yükleme
+kesilmez, bittiğinde mesaj normal şekilde belirir — ve bu sırada ilerlemeyi
+aşağıdaki bildirimden izleyebilirsin.
+
+### Yükleme bildirimi (tamamen yerel)
+
+Gönderim sürerken cihazın kendi bildirim alanında bir ilerleme bildirimi
+duruyor. **Sunucuyla, FCM'le ya da ağla hiçbir ilgisi yok** — doğrudan yerel
+bildirim olarak yazılıyor (`meridyen-native.js` içindeki `MeridyenYukleme`).
+
+- `ongoing` işaretli: kaydırarak silinemiyor, çünkü iş hâlâ sürüyor.
+- Güncellemeler sessiz: eklenti her bildirimde `setOnlyAlertOnce(true)`
+  kurduğu için aynı id'ye yeniden yazmak telefonu yeniden titretmiyor.
+- Yüzde yalnız tam sayı değiştiğinde ve en fazla saniyede bir yazılıyor;
+  %100 her hâlükârda yazılıyor. Büyük bir dosyada saniyede onlarca köprü
+  çağrısı yapmanın anlamı yok.
+- Bildirim id'leri ayrılmış bir bantta (1.9 milyar ve üstü); mesaj bildirimi
+  id'leri bu bandın altına sıkıştırıldı ki ikisi birbirinin bildirimini
+  ezmesin.
+- Tarayıcıda bu API tanımlı ama hiçbir şey yapmıyor, böylece uygulama kodu
+  koşulsuz çağırabiliyor.
+
+Not: bildirimin görünmesi için bildirim izni verilmiş olmalı (Ayarlar →
+Bildirimler). İzin yoksa yükleme yine sorunsuz çalışır, yalnız bildirim çıkmaz.
+
+### Video ön yükleme
+
+Video, oynatılmadan önce tamamının inmesini bekliyor (yarım dosyadan oynatmak
+yapısal olarak bozuktu, yukarıda anlatıldı). Bunun bedeli "oynata bas →
+bekle"ydi. Artık bir video kutusu ekranda görününce, **küçükse** arka planda
+sessizce inmeye başlıyor; oynata basıldığında dosya çoktan önbellekte oluyor.
+
+Bunu mümkün kılan şey yeni başlık: tek bir küçük okumayla dosyanın boyutunu
+öğrenip indirmeden karar verebiliyoruz. Sınırlar bilerek dar:
+
+- yalnız 8 MB'ın altındaki videolar (mobil veriyi habersiz tüketmemek için),
+- aynı anda tek ön yükleme,
+- ve bir gönderim sürerken ön yükleme bekler — kullanıcının gönderdiği dosya
+  her zaman öncelikli.
+
+### Doğrulama
+
+Bu turda 73 test çalıştırıldı, hepsi geçti: kuyruk 5 (sıra korunuyor, tek iş,
+hata kuyruğu durdurmuyor), bildirim 14 (ongoing/sessiz/kısma/id bandı — 3000
+mesaj etiketinin ayrılmış banda hiç düşmediği de sınandı), ön yükleme 7 (boyut
+sınırı, tekilleştirme, gönderime yol verme), faststart remuxer 21, başlık 8,
+medya gidiş-dönüş 18.
+
 ## Diğer sıradaki adımlar
 
 - **İmzalama / Play Store**: Şu anki APK "debug" imzalı — sideload (elle
