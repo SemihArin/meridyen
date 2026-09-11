@@ -54,9 +54,10 @@
     var h = 0;
     var s = String(etiket == null ? Math.random() : etiket);
     for (var i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; }
-    /* Üst bant (1_900_000_000 ve üstü) yükleme ilerleme bildirimlerine
-       ayrıldı; mesaj bildirimleri oraya hiç düşmesin diye burada
-       daraltıyoruz, yoksa ikisi birbirinin bildirimini ezebilirdi. */
+    /* Üst bant (1.9 milyar ve üstü) gönderim ilerleme bildirimine ayrıldı
+       (bkz. MeridyenIlerleme.java, BILDIRIM_ID = 2000000001); mesaj
+       bildirimleri oraya hiç düşmesin diye burada daraltıyoruz, yoksa ikisi
+       birbirinin bildirimini ezebilirdi. */
     h = Math.abs(h) % 1900000000;
     return h === 0 ? 1 : h;
   }
@@ -286,15 +287,21 @@
 /* ================= YÜKLEME İLERLEME BİLDİRİMİ =================
  *
  * "Bir şey gönderirken ilerleme bildirimi olsun, sunucudan bağımsız olsun."
- * Buradaki bildirim tamamen YEREL: hiçbir sunucuya, FCM'e ya da ağa bağlı
- * değil. Cihazın kendi bildirim sistemine yazılıyor, yükleme ilerledikçe
- * güncelleniyor, bitince kaldırılıyor.
+ * Bu bildirim tamamen YEREL: hiçbir sunucuya, FCM'e ya da ağa bağlı değil.
  *
- * Neden işe yarıyor: Capacitor'un yerel bildirim eklentisi her bildirimde
- * setOnlyAlertOnce(true) kuruyor. Yani AYNI id ile yeniden yazmak bildirimi
- * SESSİZCE güncelliyor — her yüzdede telefon yeniden titremiyor/ses
- * çıkarmıyor. `ongoing` ise kullanıcının kaydırarak silmesini engelliyor,
- * böylece yükleme sürerken bildirim yerinde kalıyor.
+ * NEDEN KENDİ NATIVE EKLENTİMİZ:
+ * Bu iş önce @capacitor/local-notifications ile yapıldı ve iki şikayet geldi:
+ * ilerleme yüzde SAYISI olarak görünüyordu (çubuk değil) ve her güncellemede
+ * yeni bir bildirim geliyordu. İkisinin de sebebi o eklentinin kendi
+ * kaynağında yazılı:
+ *   - schedule() her çağrıda önce dismissVisibleNotification(id) çağırıyor,
+ *     yani bildirimi silip yeniden yayınlıyor → yerinde güncellenmiyor.
+ *   - Kaynağında "// TODO Progressbar support" yazıyor → ilerleme çubuğu yok.
+ *
+ * Bu yüzden gönderim bildirimi artık kendi eklentimizden geçiyor
+ * (android-assets/java/MeridyenIlerleme.java): aynı id ile, SİLMEDEN
+ * notify() çağırıyor (Android yerinde günceller) ve setProgress ile gerçek
+ * bir ilerleme çubuğu çiziyor.
  *
  * Tarayıcıda bu nesne yine tanımlı ama hiçbir şey yapmıyor; index.html
  * koşulsuz çağırabilsin diye.
@@ -303,65 +310,50 @@
   'use strict';
 
   var cap = window.Capacitor;
-  var YB = cap && cap.Plugins && cap.Plugins.LocalNotifications;
-  var yerli = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform() && YB);
+  var IP = cap && cap.Plugins && cap.Plugins.MeridyenIlerleme;
+  var yerli = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform() && IP);
 
-  var ID_TABAN = 1900000000;      // etiketId() bu bandın altında kalıyor
-  var sonraki = 0;
-  var kayitlar = {};              // anahtar -> { id, baslik, yuzde, sonYazim }
+  if (window.MeridyenKopru) window.MeridyenKopru.ilerleme = !!IP;
 
-  function idAl(anahtar) {
-    if (!kayitlar[anahtar]) {
-      kayitlar[anahtar] = { id: ID_TABAN + (sonraki++ % 100000), yuzde: -1, sonYazim: 0 };
-    }
-    return kayitlar[anahtar];
-  }
+  var acik = {};   // anahtar -> { baslik, alt, yuzde, sonYazim }
 
-  function yaz(kayit, govde) {
+  function yaz(k, yuzde, belirsiz) {
     try {
-      YB.schedule({
-        notifications: [{
-          id: kayit.id,
-          title: kayit.baslik || 'Gönderiliyor',
-          body: govde,
-          ongoing: true,        // kaydırarak silinemesin: iş hâlâ sürüyor
-          autoCancel: false,
-          silent: true          // ilerleme sesi/titreşimi olmaz
-        }]
-      }).catch(function () {});
+      IP.goster({ baslik: k.baslik, alt: k.alt, yuzde: yuzde, belirsiz: !!belirsiz })
+        .catch(function () {});
     } catch (e) {}
   }
 
   window.MeridyenYukleme = {
-    baslat: function (anahtar, baslik) {
+    baslat: function (anahtar, baslik, alt) {
       if (!yerli || !anahtar) return;
-      var k = idAl(anahtar);
-      k.baslik = baslik || 'Gönderiliyor';
-      k.yuzde = -1;
-      yaz(k, 'Hazırlanıyor…');
+      var k = { baslik: baslik || 'Gönderiliyor', alt: alt || '', yuzde: -1, sonYazim: 0 };
+      acik[anahtar] = k;
+      /* Başlangıçta BELİRSİZ çubuk: daha ilk bayt gitmeden "%0" göstermek
+         takılmış izlenimi veriyor. */
+      yaz(k, 0, true);
     },
 
-    /* oran: 0..1. Bildirimi her ilerleme olayında değil, yüzde TAM SAYI
-       olarak değiştiğinde ve en fazla saniyede bir kez güncelliyoruz —
-       büyük bir dosyada saniyede onlarca köprü çağrısı yapmanın anlamı yok. */
+    /* oran: 0..1. Çubuğu her ilerleme olayında değil, tam sayı yüzde
+       değiştiğinde ve en fazla ~400 ms'de bir güncelliyoruz. Çubuk akıcı
+       görünsün ama köprü de gereksiz yere çalışmasın. */
     guncelle: function (anahtar, oran) {
       if (!yerli || !anahtar) return;
-      var k = kayitlar[anahtar];
+      var k = acik[anahtar];
       if (!k) return;
       var y = Math.max(0, Math.min(100, Math.round((oran || 0) * 100)));
       var simdi = Date.now();
       if (y === k.yuzde) return;
-      if (y < 100 && simdi - k.sonYazim < 1000) return;
+      if (y < 100 && simdi - k.sonYazim < 400) return;
       k.yuzde = y; k.sonYazim = simdi;
-      yaz(k, '%' + y);
+      yaz(k, y, false);
     },
 
     bitir: function (anahtar) {
       if (!yerli || !anahtar) return;
-      var k = kayitlar[anahtar];
-      if (!k) return;
-      delete kayitlar[anahtar];
-      try { YB.cancel({ notifications: [{ id: k.id }] }).catch(function () {}); } catch (e) {}
+      if (!acik[anahtar]) return;
+      delete acik[anahtar];
+      try { IP.gizle().catch(function () {}); } catch (e) {}
     }
   };
 })();

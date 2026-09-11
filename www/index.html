@@ -13590,7 +13590,7 @@ async function yuklemeSirasiniIsle(){
    yazılıyor (bkz. meridyen-native.js). Tarayıcıda sessizce hiçbir şey
    yapmıyor, o yüzden koşulsuz çağırabiliyoruz. */
 const yuklemeBildirimi = {
-  baslat(a, b){ try { window.MeridyenYukleme && window.MeridyenYukleme.baslat(a, b); } catch (e) {} },
+  baslat(a, b, c){ try { window.MeridyenYukleme && window.MeridyenYukleme.baslat(a, b, c); } catch (e) {} },
   guncelle(a, o){ try { window.MeridyenYukleme && window.MeridyenYukleme.guncelle(a, o); } catch (e) {} },
   bitir(a){ try { window.MeridyenYukleme && window.MeridyenYukleme.bitir(a); } catch (e) {} }
 };
@@ -13648,8 +13648,11 @@ async function gonder(){
          geçip oraya da mesaj yollayabilirsin. */
       yuklemeSiraya(async () => {
       const bildirimAnahtari = 'yukleme-' + hedef.sid + '-' + Date.now();
-      yuklemeBildirimi.baslat(bildirimAnahtari,
-        gonderilecek.length > 1 ? gonderilecek.length + ' dosya gönderiliyor' : 'Gönderiliyor');
+      /* Başlık sabit, ilerlemeyi ÇUBUK anlatıyor; alt satır neyin gittiğini
+         söylüyor. Yüzde sayısı yazmıyoruz — çubuk zaten onu gösteriyor. */
+      yuklemeBildirimi.baslat(bildirimAnahtari, 'Gönderiliyor',
+        gonderilecek.length > 1 ? gonderilecek.length + ' dosya'
+                                : ((gonderilecek[0] && gonderilecek[0].ad) || ''));
       let biten = 0;
       try {
       for (let i = 0; i < gonderilecek.length; i++) {

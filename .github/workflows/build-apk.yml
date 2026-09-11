@@ -67,6 +67,12 @@ jobs:
       - name: Gerekli izinleri (kamera/mikrofon/bildirim) ekle
         run: python3 scripts/patch_manifest.py
 
+      # Gönderim ilerlemesi için kendi native eklentimiz: Capacitor'un yerel
+      # bildirim eklentisi her güncellemede bildirimi silip yeniden yayınlıyor
+      # (yerinde güncellenmiyor) ve ilerleme çubuğunu hiç desteklemiyor.
+      - name: Native eklentiyi kur (gönderim ilerlemesi)
+        run: python3 scripts/install_native_plugin.py
+
       - name: Web içeriğini senkronla
         run: npx cap sync android
 
@@ -91,7 +97,12 @@ jobs:
             || { echo "HATA: bildirim köprüsü etiketi derlenen index.html'de yok"; exit 1; }
           test -f android/app/src/main/assets/public/meridyen-native.js \
             || { echo "HATA: meridyen-native.js kopyalanmamış"; exit 1; }
-          echo "köprü doğrulandı."
+          PAKET=$(python3 -c "import json;print(json.load(open('capacitor.config.json'))['appId'].replace('.','/'))")
+          test -f "android/app/src/main/java/$PAKET/MeridyenIlerleme.java" \
+            || { echo "HATA: native ilerleme eklentisi kopyalanmamış"; exit 1; }
+          grep -q 'registerPlugin(MeridyenIlerleme.class)' "android/app/src/main/java/$PAKET/MainActivity.java" \
+            || { echo "HATA: native eklenti MainActivity'de kayıtlı değil"; exit 1; }
+          echo "köprü ve native eklenti doğrulandı."
 
       - name: APK derle (debug imzalı — doğrudan telefona kurulabilir)
         working-directory: android

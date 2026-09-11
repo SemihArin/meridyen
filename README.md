@@ -539,6 +539,48 @@ Bunu mümkün kılan şey köprünün artık kendi imzasını bırakması
 İmza, erken çıkış yollarından ÖNCE yazılıyor; yani köprü işini yapamasa bile
 yüklendiğini söyleyebiliyor.
 
+## Gönderim bildirimi: gerçek ilerleme çubuğu, yerinde güncelleniyor
+
+İlk sürümde iki şikâyet geldi: ilerleme yüzde **sayısı** olarak görünüyordu
+(çubuk değil) ve her güncellemede **yeni bir bildirim** geliyordu. İkisinin de
+sebebi aynıydı ve `@capacitor/local-notifications` eklentisinin kendi
+kaynağında yazılı:
+
+- `LocalNotificationManager.schedule()` her çağrıda önce
+  `dismissVisibleNotification(id)` çağırıyor — yani bildirimi **silip**
+  yeniden yayınlıyor. Bu yüzden yerinde güncellenmiyor, her seferinde yeni
+  bildirim gibi davranıyor.
+- Aynı dosyada `// TODO Progressbar support` yazıyor: **ilerleme çubuğu
+  desteği yok**. Geriye yüzdeyi metne yazmaktan başka seçenek kalmıyordu.
+
+Yani bu iş için yanlış araçtı. Gönderim bildirimi artık kendi küçük native
+eklentimizden geçiyor (`android-assets/java/MeridyenIlerleme.java`):
+
+- `NotificationCompat.Builder.setProgress(100, yuzde, false)` → **gerçek
+  ilerleme çubuğu**. Metinde yüzde yazmıyor; alt satırda ne gönderildiği
+  yazıyor ("3 dosya" ya da dosya adı).
+- `notify()` **aynı id ile, silmeden** çağrılıyor → Android bildirimi yerinde
+  günceller.
+- `setOnlyAlertOnce(true)` + `setSilent(true)` + düşük önemli kanal →
+  güncellemede ses, titreşim ve ekranın üstünde belirme yok.
+- Başlangıçta çubuk **belirsiz** kipte: ilk bayt gitmeden "%0" göstermek
+  takılmış izlenimi veriyordu.
+- Bildirim id'si (2000000001) bilerek 1.9 milyarın üstünde; mesaj bildirimi
+  id'leri `% 1900000000` ile o sınırın altına sıkıştırılıyor, ikisi asla
+  birbirinin üstüne yazmıyor.
+
+`android/` her derlemede sıfırdan üretildiği için eklentiyi
+`scripts/install_native_plugin.py` kuruyor: sınıfı kopyalıyor ve
+`MainActivity`'de kaydediyor. Java paketi `capacitor.config.json`'daki
+`appId`'den okunuyor, yani paket kimliği değişirse kendiliğinden uyuyor.
+Betik işini bitirince dosyanın ve kayıt satırının yerinde olduğunu
+doğruluyor; iş akışında ayrıca bağımsız bir doğrulama adımı var.
+
+Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
+çağrısının derlenmiş dex içinde olduğu doğrulandı. JS tarafı 15 testle
+sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
+bulunmaması, eklenti yokken sessizce geçme).
+
 ## Diğer sıradaki adımlar
 
 - **İmzalama / Play Store**: Şu anki APK "debug" imzalı — sideload (elle
