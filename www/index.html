@@ -14558,6 +14558,204 @@ async function mp4MoovBasaAl(dosya){
   return new Blob(parcalar, { type: dosya.type || 'video/mp4' });
 }
 
+/* ---------- PARÇALI MP4 (fMP4) ÜRETİMİ — MSE İÇİN ----------
+   NEDEN: MediaSource (MSE) düz/progresif MP4 kabul etmiyor. Beslenebilmesi
+   için dosyanın "parçalı MP4" olması gerekiyor: başta bir BAŞLATMA PARÇASI
+   (ftyp + moov; örnek tabloları BOŞ, bunun yerine mvex/trex var), ardından
+   her biri kendi kendine yeten moof+mdat çiftleri.
+
+   Bu fonksiyon, düz bir MP4'ü tek bir kare bile yeniden kodlamadan bu biçime
+   çeviriyor: örnek baytları olduğu gibi taşınıyor, yalnız etraflarındaki
+   kaplama yeniden yazılıyor. Çıktı, RTDB'ye yazılırken dilim sınırları
+   PARÇA SINIRLARIYLA ÇAKIŞTIRILIYOR — yani inen her dilim tek başına
+   MSE'ye verilebilir hâlde geliyor, oynatıcının tampon biriktirip kutu
+   sınırı araması gerekmiyor.
+
+   Bellek: dosyanın tamamı belleğe alınmıyor; örnek baytları ParcaOkuyucu ile
+   pencereli okunuyor ve her parça üretilir üretilmez dışarı veriliyor. */
+const PARCA_HEDEF_SN = 2;                 // parça başına hedeflenen süre
+const PARCA_ENAZ_BAYT = 128 * 1024;       // bundan küçükse parçayı büyütmeye devam et
+
+/* trun için örnek bayrakları. sample_depends_on: 2 = başkasına bağlı DEĞİL
+   (anahtar kare), 1 = bağlı. is_non_sync biti anahtar olmayanlarda 1. */
+const ORNEK_BAYRAK_ANAHTAR = 0x02000000;
+const ORNEK_BAYRAK_ARA     = 0x01010000;
+
+function fmp4BaslatmaParcasi(izler, filmOlcek){
+  const ftyp = bKutu('ftyp', [bStr('iso5'), bU32(512),
+    bStr('iso5'), bStr('iso6'), bStr('avc1'), bStr('mp41'), bStr('isom'), bStr('dash')]);
+
+  /* mvhd/tkhd/mdhd sürelerini 0 bırakıyoruz: parçalı akışta toplam süreyi
+     oynatıcıya MediaSource.duration ile biz söylüyoruz. */
+  const mvhd = bTamKutu('mvhd', 0, 0, [bU32(0), bU32(0), bU32(filmOlcek), bU32(0),
+    bU32(0x00010000), bU16(0x0100), bU16(0), bU32(0), bU32(0),
+    bU32(0x00010000), bU32(0), bU32(0), bU32(0), bU32(0x00010000), bU32(0), bU32(0), bU32(0), bU32(0x40000000),
+    bSifir(24), bU32(izler.length + 1)]);
+
+  const trakKutulari = izler.map((iz) => {
+    /* Örnek tabloları BİLEREK boş: örnekler artık moof/trun'da tarif ediliyor. */
+    const bosStbl = bKutu('stbl', [
+      bTamKutu('stsd', 0, 0, [bU32(1), iz.stsdHam]),
+      bTamKutu('stts', 0, 0, [bU32(0)]),
+      bTamKutu('stsc', 0, 0, [bU32(0)]),
+      bTamKutu('stsz', 0, 0, [bU32(0), bU32(0)]),
+      bTamKutu('stco', 0, 0, [bU32(0)])
+    ]);
+    const dinf = bKutu('dinf', [bTamKutu('dref', 0, 0, [bU32(1), bTamKutu('url ', 0, 1, [])])]);
+    const ortam = iz.tip === 'vide'
+      ? bTamKutu('vmhd', 0, 1, [bU16(0), bU16(0), bU16(0), bU16(0)])
+      : bTamKutu('smhd', 0, 0, [bU16(0), bU16(0)]);
+    const minf = bKutu('minf', [ortam, dinf, bosStbl]);
+    const hdlr = bTamKutu('hdlr', 0, 0, [bU32(0), bStr(iz.tip === 'vide' ? 'vide' : 'soun'),
+      bSifir(12), bStr(iz.tip === 'vide' ? 'Video\0' : 'Ses\0')]);
+    const mdhd = bTamKutu('mdhd', 0, 0, [bU32(0), bU32(0), bU32(iz.zamanOlcek), bU32(0),
+      bU16(0x55C4), bU16(0)]);
+    const mdia = bKutu('mdia', [mdhd, hdlr, minf]);
+
+    const ham9 = (iz.matris && iz.matris.length === 9)
+      ? iz.matris : [0x00010000, 0, 0, 0, 0x00010000, 0, 0, 0, 0x40000000];
+    const tkhd = bTamKutu('tkhd', 0, 7, [bU32(0), bU32(0), bU32(iz.id), bU32(0), bU32(0),
+      bSifir(8), bU16(0), bU16(iz.tip === 'vide' ? 0 : 1),
+      bU16(iz.tip === 'vide' ? 0 : 0x0100), bU16(0)]
+      .concat(ham9.map(v => bU32(v >>> 0)))
+      .concat([bU32((iz.en || 0) << 16), bU32((iz.boy || 0) << 16)]));
+
+    const trakIc = [tkhd];
+    if (iz.elstHam) trakIc.push(bKutu('edts', [iz.elstHam]));
+    trakIc.push(mdia);
+    return bKutu('trak', trakIc);
+  });
+
+  /* mvex/trex olmadan oynatıcı moof'ları beklemez; parçalı akışın imzası bu. */
+  const trex = izler.map(iz => bTamKutu('trex', 0, 0,
+    [bU32(iz.id), bU32(1), bU32(0), bU32(0), bU32(0)]));
+  const mvex = bKutu('mvex', trex);
+
+  return bBirlestir([ftyp, bKutu('moov', [mvhd].concat(trakKutulari).concat([mvex]))]);
+}
+
+/* Tek bir moof+mdat çifti üretir. `gruplar`: [{iz, ornekler}] */
+function fmp4Parcasi(sira, gruplar, veriler){
+  const trunYaz = (iz, ornekler, veriOfseti) => {
+    /* bayraklar: veri konumu + süre + boyut + bayrak + sunum kayması, sürüm 1
+       (sunum kayması İŞARETLİ olmalı; B-karelerde negatif olabiliyor). */
+    const bayraklar = 0x000001 | 0x000100 | 0x000200 | 0x000400 | 0x000800;
+    const govde = [bU32(ornekler.length), bU32(veriOfseti)];
+    for (const o of ornekler) {
+      govde.push(bU32(o.sure));
+      govde.push(bU32(o.boyut));
+      govde.push(bU32(o.anahtar ? ORNEK_BAYRAK_ANAHTAR : ORNEK_BAYRAK_ARA));
+      govde.push(bU32((o.kayma || 0) >>> 0));
+    }
+    return bTamKutu('trun', 1, bayraklar, govde);
+  };
+
+  const trafYaz = (g, veriOfseti) => {
+    /* 0x020000 = default-base-is-moof: trun'daki konum moof'un BAŞINA göre.
+       Mutlak dosya konumu kullanmıyoruz, çünkü parçalar ayrı ayrı taşınıyor. */
+    const tfhd = bTamKutu('tfhd', 0, 0x020000, [bU32(g.iz.id)]);
+    const ilkDts = g.ornekler.length ? g.ornekler[0].dts : 0;
+    const tfdt = bTamKutu('tfdt', 1, 0, [
+      bU32(Math.floor(ilkDts / 4294967296)), bU32(ilkDts % 4294967296)]);
+    return bKutu('traf', [tfhd, tfdt, trunYaz(g.iz, g.ornekler, veriOfseti)]);
+  };
+
+  const mdatBoyut = veriler.reduce((t, v) => t + v.length, 0) + 8;
+
+  /* İki geçiş: trun'daki veri konumu moof'un boyuna bağlı, moof'un boyu ise
+     sabit (alanlar sabit genişlikte). Önce kaba bir moof kurup boyunu
+     öğreniyor, sonra doğru konumlarla yeniden kuruyoruz. */
+  const kur = (ofsetler) => {
+    const mfhd = bTamKutu('mfhd', 0, 0, [bU32(sira)]);
+    return bKutu('moof', [mfhd].concat(gruplar.map((g, i) => trafYaz(g, ofsetler[i]))));
+  };
+  let ofsetler = gruplar.map(() => 0);
+  const kaba = kur(ofsetler);
+  let konum = kaba.length + 8;            // moof + mdat başlığı
+  ofsetler = gruplar.map((g, i) => { const o = konum; konum += veriler[i].length; return o; });
+  const moof = kur(ofsetler);
+
+  return bBirlestir([moof, bU32(mdatBoyut), bStr('mdat')].concat(veriler));
+}
+
+/* Düz MP4 -> parçalı MP4. Başaramazsa null döner; çağıran eski yola düşer. */
+async function mp4ParcaliYap(dosya, ilerleme){
+  const coz = await mp4Coz(dosya);
+  if (!coz || !coz.video) return null;
+
+  const izler = [];
+  izler.push(Object.assign({ id: 1, tip: 'vide' }, coz.video));
+  /* Ses yalnız AAC ise taşınıyor: kodek dizesini yanlış bildirmek MSE'de
+     sessiz başarısızlık demek, o yüzden emin olmadığımız sesi hiç eklemiyoruz
+     (video yine oynar). */
+  if (coz.ses && coz.ses.tur === 'mp4a') izler.push(Object.assign({ id: 2, tip: 'soun' }, coz.ses));
+
+  const kodekler = ['avc1' === coz.video.tur || 'avc3' === coz.video.tur
+    ? coz.video.kodek : coz.video.kodek];
+  if (izler.length > 1) kodekler.push('mp4a.40.2');
+
+  const video = izler[0], ses = izler[1] || null;
+  const init = fmp4BaslatmaParcasi(izler, 1000);
+
+  const okuyucu = new ParcaOkuyucu(dosya);
+  const parcalar = [];
+  let sira = 1, sesIdx = 0, toplam = init.length;
+
+  let i = 0;
+  while (i < video.ornekler.length) {
+    /* Parça sınırı ANAHTAR KAREDE olmalı: her parça kendi başına
+       çözülebilmeli, yoksa oynatıcı ortadaki bir parçayla başlayamaz. */
+    let j = i + 1, bayt = video.ornekler[i].boyut;
+    const basDts = video.ornekler[i].dts;
+    while (j < video.ornekler.length) {
+      const gecen = (video.ornekler[j].dts - basDts) / video.zamanOlcek;
+      if (video.ornekler[j].anahtar && gecen >= PARCA_HEDEF_SN && bayt >= PARCA_ENAZ_BAYT) break;
+      bayt += video.ornekler[j].boyut;
+      j++;
+    }
+    const vOrnekler = video.ornekler.slice(i, j);
+    const sonDts = j < video.ornekler.length ? video.ornekler[j].dts : Infinity;
+    const sonSn = sonDts === Infinity ? Infinity : sonDts / video.zamanOlcek;
+
+    const gruplar = [{ iz: video, ornekler: vOrnekler }];
+    let sOrnekler = [];
+    if (ses) {
+      const bas = sesIdx;
+      while (sesIdx < ses.ornekler.length &&
+             ses.ornekler[sesIdx].dts / ses.zamanOlcek < sonSn) sesIdx++;
+      sOrnekler = ses.ornekler.slice(bas, sesIdx);
+      if (sOrnekler.length) gruplar.push({ iz: ses, ornekler: sOrnekler });
+    }
+
+    const veriler = [];
+    for (const g of gruplar) {
+      const bolumler = [];
+      for (const o of g.ornekler) bolumler.push(await okuyucu.al(o.ofset, o.boyut));
+      veriler.push(bBirlestir(bolumler));
+    }
+
+    const parca = fmp4Parcasi(sira++, gruplar, veriler);
+    parcalar.push(parca);
+    toplam += parca.length;
+    i = j;
+    if (ilerleme) ilerleme(i / video.ornekler.length);
+  }
+
+  /* SÜREYİ ÖRNEKLERDEN HESAPLIYORUZ, mvhd'den DEĞİL. mvhd'deki süre kimi
+     dosyalarda eksik/yanlış oluyor (0, ya da düzenleme listesiyle uyumsuz).
+     MSE'de bu doğrudan hataya dönüşür: MediaSource.duration olduğundan kısa
+     verilirse video erken biter, uzun verilirse sonda boş bekleme olur.
+     Örneklerin süreleri toplamı ise medyanın gerçek uzunluğu. */
+  const ornekSuresi = video.ornekler.reduce((t, o) => t + o.sure, 0) / (video.zamanOlcek || 1);
+
+  return {
+    init, parcalar, toplam,
+    sure: ornekSuresi > 0 ? ornekSuresi : (coz.sure || 0),
+    en: coz.video.en, boy: coz.video.boy,
+    kodekler: kodekler.join(',')
+  };
+}
+
 /* ---------- örnek (sample) tablosu ---------- */
 function ornekleriKur(dv, stbl){
   const al = (t) => kutuBul(dv, stbl.ic, stbl.son, t);
@@ -16607,6 +16805,45 @@ async function depoAkisGetir(url, mime, onParca, iptalRef){
   return new Blob(parcalar, { type: mime || 'application/octet-stream' });
 }
 
+/* Parçalı MP4'ü RTDB'ye yazar. Kritik ayrıntı: dilim sınırları PARÇA
+   SINIRLARIYLA ÇAKIŞIYOR — parca/0 başlatma parçası, parca/1..n ise birer
+   moof+mdat çifti. Böylece inen her dilim tek başına MSE'ye verilebiliyor;
+   oynatıcının tampon biriktirip kutu sınırı araması gerekmiyor.
+
+   Hepsini arka arkaya eklemek dosyanın tamamını verdiği için, eski tam
+   indirme yolu (medyaGetir) bu kayıtlarda da bozulmadan çalışıyor. */
+async function rtdbParcaliYaz(medyaId, fm, mime, ilerleme, iptalRef, ekBilgi){
+  const kok = db.ref('medya/' + medyaId);
+  const bolumler = [fm.init].concat(fm.parcalar);
+
+  const iptalMi = async () => {
+    if (!(iptalRef && iptalRef.iptal)) return false;
+    await kok.remove().catch(() => {});
+    return true;
+  };
+
+  for (let i = 0; i < bolumler.length; i++) {
+    if (await iptalMi()) throw yuklemeIptalHatasi();
+    const b64 = await dilimiBase64Yap(new Blob([bolumler[i]]));
+    await parcaDene(() => kok.child('parca/' + i).set(b64));
+    if (ilerleme) ilerleme((i + 1) / bolumler.length);
+  }
+  if (await iptalMi()) throw yuklemeIptalHatasi();
+
+  await parcaDene(() => kok.child('bilgi').set(Object.assign({
+    parca: bolumler.length, ikili: true, parcali: true,
+    dilimBayt: 0,                       // sabit dilim yok: sınırlar parçaya göre
+    mime, uzunluk: fm.toplam,
+    /* sure: mevcut arayüz etiketleri için yuvarlak saniye (eskisiyle aynı).
+       sureTam: MSE'ye verilecek KESİN süre — yuvarlanırsa video erken biter
+       ya da sonda boş bekleme olur. */
+    sure: Math.max(1, Math.round(fm.sure)), sureTam: fm.sure,
+    en: fm.en, boy: fm.boy, kodekler: fm.kodekler,
+    hizliBaslangic: true,
+    uid: ben.uid, ts: Date.now()
+  }, ekBilgi || {})));
+}
+
 async function medyaYaz(medyaId, veri, ilerleme, iptalRef){
   if (iptalRef && iptalRef.iptal) throw yuklemeIptalHatasi();
   /* Sıkıştırılmış görseller buraya bir data: URL olarak geliyor ve yeterince
@@ -16648,6 +16885,28 @@ async function medyaYazDosya(medyaId, dosya, ilerleme, iptalRef, ustveri){
     if (ustveri && ustveri.en)   ek.en   = ustveri.en;
     if (ustveri && ustveri.boy)  ek.boy  = ustveri.boy;
   }
+  /* AŞAMALI OYNATMA İÇİN PARÇALI MP4.
+     MediaSource düz MP4 kabul etmiyor; video parçalı biçimde saklanırsa
+     karşı taraf dosyanın tamamını beklemeden izlemeye başlayabiliyor.
+     Yeniden kodlama yok: yalnız kaplama yeniden yazılıyor. Beceremezsek
+     (desteklenmeyen kodek, parçalı kaynak, bozuk kutu) eski yola düşüyoruz —
+     davranış hiçbir zaman eskisinden kötü olmuyor. */
+  if (mime.startsWith('video/')) {
+    try {
+      const fm = await mp4ParcaliYap(dosya, ilerleme ? (o) => ilerleme(o * 0.35) : null);
+      if (fm && fm.parcalar.length) {
+        await rtdbParcaliYaz(medyaId, fm, 'video/mp4',
+          ilerleme ? (o) => ilerleme(0.35 + o * 0.65) : null, iptalRef,
+          Object.keys(ek).length ? ek : null);
+        if (ilerleme) ilerleme(1);
+        return;
+      }
+    } catch (e) {
+      if (e && e.iptalEdildi) throw e;
+      videoGunluk.push('parçalı biçime çevrilemedi, düz yola düşülüyor: ' + ((e && e.message) || e));
+    }
+  }
+
   await rtdbMedyaYaz(medyaId, dosya, mime, ilerleme, iptalRef,
                      Object.keys(ek).length ? ek : null);
   if (ilerleme) ilerleme(1);
@@ -16779,6 +17038,105 @@ async function medyaSil(medyaId){
    henüz inmemiş baytlarda arar ve video hiç açılmaz; öyle kayıtlarda
    (ve eski/küçük kayıtlarda) eskisi gibi medyaGetir ile TAMAMINI
    bekleyerek açıyoruz — davranış asla eskisinden kötü olmuyor. */
+/* ================= MSE İLE AŞAMALI OYNATMA =================
+   Parçalı (fMP4) kaydedilmiş videolar, dosyanın TAMAMI inmeden izlenebiliyor:
+   başlatma parçası ve ilk moof+mdat çifti gelir gelmez oynatma başlıyor,
+   kalan parçalar arka planda inip SourceBuffer'a ekleniyor.
+
+   Bunun eski "yarım Blob'a geç" yönteminden farkı KRİTİK: orada tarayıcıya
+   eksik bir dosya veriliyordu ve moov'un tarif ettiği süre ile elde olan
+   baytlar çelişince video sona sıçrıyordu. Burada ise her parça KENDİ
+   BAŞINA GEÇERLİ ve tarayıcı akışın devam edeceğini biliyor — çelişki yok.
+
+   Herhangi bir adımda sorun çıkarsa false dönüyor ve çağıran eski tam
+   indirme yoluna düşüyor; yani MSE bir iyileştirme, bağımlılık değil. */
+function mseTipi(bilgi){
+  return 'video/mp4; codecs="' + (bilgi.kodekler || 'avc1.42E01E,mp4a.40.2') + '"';
+}
+
+function mseUygunMu(bilgi){
+  try {
+    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported) return false;
+    return MediaSource.isTypeSupported(mseTipi(bilgi));
+  } catch (e) { return false; }
+}
+
+function mseOynat(video, kok, bilgi, o){
+  return new Promise((coz) => {
+    let bitti = false, ilkGeldi = false, adres = null;
+    const bitir = (sonuc) => {
+      if (bitti) return;
+      bitti = true;
+      if (!sonuc) { try { if (adres) URL.revokeObjectURL(adres); } catch (e) {} }
+      coz(sonuc);
+    };
+
+    let ms;
+    try { ms = new MediaSource(); } catch (e) { return bitir(false); }
+    adres = URL.createObjectURL(ms);
+    video.src = adres;
+
+    ms.addEventListener('sourceopen', async () => {
+      let sb;
+      try {
+        if (o.iptal()) return bitir(true);
+        sb = ms.addSourceBuffer(mseTipi(bilgi));
+        sb.mode = 'segments';
+        /* Süreyi KESİN değerle veriyoruz: yuvarlanmış süre videoyu erken
+           bitirir ya da sonda boş bekleme bırakır. */
+        try { ms.duration = bilgi.sureTam || bilgi.sure || 0; } catch (e) {}
+
+        const bekle = () => new Promise((tamam, hata) => {
+          const bit = () => { sb.removeEventListener('updateend', bit); sb.removeEventListener('error', yan); tamam(); };
+          const yan = () => { sb.removeEventListener('updateend', bit); sb.removeEventListener('error', yan); hata(new Error('SourceBuffer hatası')); };
+          sb.addEventListener('updateend', bit);
+          sb.addEventListener('error', yan);
+        });
+
+        const parcaAl = async (i) => {
+          const p = await parcaDene(() => kok.child('parca/' + i).get());
+          if (!p.exists()) throw new Error('parça yok: ' + i);
+          return new Uint8Array(await base64Blob(p.val()).arrayBuffer());
+        };
+        const ekle = async (veri) => { const s = bekle(); sb.appendBuffer(veri); await s; };
+
+        const medyaAdedi = Math.max(1, bilgi.parca - 1);
+
+        await ekle(await parcaAl(0));                 // başlatma parçası
+        if (o.iptal()) return bitir(true);
+
+        await ekle(await parcaAl(1));                 // ilk moof+mdat
+        if (o.iptal()) return bitir(true);
+        ilkGeldi = true;
+        o.onIndirme(1 / medyaAdedi, false);
+        o.onHazir();
+        if (o.otoOynat) video.play().catch(() => {});
+
+        for (let i = 2; i < bilgi.parca; i++) {
+          if (o.iptal()) return bitir(true);
+          await ekle(await parcaAl(i));
+          o.onIndirme((i) / medyaAdedi, false);
+        }
+        try { if (ms.readyState === 'open') ms.endOfStream(); } catch (e) {}
+        o.onIndirme(1, true);
+        oynatmaLogla(o.kisaId + ' MSE: ' + bilgi.parca + ' parça eklendi, akış tamam');
+        bitir(true);
+      } catch (e) {
+        oynatmaLogla(o.kisaId + ' MSE hatası: ' + ((e && e.message) || e));
+        try { if (ms.readyState === 'open') ms.endOfStream(); } catch (e2) {}
+        /* İlk parça bile eklenemediyse hiç oynatma başlamamıştır: sessizce
+           eski yola düşmek en temizi. Oynatma başladıysa da düşüyoruz, çünkü
+           yarım kalmış bir video göstermek izleyici için daha kötü. */
+        bitir(false);
+      }
+    }, { once: true });
+
+    /* sourceopen hiç gelmezse (bazı WebView sürümlerinde olabiliyor) sonsuza
+       kadar beklemeyelim. Yalnız ilk parça gelmeden önce geçerli. */
+    setTimeout(() => { if (!ilkGeldi) bitir(false); }, 15000);
+  });
+}
+
 function medyaParcaliOynatBaslat(video, medyaId, secenek){
   secenek = secenek || {};
   const onHazir = secenek.onHazir || (() => {});
@@ -16885,6 +17243,20 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
           (bilgi.parca ? ' / ' + bilgi.parca + ' dilim' : '') +
           (bilgi.hizliBaslangic ? ' / hızlı başlangıç' : ''));
         if (secenek.onBilgi) { try { secenek.onBilgi(bilgi); } catch (e) {} }
+      }
+
+      /* ---- AŞAMALI OYNATMA (MSE) ----
+         Parçalı kaydedilmiş ve tarayıcının kodeki desteklediği videolarda
+         dosyanın tamamını beklemeden izlemeye başlıyoruz. Başarısız olursa
+         aşağıdaki tam indirme yolu devreye giriyor. */
+      if (bilgi && bilgi.parcali && bilgi.parca > 1 && mseUygunMu(bilgi)) {
+        const oldu = await mseOynat(video, kok, bilgi, {
+          iptal: () => iptalEdildi,
+          onIndirme, onHazir, otoOynat, kisaId
+        });
+        if (iptalEdildi) return;
+        if (oldu) return;
+        oynatmaLogla(kisaId + ' MSE kullanılamadı — tam indirme yoluna düşülüyor');
       }
 
       // YENİ: Firebase Storage'a yüklenmiş video.

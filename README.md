@@ -350,6 +350,81 @@ mesaj etiketinin ayrılmış banda hiç düşmediği de sınandı), ön yükleme
 sınırı, tekilleştirme, gönderime yol verme), faststart remuxer 21, başlık 8,
 medya gidiş-dönüş 18.
 
+## Aşamalı oynatma (MSE + parçalı MP4)
+
+Video artık **dosyanın tamamı inmeden izlenebiliyor**: başlatma parçası ve ilk
+görüntü parçası gelir gelmez oynatma başlıyor, kalan parçalar arka planda inip
+akışa ekleniyor.
+
+### Neden eski yöntem bozuktu, bu neden değil
+
+Daha önce denenen yöntem, indirme sürerken `video.src`'i **yarım inmiş**
+baytlardan kurulan bir Blob'a değiştirmekti. Tarayıcıya eksik bir dosya
+veriliyordu: `moov` videonun tam süresini tarif ederken `mdat` yalnız bir ön
+ekti; bu çelişkide video sona sıçrıyordu.
+
+MSE'de böyle bir çelişki yok. Her parça **kendi başına geçerli** bir
+moof+mdat çifti ve tarayıcı akışın devam edeceğini biliyor. Eksik dosya diye
+bir şey yok, yalnız henüz gelmemiş parçalar var.
+
+### Nasıl çalışıyor
+
+MediaSource düz MP4 kabul etmiyor; parçalı MP4 (fMP4) istiyor. Bu yüzden video
+**gönderilirken** bu biçime çevriliyor — tek bir kare bile yeniden kodlanmadan,
+yalnız kaplama yeniden yazılarak:
+
+| | |
+|---|---|
+| `parca/0` | başlatma parçası: `ftyp` + `moov` (örnek tabloları boş, `mvex`/`trex` var) |
+| `parca/1..n` | birer `moof` + `mdat` çifti, her biri anahtar kareyle başlıyor |
+
+Kritik tasarım kararı: **RTDB dilim sınırları parça sınırlarıyla çakıştırıldı.**
+Yani inen her dilim tek başına doğrudan `SourceBuffer`'a verilebiliyor;
+oynatıcının tampon biriktirip kutu sınırı araması gerekmiyor.
+
+Başlık da genişledi: `parcali`, `kodekler` (MSE'ye verilecek codec dizesi) ve
+`sureTam` eklendi. `sureTam` kasıtlı olarak ayrı: arayüz etiketleri yuvarlak
+saniye kullanıyor, ama MediaSource'a yuvarlanmış süre verilirse video erken
+biter ya da sonda boş bekleme olur.
+
+Süre `mvhd`'den değil **örnek zaman çizgisinden** hesaplanıyor. Testler
+sırasında `mvhd`'nin yanlış süre taşıyabildiği görüldü; MSE'de bu doğrudan
+hataya dönüşürdü.
+
+### Her adımda geri çekilme
+
+MSE bir iyileştirme, bağımlılık değil:
+
+- Gönderirken parçalı biçime çevrilemezse (desteklenmeyen kodek, parçalı
+  kaynak, bozuk kutu) video eskisi gibi düz olarak saklanıyor.
+- Ses yalnız AAC ise taşınıyor: codec dizesini yanlış bildirmek MSE'de sessiz
+  başarısızlık demek, o yüzden emin olunmayan ses hiç eklenmiyor (video oynar).
+- Oynatırken `MediaSource` yoksa, codec desteklenmiyorsa, `sourceopen` hiç
+  gelmezse (15 sn) ya da herhangi bir ekleme hata verirse otomatik olarak eski
+  tam indirme yoluna düşülüyor.
+- Parçalı kayıtlar tam indirme yoluyla da açılıyor: parçalar arka arkaya
+  eklenince geçerli bir MP4 dosyası oluşuyor.
+
+### Doğrulama
+
+Bu turda eklenen 47 test dahil, tüm takım (12 dosya, 151 kontrol) geçti.
+Öne çıkanlar:
+
+- **fMP4 üretimi (20 test)**: sentetik ama yapısal olarak gerçek MP4'ler
+  bağımsız bir ayrıştırıcıyla çözülüp kaynakla karşılaştırıldı. Video ve ses
+  **baytları birebir aynı**; örnek sayıları, `trun` veri konumları, `tfdt`
+  zaman damgalarının kesintisizliği ve her parçanın anahtar kareyle başladığı
+  doğrulandı.
+- **MSE oynatıcı (13 test)**: parçaların sırayla eklenmesi, `onHazir`'ın tam
+  bir kez çağrılması, `endOfStream`, desteklenmeyen codec, ekleme hatası,
+  eksik parça ve iptal senaryoları.
+- **Uçtan uca (14 test)**: gerçek bir MP4 parçalı olarak yazılıp geri okundu;
+  başlık alanları ve birleşen dosyanın parçaların birebir birleşimi olduğu
+  doğrulandı.
+
+Cihazda gerçek oynatma testi yapılamadı (burada tarayıcı/telefon yok); bu
+yüzden her hata yolunda eski davranışa düşülüyor.
+
 ## Diğer sıradaki adımlar
 
 - **İmzalama / Play Store**: Şu anki APK "debug" imzalı — sideload (elle
