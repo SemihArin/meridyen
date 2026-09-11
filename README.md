@@ -425,6 +425,65 @@ Bu turda eklenen 47 test dahil, tüm takım (12 dosya, 151 kontrol) geçti.
 Cihazda gerçek oynatma testi yapılamadı (burada tarayıcı/telefon yok); bu
 yüzden her hata yolunda eski davranışa düşülüyor.
 
+## Galeri ve sohbet yüklemeleri: küçük resimler mesajdan çıkarıldı
+
+Asıl sorun taramanın kendisi değildi — taşınan yüktü.
+
+### Neydi
+
+Her görsel/video mesajı küçük resmini **kendi içinde**, base64 data URL olarak
+taşıyordu (~60–90 KB). Bu bedel her ekranda ayrı ayrı ödeniyordu:
+
+- Galeri bir sayfada ~80 kayıt çekiyor; hepsi küçük resmiyle birlikte inince
+  birkaç MB ediyordu.
+- Sohbette geriye kaydırmak, ekranda hiç görünmeyecek mesajların küçük
+  resimlerini de indiriyordu.
+- Medya dizini taraması aynı yükü bir kez daha ödüyordu.
+
+Yani sunucu tarafı filtre (`orderByChild('tip')`) zaten vardı ve doğru
+çalışıyordu; sorun, filtrenin döndürdüğü her kaydın kilolarca ağır olmasıydı.
+
+### Ne yapıldı
+
+Küçük resim artık medya kaydının kendi düğümünde: `medya/<medyaId>/kucuk`.
+Mesajda yalnız `kucukVar` bayrağı duruyor. Kayıt **ekranda görününce** tek ve
+küçük bir okumayla çekiliyor (`IntersectionObserver`, 300px önden).
+
+| | Eskiden | Şimdi |
+|---|---|---|
+| Mesaj kaydı | ~80 KB (küçük resim gömülü) | birkaç yüz bayt |
+| Galeri sayfası (80 kayıt) | birkaç MB | ~50 KB + yalnız görünen karolar |
+| Ekranda görünmeyen kayıt | yine de iniyordu | hiç inmiyor |
+
+Küçük resim medya düğümünün altında durduğu için **fazladan kural
+gerekmiyor** ve medya silinince küçük resim de gidiyor — ayrı temizlik yok.
+
+Aynı medya için birden çok öğe aynı anda isterse tek okuma yapılıyor, gelen
+resimler 400 kayıtlık bir önbellekte tutuluyor.
+
+**Geriye dönük:** eski mesajlar `kucuk` alanını taşımaya devam ediyor ve
+olduğu gibi, anında çiziliyor. Hiçbir eski mesaj bozulmuyor, dönüştürme
+gerekmiyor.
+
+### Galeri sıralamasındaki boşluk da düzeltildi
+
+Galeri iki türü (`gorsel` + `video`) ayrı ayrı sayfalıyor ve imleçleri
+bağımsız ilerliyor. Türlerden biri zamanda daha geriye gittiğinde, aradaki
+henüz inmemiş kayıtlar listede **görünmeyen bir boşluk** bırakıyordu:
+kullanıcı kaydırırken arada eksik öğeler oluyor ve bunu fark edemiyordu.
+
+Artık gösterim, henüz bitmemiş türlerin en geri ortak noktasıyla
+sınırlanıyor. Bir tür tamamen bittiyse sınır dayatmıyor, yedek tarama
+kipinde (tek akış) ise hiç uygulanmıyor.
+
+### Doğrulama
+
+24 yeni test: küçük resim katmanı 16 (eski kayıt anında ve okumasız, yeni
+kayıt görünene kadar okunmuyor, önbellek, aynı medya için tek okuma, arka
+plan kipi, kapağı olmayan kayıt) ve galeri sınırı 8 (boşluk gizleniyor,
+türler bitince tamamı görünüyor, biten tür sınır dayatmıyor, yedek kipte
+sınır yok). Tüm takım — 14 dosya, 175 kontrol — geçti.
+
 ## Diğer sıradaki adımlar
 
 - **İmzalama / Play Store**: Şu anki APK "debug" imzalı — sideload (elle

@@ -9205,9 +9205,14 @@ $('#paylasBtn').addEventListener('click', async () => {
     }
     const etiket = etiketleriTopla(metin);
     const gun = Number($('#anketSure').value || 0);
+    /* Sohbetteki gibi: kapak medya kaydına, gönderiye yalnız bayrak. */
+    const kapak = (!anketMi && akisEk) ? akisEk.kucuk : null;
+    if (kapak && medyaId) {
+      await parcaDene(() => db.ref('medya/' + medyaId + '/kucuk').set(kapak)).catch(() => {});
+    }
     const kayit = {
       uid: ben.uid, ad: benimAdim, metin: metin || null,
-      medyaId, kucuk: (!anketMi && akisEk) ? akisEk.kucuk : null,
+      medyaId, kucukVar: kapak ? 1 : null,
       tip: anketMi ? 'anket' : (akisEk && akisEk.video ? 'video' : (akisEk ? 'gorsel' : null)),
       sure: (!anketMi && akisEk && akisEk.sure) ? akisEk.sure : null,
       etiket: etiket || null,
@@ -9440,15 +9445,18 @@ function gonderiMedyasi(g){
     sar.addEventListener('click', (e) => e.stopPropagation());
     return sar;
   }
-  if (g.kucuk) {
+  if (kucukVarMi(g)) {
     const sar = document.createElement('div');
     sar.className = 'gonderi-medya';
     const img = document.createElement('img');
     img.className = 'gonderi-gorsel';
-    img.src = g.kucuk; img.loading = 'lazy'; img.alt = g.metin ? '' : 'Gönderi görseli';
+    img.loading = 'lazy'; img.alt = g.metin ? '' : 'Gönderi görseli';
+    kucukUygula(img, g);
     img.addEventListener('click', (e) => {
       e.stopPropagation();
-      akisGorselAc(g.medyaId, { uid: g.uid, ad: g.ad, ts: g.ts, kucuk: g.kucuk, dosyaAd: 'gonderi.jpg' });
+      akisGorselAc(g.medyaId, { uid: g.uid, ad: g.ad, ts: g.ts,
+                                kucuk: g.kucuk || kucukKes.get(g.medyaId) || null,
+                                dosyaAd: 'gonderi.jpg' });
     });
     sar.appendChild(img);
     return sar;
@@ -11090,7 +11098,7 @@ function kimlikGonderileriCiz(uid){
     const kare = document.createElement('button');
     kare.className = 'km-kare';
     kare.setAttribute('aria-label', 'Paylaşımı aç');
-    if (g.kucuk) kare.style.backgroundImage = 'url("' + g.kucuk + '")';
+    if (kucukVarMi(g)) kucukUygula(kare, g, { arkaPlan: true });
     else {
       const m = document.createElement('span');
       m.className = 'km-kare-metin';
@@ -11098,7 +11106,7 @@ function kimlikGonderileriCiz(uid){
       kare.appendChild(m);
     }
     if (g.tip === 'video') kare.insertAdjacentHTML('beforeend', VIDEO_ROZET);
-    else if (g.kucuk) kare.insertAdjacentHTML('beforeend', GORSEL_ROZET);
+    else if (kucukVarMi(g)) kare.insertAdjacentHTML('beforeend', GORSEL_ROZET);
     kare.insertAdjacentHTML('beforeend',
       '<span class="km-kare-sayi">' +
       '<i><svg viewBox="0 0 24 24"><path d="M12 21S3 14.5 3 8.8A5 5 0 0 1 12 6a5 5 0 0 1 9 2.8C21 14.5 12 21 12 21z"/></svg>' + bs + '</i>' +
@@ -11112,13 +11120,13 @@ function kimlikGonderileriCiz(uid){
     b.className = 'km-gonderi';
     const kucuk = document.createElement('span');
     kucuk.className = 'km-gonderi-kucuk';
-    if (g.kucuk) kucuk.style.backgroundImage = 'url("' + g.kucuk + '")';
+    if (kucukVarMi(g)) kucukUygula(kucuk, g, { arkaPlan: true });
     else if (g.tip === 'video') kucuk.innerHTML = '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="14" height="12" rx="2"/><path d="M17 10l4-2v8l-4-2"/></svg>';
     else kucuk.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h9"/></svg>';
     const metin = document.createElement('div');
     metin.className = 'km-gonderi-metin';
     const ozet = (g.metin || '').trim() ||
-      (g.tip === 'video' ? 'Video paylaştı' : g.kucuk ? 'Görsel paylaştı' : 'Paylaşım');
+      (g.tip === 'video' ? 'Video paylaştı' : kucukVarMi(g) ? 'Görsel paylaştı' : 'Paylaşım');
     metin.innerHTML = '<b>' + kacir(ozet) + '</b><time>' + kisaZaman(g.ts) +
       (bs || ys ? ' · ' + bs + ' beğeni · ' + ys + ' yorum' : '') + '</time>';
     b.append(kucuk, metin);
@@ -11267,7 +11275,8 @@ async function keMedyaCiz(uid){
     }
     g.slice(0, 12).forEach((m, i2) => {
       const i = document.createElement('img');
-      i.src = m.kucuk; i.loading = 'lazy'; i.alt = m.dosyaAd || '';
+      i.loading = 'lazy'; i.alt = m.dosyaAd || '';
+      kucukUygula(i, m);
       i.addEventListener('click', () => buyutecAc(m.medyaId, m.dosyaAd, g, i2));
       serit.appendChild(i);
     });
@@ -12488,13 +12497,15 @@ function mesajDugumuYap(id, m, onceki, eski){
 
   if (m.tip === 'cikartma') {
     const img = document.createElement('img');
-    img.src = m.kucuk; img.alt = 'Çıkartma'; img.loading = 'lazy';
+    img.alt = 'Çıkartma'; img.loading = 'lazy';
+    kucukUygula(img, m);
     img.addEventListener('load', () => { if (!eski && (dipteydi || benimMi)) dibeGit(); });
     img.addEventListener('click', (ev) => { ev.stopPropagation(); cikartmaBuyutecAc(m.medyaId); });
     balon.appendChild(img);
   } else if (m.tip === 'gorsel') {
     const img = document.createElement('img');
-    img.src = m.kucuk; img.alt = m.dosyaAd || 'Görsel'; img.loading = 'lazy';
+    img.alt = m.dosyaAd || 'Görsel'; img.loading = 'lazy';
+    kucukUygula(img, m);
     // Eski sayfadaki görseller yüklenince yukarıdaki içerik uzar; dibe zıplamak
     // yerine eskileriYukle() içindeki çapa hizalaması konumu korur.
     img.addEventListener('load', () => {
@@ -13649,11 +13660,20 @@ async function gonder(){
             if (ek.dosya) await medyaYazDosya(medyaId, ek.dosya, ilerlet, gecici.iptalRef,
                                               { sure: ek.sure, en: ek.en, boy: ek.boy });
             else await medyaYaz(medyaId, ek.tam, ilerlet, gecici.iptalRef);
+            /* Küçük resim MESAJA DEĞİL, medya kaydının kendi düğümüne
+               yazılıyor. Mesajda yalnız bir bayrak kalıyor; galeri ve sohbet
+               böylece kayıt başına ~80 KB yerine birkaç yüz bayt indiriyor.
+               Kapak yazılamazsa mesaj yine gider (kapaksız görünür), gönderim
+               bunun için iptal edilmez. */
+            if (ek.kucuk) {
+              await parcaDene(() => db.ref('medya/' + medyaId + '/kucuk').set(ek.kucuk))
+                .catch(() => {});
+            }
             kayit = {
               ...temel(),
               tip: ek.gorsel ? 'gorsel' : ek.video ? 'video' : 'dosya',
               medyaId,
-              kucuk: ek.kucuk || null,
+              kucukVar: ek.kucuk ? 1 : null,
               dosyaAd: ek.ad,
               boyut: ek.boyut,
               sure: ek.sure || null,
@@ -15735,10 +15755,11 @@ function videoGorunurIzle(sar, medyaId){
 function videoKutusuYap(m, seceneklerVar){
   const sar = document.createElement('div');
   sar.className = 'video-kutu';
-  if (m.kucuk) {
+  if (kucukVarMi(m)) {
     const kapak = document.createElement('img');
     kapak.className = 'video-kapak';
-    kapak.src = m.kucuk; kapak.alt = m.dosyaAd || 'Video'; kapak.loading = 'lazy';
+    kapak.alt = m.dosyaAd || 'Video'; kapak.loading = 'lazy';
+    kucukUygula(kapak, m);
     sar.appendChild(kapak);
   } else {
     sar.classList.add('kapaksiz');
@@ -15772,7 +15793,8 @@ function videoKutusuYap(m, seceneklerVar){
     v.controls = true;
     v.playsInline = true;
     v.preload = 'auto';
-    if (m.kucuk) v.poster = m.kucuk;
+    const kapakAdres = m.kucuk || kucukKes.get(m.medyaId);
+    if (kapakAdres) v.poster = kapakAdres;
     /* Kaynak, dosyanın TAMAMI indikten sonra tek seferde kuruluyor (bkz.
        medyaParcaliOynatBaslat: yarım dosyadan oynatmak videoyu sona
        sıçratıyordu). Bekleme hissini ön yükleme ortadan kaldırıyor — video
@@ -17025,6 +17047,90 @@ async function medyaSil(medyaId){
   await db.ref('medya/' + medyaId).remove().catch(() => {});
 }
 
+/* ================= KÜÇÜK RESİM (kapak/önizleme) =================
+   ESKİDEN: her görsel/video mesajı küçük resmini KENDİ İÇİNDE, base64 data
+   URL olarak taşıyordu (~60–90 KB). Bunun bedeli her ekranda ayrı ayrı
+   ödeniyordu:
+     - Galeri bir sayfada ~80 kayıt çekiyor; hepsi küçük resmiyle birlikte
+       indiğinde birkaç MB ediyordu.
+     - Sohbette geriye kaydırmak, ekranda hiç görünmeyecek mesajların küçük
+       resimlerini de indiriyordu.
+     - Medya dizini taraması aynı yükü bir kez daha ödüyordu.
+
+   ŞİMDİ: küçük resim medya kaydının kendi düğümünde duruyor
+   (medya/<medyaId>/kucuk); mesajda yalnız `kucukVar` bayrağı var. Kayıt
+   EKRANDA GÖRÜNÜNCE tek ve küçük bir okumayla çekiliyor. Aynı düğümün
+   altında olduğu için medya silinince küçük resim de gidiyor, ayrı temizlik
+   gerekmiyor ve fazladan kural da gerekmiyor.
+
+   GERİYE DÖNÜK: eski mesajlar `kucuk` alanını taşımaya devam ediyor ve
+   olduğu gibi, anında çiziliyor. Hiçbir eski mesaj bozulmuyor. */
+const kucukKes = new Map();        // medyaId -> data URL
+const kucukBekleyen = new Map();   // medyaId -> Promise (aynı anda iki kez çekmeyelim)
+const KUCUK_KES_SINIR = 400;
+
+function kucukVarMi(m){ return !!(m && (m.kucuk || (m.kucukVar && m.medyaId))); }
+
+async function kucukGetir(medyaId){
+  if (!medyaId || !db) return null;
+  if (kucukKes.has(medyaId)) return kucukKes.get(medyaId);
+  if (kucukBekleyen.has(medyaId)) return kucukBekleyen.get(medyaId);
+  const is = (async () => {
+    try {
+      const v = (await parcaDene(() => db.ref('medya/' + medyaId + '/kucuk').get())).val();
+      if (v) {
+        kucukKes.set(medyaId, v);
+        while (kucukKes.size > KUCUK_KES_SINIR) kucukKes.delete(kucukKes.keys().next().value);
+      }
+      return v || null;
+    } catch (e) { return null; }
+    finally { kucukBekleyen.delete(medyaId); }
+  })();
+  kucukBekleyen.set(medyaId, is);
+  return is;
+}
+
+/* Hangi öğenin hangi kaydı beklediğini tutuyoruz; öğe DOM'dan kalkarsa
+   WeakMap sayesinde kayıt da kendiliğinden düşüyor. */
+const kucukBekleyenOge = new WeakMap();
+let kucukIzleyici = null;
+
+function kucukIzleyiciyiKur(){
+  if (kucukIzleyici || !('IntersectionObserver' in window)) return kucukIzleyici;
+  kucukIzleyici = new IntersectionObserver((girisler) => {
+    for (const g of girisler) {
+      if (!g.isIntersecting) continue;
+      kucukIzleyici.unobserve(g.target);
+      const is = kucukBekleyenOge.get(g.target);
+      if (is) { kucukBekleyenOge.delete(g.target); is(); }
+    }
+  }, { rootMargin: '300px' });
+  return kucukIzleyici;
+}
+
+/* Bir öğeye küçük resmi uygular.
+   secenek.arkaPlan: src yerine background-image kullan.
+   secenek.sonra(adres): resim geldiğinde çağrılır (ör. rozet eklemek için). */
+function kucukUygula(el, m, secenek){
+  secenek = secenek || {};
+  const koy = (adres) => {
+    if (!adres || !el) return;
+    if (secenek.arkaPlan) el.style.backgroundImage = 'url("' + adres + '")';
+    else el.src = adres;
+    if (secenek.sonra) { try { secenek.sonra(adres); } catch (e) {} }
+  };
+
+  if (m && m.kucuk) return koy(m.kucuk);                 // eski biçim: anında
+  if (!m || !m.kucukVar || !m.medyaId) return;
+  if (kucukKes.has(m.medyaId)) return koy(kucukKes.get(m.medyaId));
+
+  const yukle = () => { kucukGetir(m.medyaId).then(koy); };
+  const izleyici = kucukIzleyiciyiKur();
+  if (!izleyici) return yukle();                          // desteklenmiyorsa hemen
+  kucukBekleyenOge.set(el, yukle);
+  try { izleyici.observe(el); } catch (e) { yukle(); }
+}
+
 /* ================= AŞAMALI (PARÇA PARÇA) VİDEO OYNATMA =================
    medyaGetir TÜM parçaların inmesini bekler. Video için bu, "izlemeye
    tıkla → dakikalarca bekle" demekti. Burada onun yerine: İLK parçayı
@@ -18271,10 +18377,34 @@ function medyaDizineEkle(id, m){
   if (m && (m.tip === 'gorsel' || m.tip === 'video' || m.tip === 'dosya')) medyaKayit.set(id, Object.assign({ id }, m));
 }
 function medyaDizindenCikar(id){ medyaKayit.delete(id); }
+/* Galeri iki türü (gorsel + video) AYRI AYRI sayfalıyor ve imleçleri
+   bağımsız ilerliyor. Türlerden biri zamanda daha geriye gitmişse, aradaki
+   henüz inmemiş kayıtlar listede GÖRÜNMEYEN bir boşluk bırakır: kullanıcı
+   kaydırırken arada eksik öğeler olur ve bunu fark edemez.
+
+   Bu yüzden gösterimi, henüz bitmemiş türlerin EN GERİ ortak noktasıyla
+   sınırlıyoruz. Push anahtarları zaman sırasında olduğu için karşılaştırma
+   doğrudan anahtar üzerinden yapılabiliyor. */
+function medyaSinir(tip){
+  if (!medyaSorguAcik) return null;          // yedek tarama tek akış: boşluk oluşmaz
+  const tipler = tip === 'gorsel' ? ['gorsel', 'video'] : [tip];
+  let sinir = null;
+  for (const t of tipler) {
+    const d = medyaSorgu[t];
+    if (!d || d.bitti) continue;             // biten türün gerisinde eksik kalmaz
+    if (!d.enEski) return null;              // o tür henüz hiç sayfa getirmedi
+    if (sinir === null || d.enEski > sinir) sinir = d.enEski;
+  }
+  return sinir;
+}
+
 function medyaListesi(tip){
   // 'gorsel' kovası videoları da içerir: ikisi de görsel medya.
   const uyar = (m) => tip === 'gorsel' ? (m.tip === 'gorsel' || m.tip === 'video') : m.tip === tip;
-  return [...medyaKayit.values()].filter(uyar).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  let liste = [...medyaKayit.values()].filter(uyar);
+  const sinir = medyaSinir(tip);
+  if (sinir) liste = liste.filter(m => m.id >= sinir);
+  return liste.sort((a, b) => (b.ts || 0) - (a.ts || 0));
 }
 function medyaSorguDurum(tip){
   return medyaSorgu[tip] || (medyaSorgu[tip] = { enEski: null, bitti: false, calisiyor: false });
@@ -18450,7 +18580,8 @@ function galeriYenile(){
     kare.className = 'galeri-kare';
     kare.type = 'button';
     const img = document.createElement('img');
-    img.src = m.kucuk; img.alt = m.dosyaAd || 'Görsel'; img.loading = 'lazy'; img.decoding = 'async';
+    img.alt = m.dosyaAd || 'Görsel'; img.loading = 'lazy'; img.decoding = 'async';
+    kucukUygula(img, m);
     const alt = document.createElement('span');
     alt.className = 'kare-alt';
     alt.textContent = (m.ad ? m.ad + ' · ' : '') + saat(m.ts || Date.now());
