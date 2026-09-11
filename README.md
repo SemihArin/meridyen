@@ -157,6 +157,45 @@ Bunlar APK'nın dışında kaldığı için buradan yapılamıyor, kontrol etmen
    Yani sunucu hem `notification` hem `data` göndermeli: ilki kapalıyken
    görünmesi, ikincisi uygulama açılınca yönlendirme için.
 
+## Medya paylaşımı: Firebase Storage kurulmalı
+
+**APK'dan görsel/video paylaşılamamasının sebebi bu.** Sorun WebView'da ya da
+Android tarafında değil — `www/index.html`, canlı sitedekinden farklı bir
+sürüm ve medyayı **Firebase Storage**'a yüklüyor. Karşılaştırma:
+
+| | Canlı site (`meridyen-830fb.web.app`) | APK'daki kopya |
+|---|---|---|
+| Medya nereye gidiyor | Realtime Database içinde base64 | Firebase Storage (`medya/<uid>/<id>`) |
+| `firebase.storage()` kullanımı | yok | var |
+
+Yani canlı sitede Storage hiç kullanılmıyor, APK'daki sürümde ise tüm yeni
+medya oraya gidiyor. Storage projede açık değilse ya da kuralları yüklü
+değilse yükleme "izin yok" ile reddediliyor ve uygulama bunu genel bir
+"Dosya okunamadı." mesajıyla gösteriyor. Kodun kendi yorumu da bunu önkoşul
+olarak yazmış (bkz. `MEDYA DEPOLAMA` bölümü).
+
+Elenen ihtimaller (kontrol edildi, sorun bunlarda değil):
+
+- **CORS**: Firebase Storage, APK'nın kaynağı olan `https://localhost` dahil
+  her kaynağa izin veriyor (`access-control-allow-origin: *` olarak sınandı).
+- **Dosya seçici**: Capacitor `onShowFileChooser`'ı uyguluyor, `accept`
+  listesindeki `.zip`/`.doc` gibi uzantıları da geçerli MIME türlerine
+  çeviriyor.
+- **Kamera/galeri izni**: manifestte ve Capacitor köprüsünde hazır.
+
+### Yapman gerekenler
+
+1. Firebase konsolunda **Storage**'ı aç (proje → Storage → Başla). Kova adı
+   `meridyen-830fb.firebasestorage.app` olmalı — `index.html` içindeki
+   `storageBucket` değeri bu.
+2. Depodaki **`storage.rules`** dosyasının içeriğini Storage → Rules'a
+   yapıştırıp yayınla.
+3. Depodaki **`database.rules.json`** dosyasının içeriğini Realtime Database →
+   Rules'a yapıştırıp yayınla. (Bu sürüm, bildirim belirteçleri için gereken
+   `cihazlar` düğümünü de içeriyor — canlı sitedeki eski kural bloğunda o yok.)
+
+Bu üçü tamamlanınca APK'dan görsel paylaşımı çalışır.
+
 ## Diğer sıradaki adımlar
 
 - **İmzalama / Play Store**: Şu anki APK "debug" imzalı — sideload (elle
