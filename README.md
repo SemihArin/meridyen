@@ -48,8 +48,8 @@ GitHub Actions'ın kuracağı sürümler burada doğrulananlarla birebir aynı o
 
 ## Şu an neler hazır
 
-- Uygulaman `www/index.html` olarak birebir kopyalandı — web sürümüyle aynı
-  dosya, hiçbir satırı değiştirilmedi.
+- Uygulaman `www/index.html` olarak kopyalandı. Tek içerik değişikliği:
+  medya yazımı Firebase Storage yerine RTDB'ye döndürüldü (aşağıda).
 - Uygulama ikonu, sitendeki mevcut "M" logosundan otomatik üretildi
   (klasik + Android 8+ uyarlanabilir ikon olarak).
 - Kamera, mikrofon, bildirim gibi izinler manifest'e otomatik ekleniyor.
@@ -157,44 +157,63 @@ Bunlar APK'nın dışında kaldığı için buradan yapılamıyor, kontrol etmen
    Yani sunucu hem `notification` hem `data` göndermeli: ilki kapalıyken
    görünmesi, ikincisi uygulama açılınca yönlendirme için.
 
-## Medya paylaşımı: Firebase Storage kurulmalı
+## Medya paylaşımı: Storage kaldırıldı, her şey RTDB'de
 
-**APK'dan görsel/video paylaşılamamasının sebebi bu.** Sorun WebView'da ya da
-Android tarafında değil — `www/index.html`, canlı sitedekinden farklı bir
-sürüm ve medyayı **Firebase Storage**'a yüklüyor. Karşılaştırma:
+APK'dan görsel paylaşılamamasının sebebi şuydu: `www/index.html`, canlı
+sitedekinden farklı bir sürümdü ve medyayı **Firebase Storage**'a yüklüyordu.
+Canlı sitede Storage hiç kullanılmıyor. Storage bu projede hiç kurulmamış
+olduğu için yükleme "izin yok" ile reddediliyor, uygulama da bunu genel bir
+"Dosya okunamadı." mesajına çeviriyordu.
 
-| | Canlı site (`meridyen-830fb.web.app`) | APK'daki kopya |
-|---|---|---|
-| Medya nereye gidiyor | Realtime Database içinde base64 | Firebase Storage (`medya/<uid>/<id>`) |
-| `firebase.storage()` kullanımı | yok | var |
+Projede kullanılan tek arka uç RTDB olduğu için **Storage tamamen çıkarıldı**
+ve medya yazımı Realtime Database'e döndürüldü. Böylece konsolda ek bir
+kurulum gerekmiyor; yüklenecek tek kural kümesi `database.rules.json`.
 
-Yani canlı sitede Storage hiç kullanılmıyor, APK'daki sürümde ise tüm yeni
-medya oraya gidiyor. Storage projede açık değilse ya da kuralları yüklü
-değilse yükleme "izin yok" ile reddediliyor ve uygulama bunu genel bir
-"Dosya okunamadı." mesajıyla gösteriyor. Kodun kendi yorumu da bunu önkoşul
-olarak yazmış (bkz. `MEDYA DEPOLAMA` bölümü).
+### Ne değişti
 
-Elenen ihtimaller (kontrol edildi, sorun bunlarda değil):
+- `medyaYaz` / `medyaYazDosya` artık RTDB'ye yazıyor. Yazılan biçim, bu
+  dosyanın **okuma** tarafının (`medyaGetir`) zaten tanıdığı biçimle birebir
+  aynı — okuma koduna hiç dokunulmadı:
 
-- **CORS**: Firebase Storage, APK'nın kaynağı olan `https://localhost` dahil
-  her kaynağa izin veriyor (`access-control-allow-origin: *` olarak sınandı).
-- **Dosya seçici**: Capacitor `onShowFileChooser`'ı uyguluyor, `accept`
-  listesindeki `.zip`/`.doc` gibi uzantıları da geçerli MIME türlerine
-  çeviriyor.
-- **Kamera/galeri izni**: manifestte ve Capacitor köprüsünde hazır.
+  | Düğüm | İçerik |
+  |---|---|
+  | `medya/<id>/veri` | küçük medya (sıkıştırılmış görseller): tek düğümde data: URL |
+  | `medya/<id>/bilgi` | `{ parca, ikili:true, mime, uzunluk, uid, ts }` |
+  | `medya/<id>/parca/<i>` | o dilimin ham baytlarının base64'ü |
 
-### Yapman gerekenler
+- Büyük dosyalar belleğe alınmadan, 256 KB'lık dilimler hâlinde yazılıyor.
+- `bilgi` en sona yazılıyor: dilimler tamamlanmadan yazılsaydı, o aralıkta
+  kaydı açan biri "bozuk kayıt" görürdü.
+- Yükleme iptal edilirse o ana kadar yazılan dilimler siliniyor, veritabanında
+  sahipsiz çöp kalmıyor.
+- Firebase Storage SDK'sı artık hiç yüklenmiyor, `storage.rules` dosyası
+  depodan kaldırıldı.
+- Okuma tarafındaki `bilgi.depo === 'storage'` dalı duruyor: Storage'a yazılmış
+  bir kayıt varsa bozulmasın diye. Yeni hiçbir yazma oraya gitmiyor.
 
-1. Firebase konsolunda **Storage**'ı aç (proje → Storage → Başla). Kova adı
-   `meridyen-830fb.firebasestorage.app` olmalı — `index.html` içindeki
-   `storageBucket` değeri bu.
-2. Depodaki **`storage.rules`** dosyasının içeriğini Storage → Rules'a
-   yapıştırıp yayınla.
-3. Depodaki **`database.rules.json`** dosyasının içeriğini Realtime Database →
-   Rules'a yapıştırıp yayınla. (Bu sürüm, bildirim belirteçleri için gereken
-   `cihazlar` düğümünü de içeriyor — canlı sitedeki eski kural bloğunda o yok.)
+### Doğrulama
 
-Bu üçü tamamlanınca APK'dan görsel paylaşımı çalışır.
+Yazma ve okuma fonksiyonları dosyadan çıkarılıp sahte bir RTDB üzerinde
+çalıştırıldı (18 test): küçük görsel tek düğüme yazılıp aynen geri okunuyor,
+700 KB'lık ikili dosya üç dilime bölünüp birleştirildiğinde **baytlar birebir
+aynı** geliyor, mime ve uzunluk korunuyor, `bilgi` dilimlerden sonra yazılıyor
+ve iptal edilen yükleme geriye kayıt bırakmıyor.
+
+### Bilmen gereken iki bedel
+
+1. **Kota**: base64, ham veriden ~%37 daha büyük ve medya artık veritabanının
+   içinde duruyor. RTDB'nin ücretsiz kotası 1 GB — birkaç büyük video tek
+   başına kotayı doldurabilir. Uygulamadaki üst sınır hâlâ 700 MB
+   (`PAYLASIM_MAKS`); küçültmek istersen söyle.
+2. **Videoda gerçek atlama yok**: bir JSON düğümünden bayt-aralığı (Range)
+   istenemediği için "istediğin ana atla", aşamalı oynatma mantığıyla taklit
+   ediliyor.
+
+### Önemli: canlı siteyi de güncelle
+
+Bu değişiklik `www/index.html` üzerinde yapıldı, yani APK'daki kopya artık
+canlı sitedekinden farklı. Aynı dosyayı siteye de yüklemezsen web ve APK
+zamanla birbirinden ayrışır. Bu dosyayı yeni kaynak olarak almanı öneririm.
 
 ## Diğer sıradaki adımlar
 

@@ -5448,12 +5448,11 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
    ekranının en altına buradan yazılır — iki yerde ayrı ayrı
    güncellenip birbirinden şaşma riski kalmasın diye. */
 const UYGULAMA_SURUMU = 'v3.18.0';
-/* storageBucket burada zaten tanımlı — medya artık RTDB yerine Firebase
-   Storage'a yükleniyor (bkz. MEDYA bölümü). Bu, projede Storage'ın AÇIK
-   olmasını ve yanında teslim edilen storage.rules dosyasının Firebase
-   konsoluna/CLI ile YÜKLENMİŞ olmasını gerektirir — database.rules.json
-   nasıl elle deploy ediliyorsa, storage.rules da öyle (buradan otomatik
-   yapılamaz). */
+/* storageBucket alanı yalnız Firebase yapılandırmasının standart bir parçası
+   olarak duruyor; uygulama Firebase Storage'ı KULLANMIYOR. Medya, Realtime
+   Database'in içinde saklanıyor (bkz. MEDYA DEPOLAMA bölümü), bu yüzden
+   konsolda Storage açmaya ya da ayrı bir storage kuralı yüklemeye gerek yok —
+   kurulması gereken tek kural kümesi database.rules.json. */
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDXKW6MU7dGwwD2phD11XojyEEESlabNqY",
   authDomain: "meridyen-830fb.firebaseapp.com",
@@ -5505,7 +5504,7 @@ const $ = (s) => document.querySelector(s);
 const vitrin = $('#vitrin'), perde = $('#perde'), panel = $('#panel');
 const akis = $('#akis'), galeri = $('#galeri'), metinAlani = $('#metinAlani');
 const gonderBtn = $('#gonderBtn'), dosyaGirdi = $('#dosyaGirdi');
-let db = null, auth = null, depo = null, ben = null, benimAdim = '';
+let db = null, auth = null, ben = null, benimAdim = '';
 let mesajlar = [], yaziyorZaman = null;
 let okunmamisSinir = 0, okunmamisCizildi = false, sohbetAcilisTs = 0;
 
@@ -5555,7 +5554,6 @@ const FIREBASE_DOSYALARI = [
   'https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js',
-  'https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js',
   'https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js'
 ];
 
@@ -5576,7 +5574,6 @@ function firebaseBaslat(){
     firebase.initializeApp(FIREBASE_CONFIG);
     auth = firebase.auth();
     db = firebase.database();
-    depo = firebase.storage();
     firebaseHazir = true;
     auth.onAuthStateChanged(oturumDegisti);
   }).catch((e) => {
@@ -16160,43 +16157,35 @@ const SES_IKON = {
 };
 
 /* ================= MEDYA ================= */
-/* ================= MEDYA DEPOLAMA: FIREBASE STORAGE =================
-   Eskiden medya (fotoğraf/video/dosya/ses) Realtime Database'in İÇİNDE
-   base64'e çevrilip parça parça yazılıyordu. Bunun üç gerçek bedeli vardı:
-     1) base64 ham veriden ~%37 daha büyük — hem yükleme hem indirme o kadar
-        yavaş.
-     2) RTDB'nin ücretsiz kotası yalnızca 1 GB'tı; birkaç video onu doldurur.
-     3) "Videoplayback" gibi GERÇEK bir aktarım (istediğin ANA anında atla,
-        tarayıcı yalnız o an gereken baytı ister) RTDB'de MÜMKÜN değil — bir
-        JSON düğümünün "şu baytları ver" diye bayt-aralığı isteği yapılamaz.
-        Elle yazılmış "ilk parçayı göster, arkadan indirmeye devam et" hilesi
-        bunu TAKLİT ediyordu ama gerçek Range/seek desteği hiç yoktu.
+/* ================= MEDYA DEPOLAMA: REALTIME DATABASE =================
+   Medya (fotoğraf/video/dosya/ses) Realtime Database'in İÇİNDE base64
+   dilimler hâlinde saklanıyor. Projedeki tek arka uç RTDB; Firebase Storage
+   bilerek KULLANILMIYOR, bu yüzden Storage SDK'sı da yüklenmiyor ve
+   storage.rules gibi ayrı bir kurulum gerekmiyor.
 
-   Şimdi YENİ medya doğrudan Firebase Storage'a yükleniyor:
-     - Yükleme gerçek "resumable upload" — SDK, ağ kesilirse KALDIĞI YERDEN
-       devam eder (elle yazılmış dilim-yeniden-deneme mantığından daha
-       güvenilir, çünkü GCS'nin resumable protokolü zaten baytın nereye
-       kadar ulaştığını sunucu tarafında bilir).
-     - Dosya base64'e HİÇ çevrilmiyor: ham Blob/File doğrudan gidiyor.
-     - İndirme tarafı gerçek bir HTTPS adresi (getDownloadURL). <video src>
-       bu adrese verildiğinde tarayıcının KENDİ ağ katmanı Range istekleri
-       atıp videonun istenen ANINDAN oynatabiliyor — "videoplayback mantığı"
-       artık bizim simülasyonumuz değil, tarayıcının GERÇEK, kanıtlanmış
-       motoru. Google'ın CDN'i + tarayıcı HTTP önbelleği de devrede: aynı
-       görseli/videoyu ikinci kez açmak neredeyse bedavaya geliyor.
-     - RTDB'de artık yalnız KÜÇÜK bir üstveri kaydı duruyor
-       (medya/<id>/bilgi = {depo:'storage', yol, url, mime, boyut, uid, ts}),
-       binary veri değil — 1 GB'lık ücretsiz kota artık medyayla dolmuyor.
+   Kayıt biçimi (yazan: rtdbMedyaYaz, okuyan: medyaGetir):
+     medya/<id>/veri      — küçük medya (sıkıştırılmış görseller): tek düğümde
+                            data: URL, tek istekte okunur
+     medya/<id>/bilgi     — { parca:<adet>, ikili:true, mime, uzunluk, uid, ts }
+     medya/<id>/parca/<i> — o dilimin ham baytlarının base64'ü
 
-   GERİYE DÖNÜK UYUMLULUK: okuma tarafı (medyaGetir, medyaParcaliOynatBaslat)
-   hâlâ ESKİ biçimdeki kayıtları (tek parça `veri`, ya da RTDB-içi `parca/*`
-   dilimleri) tanıyor ve doğru açıyor — geçmişte gönderilmiş hiçbir mesaj
-   bozulmuyor. Yalnız YAZMA tarafı yeni biçime geçti.
+   Büyük dosyalar BELLEĞE ALINMADAN yazılıyor ve okunuyor: yazarken her
+   adımda yalnız bir dilim base64'e çevriliyor, okurken her dilim ayrı bir
+   Blob'a konup sonda birleştiriliyor. Yoksa 700 MB'lık bir video tek bir
+   metin olarak ~930 MB yer kaplar ve telefon çökerdi.
 
-   ÖNKOŞUL: bu, kullanıcının Firebase projesinde Storage'ın açık olmasını ve
-   aşağıdaki storage.rules dosyasının (ayrı teslim edildi) konsola/CLI ile
-   YÜKLENMİŞ olmasını gerektirir — tıpkı database.rules.json gibi, buradan
-   otomatik yapılamaz. */
+   BİLİNMESİ GEREKEN İKİ BEDEL:
+     1) Kota: base64, ham veriden ~%37 daha büyük. RTDB'nin ücretsiz kotası
+        1 GB; yani birkaç büyük video tek başına kotayı doldurabilir.
+     2) Videoda gerçek atlama (seek) yok: bir JSON düğümünden bayt-aralığı
+        (Range) istenemediği için "istediğin ana atla" ancak aşağıdaki
+        aşamalı oynatma mantığıyla TAKLİT edilebiliyor.
+
+   GERİYE DÖNÜK UYUMLULUK: okuma tarafı eski biçimleri de tanıyor — tek
+   parça `veri`, ikili dilimler ve data: URL'in metin dilimleri. Ayrıca
+   `bilgi.depo === 'storage'` taşıyan bir kayda rastlarsa adresini doğrudan
+   kullanır; bu dal, Storage denenmiş olsaydı kalmış olabilecek kayıtlar
+   bozulmasın diye duruyor, yeni hiçbir yazma oraya gitmiyor. */
 
 /* Tek bir denemede yaşanan GEÇİCİ ağ hatası (mobil, tünel değişimi, kısa
    kesinti) bir işlemi baştan sona bozmasın diye: birkaç kez, artan bekleme
@@ -16220,35 +16209,66 @@ async function parcaDene(fn){
    "kullanıcı vazgeçti" (sessizce kaldır) birbirinden ayrılabiliyor. */
 function yuklemeIptalHatasi(){ return Object.assign(new Error('vazgeçildi'), { iptalEdildi: true }); }
 
-/* Her kullanıcının kendi altında saklanması: hem storage.rules'ta "yalnız
-   kendi uid'ine yazabilir" kuralını basitçe ifade edebilmek için, hem de
-   silme sırasında sahiplik belli olsun diye. */
-function depoYolu(uid, medyaId){ return 'medya/' + uid + '/' + medyaId; }
+/* ---- RTDB'ye parçalı yazma ----
+   Medya, Firebase Storage yerine doğrudan Realtime Database'in içinde
+   saklanıyor: bu projede kullanılan tek arka uç RTDB.
 
-/* Bir Blob/File'ı Storage'a yükler; ilerlemeyi 0..1 bildirir; iptalRef.iptal
-   true olunca GERÇEKTEN durdurur (uploadTask.cancel() — o ana kadar giden
-   baytlar sunucuda kalıcı bir nesneye dönüşmez, GCS'in resumable oturumu
-   kendiliğinden zaman aşımına uğrar; RTDB tarafında da zaten `bilgi` ancak
-   başarılı tamamlanınca yazılıyor, o yüzden çöp kalmıyor). */
-function depoYukle(yol, veri, mime, ilerleme, iptalRef){
+   Yazılan biçim, bu dosyanın OKUMA tarafının (medyaGetir) zaten tanıdığı
+   biçimle birebir aynı:
+     medya/<id>/bilgi     = { parca:<adet>, ikili:true, mime, uzunluk, uid, ts }
+     medya/<id>/parca/<i> = o dilimin HAM baytlarının base64'ü
+   `uzunluk` toplam BAYT sayısı; okuma tarafı birleştirdiği Blob'un boyutunu
+   buna karşı doğruluyor, yarım kalmış bir kayıt hiç gösterilmiyor.
+
+   `bilgi` en SONA yazılıyor. Önce yazılsaydı, dilimler tamamlanana kadar
+   geçen sürede kaydı açan biri "bozuk kayıt" görürdü. */
+const DILIM_BAYT = 256 * 1024;          // dilim başına ham bayt (base64'te ~350 KB)
+const TEK_DUGUM_SINIR = 1.5 * 1024 * 1024;  // bu uzunluğa kadar data: URL tek düğümde
+
+/* Bir Blob dilimini base64'e çevirir. FileReader'ın verdiği data: URL'in
+   yalnız virgülden SONRASI base64 gövdedir. */
+function dilimiBase64Yap(dilim){
   return new Promise((coz, red) => {
-    if (iptalRef && iptalRef.iptal) return red(yuklemeIptalHatasi());
-    const gorev = depo.ref(yol).put(veri, { contentType: mime });
-    /* İptal denetimi 'state_changed' İLERLEME olayının İÇİNDE yapılıyor —
-       ayrı bir setInterval yerine. Gerçek Storage SDK'sı büyük bir dosyada
-       her ağ parçası (~birkaç yüz KB) ilerlediğinde bu olayı zaten sık sık
-       tetikliyor, yani × düğmesine basılınca gecikme neredeyse hissedilmez;
-       ayrıca bağımsız bir zamanlayıcı kurup temizlemekle uğraşmaya gerek
-       kalmıyor. */
-    gorev.on('state_changed',
-      (anlik) => {
-        if (iptalRef && iptalRef.iptal) { gorev.cancel(); return; }
-        if (ilerleme && anlik.totalBytes) ilerleme(anlik.bytesTransferred / anlik.totalBytes);
-      },
-      (hata) => { red((hata && hata.code === 'storage/canceled') ? yuklemeIptalHatasi() : hata); },
-      () => { (iptalRef && iptalRef.iptal) ? red(yuklemeIptalHatasi()) : coz(); }
-    );
+    const o = new FileReader();
+    o.onload = () => {
+      const s = String(o.result);
+      const v = s.indexOf(',');
+      coz(v < 0 ? '' : s.slice(v + 1));
+    };
+    o.onerror = () => red(o.error || new Error('dilim okunamadı'));
+    o.readAsDataURL(dilim);
   });
+}
+
+/* Bir Blob/File'ı RTDB'ye dilim dilim yazar; ilerlemeyi 0..1 bildirir.
+   Dosyanın tamamı belleğe ALINMIYOR: her adımda yalnız tek bir dilim
+   okunuyor — 700 MB'lık bir video tek seferde base64'e çevrilseydi ~930 MB
+   metin olur ve telefon çökerdi.
+
+   iptalRef.iptal true olunca durur ve o ana kadar yazılan dilimleri siler,
+   yoksa veritabanında sahipsiz çöp kalırdı. */
+async function rtdbMedyaYaz(medyaId, blob, mime, ilerleme, iptalRef, ekBilgi){
+  const kok = db.ref('medya/' + medyaId);
+  const adet = Math.max(1, Math.ceil(blob.size / DILIM_BAYT));
+
+  const iptalMi = async () => {
+    if (!(iptalRef && iptalRef.iptal)) return false;
+    await kok.remove().catch(() => {});
+    return true;
+  };
+
+  for (let i = 0; i < adet; i++) {
+    if (await iptalMi()) throw yuklemeIptalHatasi();
+    const dilim = blob.slice(i * DILIM_BAYT, Math.min((i + 1) * DILIM_BAYT, blob.size));
+    const b64 = await dilimiBase64Yap(dilim);
+    await parcaDene(() => kok.child('parca/' + i).set(b64));
+    if (ilerleme) ilerleme((i + 1) / adet);
+  }
+  if (await iptalMi()) throw yuklemeIptalHatasi();
+
+  await parcaDene(() => kok.child('bilgi').set(Object.assign({
+    parca: adet, ikili: true, mime, uzunluk: blob.size, uid: ben.uid, ts: Date.now()
+  }, ekBilgi || {})));
 }
 
 /* Bir Storage adresini TEK bir sürekli HTTP bağlantısıyla (fetch +
@@ -16302,15 +16322,19 @@ async function depoAkisGetir(url, mime, onParca, iptalRef){
 
 async function medyaYaz(medyaId, veri, ilerleme, iptalRef){
   if (iptalRef && iptalRef.iptal) throw yuklemeIptalHatasi();
+  /* Sıkıştırılmış görseller buraya bir data: URL olarak geliyor ve yeterince
+     küçükler: tek düğüme yazıyoruz. Okuma tarafı `veri` düğümünü tek istekte
+     alıp doğrudan kaynak olarak kullanıyor, dilim birleştirme maliyeti hiç
+     doğmuyor. */
+  if (typeof veri === 'string' && veri.length <= TEK_DUGUM_SINIR) {
+    await parcaDene(() => db.ref('medya/' + medyaId + '/veri').set(veri));
+    if (ilerleme) ilerleme(1);
+    return;
+  }
   const kaynak = await fetch(veri);
   const blob = await kaynak.blob();
-  const mime = blob.type || 'application/octet-stream';
-  const yol = depoYolu(ben.uid, medyaId);
-  await depoYukle(yol, blob, mime, ilerleme, iptalRef);
-  const url = await parcaDene(() => depo.ref(yol).getDownloadURL());
-  await parcaDene(() => db.ref('medya/' + medyaId + '/bilgi').set({
-    depo: 'storage', yol, url, mime, boyut: blob.size, uid: ben.uid, ts: Date.now()
-  }));
+  await rtdbMedyaYaz(medyaId, blob, blob.type || 'application/octet-stream',
+                     ilerleme, iptalRef);
   if (ilerleme) ilerleme(1);
 }
 
@@ -16327,12 +16351,8 @@ async function medyaYazDosya(medyaId, dosya, ilerleme, iptalRef){
   if (mime.startsWith('video/')) {
     try { hizliBaslangic = await mp4HizliBaslangicMi(dosya); } catch (e) {}
   }
-  const yol = depoYolu(ben.uid, medyaId);
-  await depoYukle(yol, dosya, mime, ilerleme, iptalRef);
-  const url = await parcaDene(() => depo.ref(yol).getDownloadURL());
-  await parcaDene(() => db.ref('medya/' + medyaId + '/bilgi').set({
-    depo: 'storage', yol, url, mime, boyut: dosya.size, hizliBaslangic, uid: ben.uid, ts: Date.now()
-  }));
+  await rtdbMedyaYaz(medyaId, dosya, mime, ilerleme, iptalRef,
+                     mime.startsWith('video/') ? { hizliBaslangic } : null);
   if (ilerleme) ilerleme(1);
 }
 
@@ -16446,14 +16466,7 @@ async function medyaGetir(medyaId, ilerleme){
    temizlenir; kullanıcının gördüğü mesaj her hâlükârda kaybolmalı. */
 async function medyaSil(medyaId){
   if (!medyaId || !db) return;
-  const kok = db.ref('medya/' + medyaId);
-  try {
-    const bilgi = (await kok.child('bilgi').get()).val();
-    if (bilgi && bilgi.depo === 'storage' && bilgi.yol && depo) {
-      await depo.ref(bilgi.yol).delete().catch(() => {});
-    }
-  } catch (e) {}
-  await kok.remove().catch(() => {});
+  await db.ref('medya/' + medyaId).remove().catch(() => {});
 }
 
 /* ================= AŞAMALI (PARÇA PARÇA) VİDEO OYNATMA =================
