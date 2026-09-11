@@ -58,6 +58,9 @@ jobs:
       - name: Android projesini oluştur (Capacitor)
         run: npx cap add android
 
+      - name: Firebase yapılandırmasını yerleştir (push bildirimleri)
+        run: bash scripts/copy_google_services.sh
+
       - name: Uygulama ikonlarını yerleştir
         run: bash scripts/copy_icons.sh
 

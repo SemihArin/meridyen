@@ -68,9 +68,10 @@ GitHub Actions'ın kuracağı sürümler burada doğrulananlarla birebir aynı o
 
 ## Bildirimler
 
-Kısa özet: **uygulama açık ya da arka plandayken bildirimler artık çalışıyor.
-Uygulama tamamen kapatıldığında hâlâ çalışmıyor** — o son adım için senden
-`google-services.json` gerekiyor (aşağıda).
+Kısa özet: bildirimler hem uygulama açık/arka plandayken (yerel bildirim) hem
+de tamamen kapalıyken (native FCM push) çalışacak şekilde bağlandı. Kapalıyken
+gelmesi için ayrıca **veritabanı kuralının yüklü olması ve sunucunun push'a
+`notification` bloğu koyması** gerekiyor — ikisi de aşağıda anlatıldı.
 
 ### Sorun neydi
 
@@ -109,17 +110,52 @@ Köprü yalnız APK içinde devreye giriyor; tarayıcıda gerçek `Notification`
 bulunduğu için hiçbir şeye dokunmadan çıkıyor. Eklenti bulunamazsa da sessizce
 devre dışı kalıyor, yani en kötü ihtimalle eski davranışa dönülüyor.
 
-### Kalan eksik: uygulama kapalıyken bildirim
+### Uygulama kapalıyken bildirim (native FCM)
 
-Yukarıdaki **yerel** bildirim, adı üstünde, cihazda çalışan koddan doğuyor.
-Uygulama görev listesinden tamamen kapatıldığında çalışan kod kalmadığı için
-bildirim üretilemez. Bunun için sunucudan gelen **native FCM push** gerekiyor.
+Yerel bildirim, cihazda çalışan koddan doğuyor; uygulama tamamen kapatıldığında
+çalışan kod kalmadığı için yetmiyor. Bu yüzden native FCM de bağlandı:
+`@capacitor/push-notifications` eklendi ve `google-services.json` depoya kondu
+(Capacitor'un kendi `app/build.gradle` şablonu bu dosyayı görünce
+google-services eklentisini kendisi uyguluyor, Gradle'a elle dokunmadık).
 
-Tek adım sende: Firebase konsolunda bu Android paketine (`com.meridyen.app`)
-özel bir uygulama kaydı aç, `google-services.json` dosyasını indirip bana
-gönder. Ardından `@capacitor/push-notifications`'ı ekleyip native belirteci
-(token) mevcut `cihazlar/<uid>` düğümüne yazdırırım — senin Node.js sunucun
-zaten o düğümü okuduğu için sunucu tarafında değişiklik gerekmeyebilir.
+Belirteci (token) native tarafta alıp uygulamanın zaten kullandığı
+`cihazlar/<uid>` düğümüne yazıyoruz — yani **sunucunda değişiklik gerekmiyor**,
+aynı düğümü okumaya devam ediyor. Yazarken uygulamanın kendi
+`belirtecAnahtari()` fonksiyonunu kullanıyoruz; bulunamazsa birebir aynı karmayı
+üreten bir yedek devreye giriyor (ikisinin aynı sonucu verdiği test edildi).
+
+Köprü ayrıca uygulamanın `cihazBelirteci` değişkenini dolduruyor. Bunun faydası:
+"bildirimde içerik göster" tercihi değiştiğinde ve çıkış yapıldığında
+`index.html`'in KENDİ mevcut kodu belirteci güncelliyor/siliyor — o mantık
+burada tekrar yazılmadı.
+
+Uygulama öndeyken gelen push yutuluyor, çünkü index.html zaten veritabanı
+dinleyicisinden kendi bildirimini gösteriyor; ikisi birden çalışsa aynı mesaj
+iki kez görünürdü (web tarafı da aynısını yapıyor).
+
+### Çalışması için gereken iki şey (sunucu/konsol tarafı)
+
+Bunlar APK'nın dışında kaldığı için buradan yapılamıyor, kontrol etmen gerek:
+
+1. **`cihazlar` veritabanı kuralı yüklü olmalı.** Telefon belirtecini
+   `cihazlar/<uid>/...` altına yazıyor; kural yoksa yazma reddedilir ve sunucu
+   o cihaza hiç gönderemez. Gereken kural:
+
+   ```json
+   "cihazlar": { "$uid": { ".read": "auth.uid === $uid", ".write": "auth.uid === $uid" } }
+   ```
+
+   Bu kural `www/index.html` içindeki kural bloğunda var, ama canlı sitedeki
+   sürümde yok — yani Firebase konsolunda yüklü olup olmadığını doğrulaman
+   gerekiyor. Yazma reddedilirse köprü tarayıcı konsoluna
+   "bildirim belirteci yazılamadı" uyarısı düşürüyor.
+
+2. **Sunucu, push'a `notification` bloğu koymalı.** Uygulama tamamen
+   kapalıyken bildirimi Android'in kendisi çiziyor ve bunu yalnız `notification`
+   bloğundan yapabiliyor. Yalnızca `data` gönderilirse (web Service Worker'ı
+   bununla da başa çıkabiliyordu) kapalı uygulamada hiçbir şey görünmez.
+   Yani sunucu hem `notification` hem `data` göndermeli: ilki kapalıyken
+   görünmesi, ikincisi uygulama açılınca yönlendirme için.
 
 ## Diğer sıradaki adımlar
 

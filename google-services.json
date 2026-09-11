@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "628310759714",
+    "firebase_url": "https://meridyen-830fb-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "meridyen-830fb",
+    "storage_bucket": "meridyen-830fb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:628310759714:android:977e09d94fd088f678ed7b",
+        "android_client_info": {
+          "package_name": "com.meridyen.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA8i5Kppd4dvFqsisOQed5BC_NKf3BVCfE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

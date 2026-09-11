@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Uygulamanın vurgu rengi (index.html'deki CSS değişkeni "vurgu" ile
+         aynı). FCM, uygulama kapalıyken bildirimi kendisi çizerken bu rengi
+         kullanıyor. -->
+    <color name="meridyen_vurgu">#7c9cff</color>
+</resources>

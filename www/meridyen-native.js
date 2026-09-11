@@ -143,3 +143,125 @@
     }).catch(function () {});
   } catch (e) {}
 })();
+
+/* ================= NATIVE PUSH (uygulama kapalıyken de bildirim) =================
+ *
+ * Yukarıdaki köprü YEREL bildirim veriyordu: uygulama çalışırken iyi, ama
+ * tamamen kapatıldığında çalışan kod kalmadığı için bildirim üretemiyor.
+ * Kapalıyken bildirim, ancak sunucudan gelen FCM push'u ile mümkün.
+ *
+ * Web tarafındaki `uzakBildirimiKur()` bunu WebView'da yapamıyor: Service
+ * Worker tabanlı web push'u kullanıyor ve `firebase.messaging.isSupported()`
+ * WebView'da false dönüyor. Bu yüzden belirteci (token) NATIVE tarafta alıp
+ * uygulamanın zaten kullandığı `cihazlar/<uid>` düğümüne biz yazıyoruz —
+ * sunucun hiçbir değişiklik olmadan bu belirtece gönderebilir.
+ *
+ * Uygulamanın kendi `cihazBelirteci` değişkenini de dolduruyoruz; böylece
+ * "bildirimde içerik göster" tercihi değiştiğinde ve çıkış yapıldığında
+ * index.html'in KENDİ mevcut kodu belirteci güncelliyor/siliyor — o mantığı
+ * burada tekrar yazmıyoruz.
+ */
+(function () {
+  'use strict';
+
+  var cap = window.Capacitor;
+  if (!cap || typeof cap.isNativePlatform !== 'function' || !cap.isNativePlatform()) return;
+
+  var PB = cap.Plugins && cap.Plugins.PushNotifications;
+  if (!PB) return;
+
+  var kuruldu = false;      // dinleyiciler bir kez bağlansın
+  var yazilanYol = null;    // çıkışta temizlik için
+
+  /* index.html'deki ile AYNI karma: belirteç, Firebase anahtarında yasak olan
+     karakterleri içerebildiği için düğüm adı olarak kullanılamıyor. Uygulama
+     kendi fonksiyonunu global tanımlıyor; varsa ONU kullanıyoruz ki iki taraf
+     asla farklı anahtar üretmesin. */
+  function belirtecAnahtariYerel(t) {
+    if (typeof window.belirtecAnahtari === 'function') {
+      try { return window.belirtecAnahtari(t); } catch (e) {}
+    }
+    var h = 0;
+    for (var i = 0; i < t.length; i++) { h = (h * 31 + t.charCodeAt(i)) | 0; }
+    return 'c' + Math.abs(h).toString(36) + '_' + t.slice(-12).replace(/[^A-Za-z0-9_-]/g, '');
+  }
+
+  // "Bildirimde mesaj metni görünsün mü" tercihi. Uygulamanın global
+  // değişkeni; okunamazsa gizli tarafta kalıyoruz (güvenli varsayılan).
+  function icerikGosterilsinMi() {
+    try { return !!tercihler.bildirimIcerik; } catch (e) { return false; }
+  }
+
+  function belirteciYaz(uid, belirtec) {
+    var vt;
+    try { vt = window.firebase.database(); } catch (e) { return; }
+
+    var yol = 'cihazlar/' + uid + '/' + belirtecAnahtariYerel(belirtec);
+    yazilanYol = yol;
+
+    vt.ref(yol).set({
+      belirtec: belirtec,
+      ts: Date.now(),
+      icerikGoster: icerikGosterilsinMi(),
+      tarayici: (navigator.userAgent || '').slice(0, 120)
+    }).then(function () {
+      // Uygulamanın kendi değişkenini dolduruyoruz: içerik tercihi değişince
+      // ve çıkış yapılınca index.html'in mevcut kodu devreye girsin.
+      try { cihazBelirteci = belirtec; } catch (e) {}
+    }).catch(function (e) {
+      // En olası sebep: Realtime Database kurallarında `cihazlar` düğümü için
+      // yazma izni tanımlı değil. O zaman sunucu bu cihaza hiç gönderemez.
+      console.warn('Meridyen: bildirim belirteci yazılamadı —', e && e.message);
+    });
+  }
+
+  function kur() {
+    if (kuruldu) return;
+    kuruldu = true;
+
+    PB.addListener('registration', function (belirtecBilgisi) {
+      var belirtec = belirtecBilgisi && belirtecBilgisi.value;
+      if (!belirtec) return;
+      var kullanici = null;
+      try { kullanici = window.firebase.auth().currentUser; } catch (e) {}
+      if (kullanici) belirteciYaz(kullanici.uid, belirtec);
+    });
+
+    PB.addListener('registrationError', function (hata) {
+      console.warn('Meridyen: push kaydı başarısız —', hata && (hata.error || hata.message));
+    });
+
+    /* Uygulama ÖNDEYKEN gelen push'u yutuyoruz. index.html zaten veritabanı
+       dinleyicisinden kendi bildirimini gösteriyor; ikisi birden çalışsa aynı
+       mesaj iki kez görünürdü. Web tarafı da aynısını yapıyor
+       (`mesajlasma.onMessage(() => {})`). */
+    PB.addListener('pushNotificationReceived', function () {});
+  }
+
+  // Firebase SDK'sı sayfaya sonradan (dinamik script ile) geliyor; hazır olana
+  // kadar bekliyoruz.
+  var deneme = 0;
+  var zamanlayici = setInterval(function () {
+    if (++deneme > 600) { clearInterval(zamanlayici); return; }  // ~60 sn
+    var fb = window.firebase;
+    if (!fb || !fb.apps || !fb.apps.length || !fb.auth) return;
+    clearInterval(zamanlayici);
+
+    kur();
+
+    fb.auth().onAuthStateChanged(function (kullanici) {
+      if (!kullanici) {
+        // Çıkışta silmeyi index.html'in `uzakBildirimiBirak()` fonksiyonu
+        // yapıyor (biz `cihazBelirteci`'ni doldurduğumuz için çalışıyor).
+        yazilanYol = null;
+        return;
+      }
+      // Belirteci iste: sonuç 'registration' dinleyicisine düşecek.
+      try {
+        PB.register().catch(function (e) {
+          console.warn('Meridyen: push kaydı yapılamadı —', e && e.message);
+        });
+      } catch (e) {}
+    });
+  }, 100);
+})();

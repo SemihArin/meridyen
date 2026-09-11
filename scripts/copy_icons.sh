@@ -16,6 +16,7 @@ cp "$KAYNAK/mipmap-anydpi-v26/ic_launcher_round.xml" "$HEDEF/mipmap-anydpi-v26/i
 
 mkdir -p "$HEDEF/values"
 cp "$KAYNAK/values/ic_launcher_background.xml" "$HEDEF/values/ic_launcher_background.xml"
+cp "$KAYNAK/values/meridyen_renkler.xml" "$HEDEF/values/meridyen_renkler.xml"
 
 echo "ikonlar kopyalandı."
 
