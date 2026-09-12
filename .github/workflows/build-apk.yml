@@ -99,6 +99,13 @@ jobs:
       - name: Bildirim id'lerini sına (native ↔ web)
         run: python3 scripts/test_bildirim_id.py
 
+      # index.html'in başındaki yorum bloğu veritabanı kurallarının
+      # kopyala-yapıştır kopyasını taşıyor. İkisi saparsa biri oradaki ESKİ
+      # kuralları konsola yapıştırıp kapatılmış bir açığı yeniden açabilir.
+      # Uyarı yazmak yetmiyor; sapma burada derlemeyi kırıyor.
+      - name: Kural kopyasının aynı olduğunu sına
+        run: python3 scripts/test_kurallar_ayni.py
+
       - name: Bildirim köprüsünü ekle
         run: python3 scripts/inject_native_script.py
 

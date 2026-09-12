@@ -73,6 +73,9 @@
   açabilir. Değiştireceksen İKİSİNİ BİRDEN değiştir.
   {
     "rules": {
+      "sistem":         {".read": true, "bakim": {".write": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true", ".validate": "newData.hasChild('acik')", "acik": {".validate": "newData.isBoolean()"}, "mesaj": {".validate": "newData.isString() && newData.val().length <= 160"}, "baslangic": {".validate": "newData.isNumber()"}, "kapatan": {".validate": "newData.isString() && newData.val().length <= 64"}, "$baska": {".validate": false}}},
+      "bakimGunlugu":   {".read": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true", ".write": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true", "$ziyaretci": {"$deneme": {".write": "!data.exists() && newData.exists() && root.child('sistem').child('bakim').child('acik').val() === true", ".validate": "newData.hasChild('ts') && newData.child('ts').val() <= now + 60000 && newData.child('ts').val() > now - 300000", "ts": {".validate": "newData.isNumber()"}, "uid": {".validate": "newData.isString() && newData.val().length <= 64 && (auth == null || newData.val() === auth.uid)"}, "ad": {".validate": "newData.isString() && newData.val().length <= 60"}, "cihaz": {".validate": "newData.isString() && newData.val().length <= 200"}, "$baska": {".validate": false}}}},
+      "cihazKomut":     {"$uid": {".read": "(auth != null && auth.uid === $uid) || (auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true)", "$komut": {".write": "(auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true) || (auth != null && auth.uid === $uid && !newData.exists())", ".validate": "newData.hasChildren(['tur','ts'])", "tur": {".validate": "newData.isString() && newData.val() === 'yenile'"}, "ts": {".validate": "newData.isNumber()"}, "kimden": {".validate": "newData.isString() && newData.val().length <= 64"}, "$baska": {".validate": false}}}},
       "profil":          { ".read": "auth != null", "$uid": { ".write": "auth.uid === $uid",
                              "yonetici": { ".validate": "newData.val() == data.val()" } } },
       "kullaniciAdlari": { ".read": "auth != null", "$ad": { ".write": "auth != null && (!data.exists() || data.val() === auth.uid) && newData.val() === auth.uid" } },
@@ -177,6 +180,50 @@
   --r:14px;
   --gecis:.35s cubic-bezier(.2,.8,.2,1);
 }
+/* ---- BAKIM PERDESİ ----
+   Site kapatıldığında her şeyin üstünü örten tam ekran katman. Alttaki
+   sayfayı SİLMİYORUZ: yönetici kapatmayı kaldırdığı anda perde kalkıyor ve
+   uygulama olduğu yerden devam ediyor, kimsenin sayfayı yenilemesi
+   gerekmiyor. */
+.bakim-perde{position:fixed;inset:0;z-index:9000;display:none;
+  align-items:center;justify-content:center;padding:28px;
+  background:var(--kagit);color:var(--murekkep);text-align:center}
+.bakim-perde.gor{display:flex}
+.bakim-ic{max-width:420px;display:grid;gap:14px;justify-items:center}
+.bakim-ic .bakim-im{width:54px;height:54px;opacity:.8}
+.bakim-ic .bakim-im svg{width:100%;height:100%;fill:none;stroke:var(--indigo);
+  stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.bakim-ic h2{font-size:1.28rem;font-weight:600;letter-spacing:.01em}
+.bakim-ic p{font-size:.95rem;line-height:1.55;color:#5d6058}
+.bakim-ic .bakim-alt{font-size:.78rem;color:var(--duman)}
+/* Yönetici perdeyi görmez ama sitenin kapalı olduğunu unutmamalı. */
+.bakim-serit{position:fixed;left:0;right:0;top:0;z-index:8500;
+  padding:calc(env(safe-area-inset-top) + 5px) 12px 5px;
+  background:var(--vurgu-2);color:#2a1c06;font-size:.74rem;font-weight:600;
+  text-align:center;display:none;letter-spacing:.02em}
+.bakim-serit.gor{display:block}
+body.bakim-seritli{padding-top:26px}
+
+/* ---- yönetim: site durumu ve ziyaret günlüğü ---- */
+.yn-satir-sar{display:flex;align-items:stretch;gap:6px}
+.yn-satir-sar .yn-satir{flex:1;min-width:0}
+.yn-yenile-btn{flex:0 0 auto;width:38px;border:1px solid rgba(255,255,255,.08);
+  background:var(--gece-3);color:var(--gri);border-radius:11px;cursor:pointer;
+  display:grid;place-items:center}
+.yn-yenile-btn svg{width:17px;height:17px;fill:none;stroke:currentColor;
+  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.yn-yenile-btn:hover{color:var(--vurgu);border-color:rgba(124,156,255,.35)}
+.yn-gunluk-satir{display:flex;gap:10px;align-items:flex-start;padding:9px 2px;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.yn-gunluk-satir:last-child{border-bottom:0}
+.yn-gunluk-ic{flex:1;min-width:0}
+.yn-gunluk-ic b{display:block;font-size:.87rem;color:var(--kar);font-weight:600}
+.yn-gunluk-ic span{display:block;font-size:.74rem;color:var(--gri);margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis}
+.yn-gunluk-sayi{flex:0 0 auto;align-self:center;min-width:34px;text-align:center;
+  background:var(--gece-3);border-radius:9px;padding:4px 7px;
+  font-size:.8rem;font-weight:600;color:var(--vurgu)}
+.yn-gunluk-zaman{font-size:.7rem;color:var(--duman);word-break:break-word}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
 html,body{max-width:100%;overflow-x:clip}
@@ -821,6 +868,10 @@ body.klavye-var .perde{align-items:flex-start;padding-top:12px;padding-bottom:12
   background-repeat:no-repeat;background-position:right 9px center;background-size:14px;
 }
 .ayar-secim:focus{outline:none;border-color:var(--vurgu);box-shadow:0 0 0 3px rgba(124,156,255,.14)}
+.ayar-girdi{display:block;width:100%;margin-top:7px;padding:7px 10px;border-radius:10px;
+  border:1px solid rgba(255,255,255,.1);background:var(--gece-3);color:var(--kar);
+  font:inherit;font-size:.84rem}
+.ayar-girdi:focus{outline:none;border-color:var(--vurgu);box-shadow:0 0 0 3px rgba(124,156,255,.14)}
 .ayar-secim option{background:#2b3140;color:var(--kar)}
 .anahtar{position:relative;width:44px;height:26px;border-radius:100px;background:#3a4050;flex:none;transition:background .22s}
 .anahtar::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#e9ecf3;box-shadow:0 1px 4px rgba(0,0,0,.5);transition:transform .22s}
@@ -4705,6 +4756,37 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
               <div class="ayar-bilgi"><b>Kapalı düğümler</b><small id="ynKapali">—</small></div>
             </div>
           </div>
+          <div class="ayar-bolum">
+            <h4>Site durumu</h4>
+            <div class="ayar-satir uzun" id="satirBakim">
+              <span class="ay-ikon turuncu"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <div class="ayar-bilgi"><b>Siteyi geçici olarak kapat</b><small id="ynBakimDurum">Site açık.</small></div>
+              <button class="anahtar" id="ynBakimAnahtar" role="switch" aria-checked="false" aria-label="Siteyi kapat"></button>
+            </div>
+            <div class="ayar-satir uzun" id="satirBakimMesaj">
+              <span class="ay-ikon mavi"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-12.8 7.6L3 21l1.9-5.2A8.4 8.4 0 1 1 21 11.5z"/></svg></span>
+              <div class="ayar-bilgi"><b>Kapalıyken görünecek yazı</b><small>Boş bırakırsan varsayılan metin görünür.</small>
+                <input class="ayar-girdi" id="ynBakimMesaj" maxlength="160" placeholder="Kısa bir açıklama yaz">
+              </div>
+              <button class="ayar-dugme" id="ynBakimMesajBtn">Kaydet</button>
+            </div>
+            <div class="ayar-satir uzun">
+              <span class="ay-ikon mor"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v5h-5"/></svg></span>
+              <div class="ayar-bilgi"><b>Herkesin sayfasını yenile</b><small>Açık olan her cihaz sayfayı baştan yükler.</small></div>
+              <button class="ayar-dugme" id="ynHepsiniYenile">Yenile</button>
+            </div>
+          </div>
+
+          <!-- Site kapalıyken linke kimin girdiği. Giriş yapmış biriyse adı,
+               değilse tarayıcısına özel kalıcı bir kimlik ve cihaz bilgisi
+               yazılır; IP adresi tarayıcıdan görülemiyor. -->
+          <div class="ayar-bolum" id="ynGunlukBolum">
+            <h4>Kapalıyken gelenler <span class="km-sayi" id="ynGunlukSayi"></span>
+              <button class="ayar-dugme" id="ynGunlukTemizle" style="float:right">Temizle</button>
+            </h4>
+            <div class="izleme-listesi" id="ynGunluk"></div>
+          </div>
+
           <p class="ay-dipnot">Sohbet içerikleri yöneticiye de kapalıdır.<br>Veritabanı kuralları yalnız katılımcılara okuma izni verir.</p>
         </div>
         </div>
@@ -5444,6 +5526,19 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
 
 <div class="bildirim" id="bildirim"></div>
 
+<!-- Site geçici olarak kapatıldığında görünen katman. Durum veritabanından
+     CANLI okunuyor (sistem/bakim): yönetici açıp kapattığı anda, açık olan
+     her sekmede kendiliğinden beliriyor ya da kalkıyor. -->
+<div class="bakim-perde" id="bakimPerde" role="alertdialog" aria-modal="true" aria-labelledby="bakimBaslik">
+  <div class="bakim-ic">
+    <span class="bakim-im"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+    <h2 id="bakimBaslik">Şu an kapalıyız</h2>
+    <p id="bakimMesaj">Meridyen kısa bir süreliğine bakımda. Birazdan yeniden buradayız.</p>
+    <span class="bakim-alt" id="bakimAlt"></span>
+  </div>
+</div>
+<div class="bakim-serit" id="bakimSerit">Site KAPALI — yalnız sen görüyorsun</div>
+
 <!-- Firebase SDK'sı artık burada engelleyici olarak yüklenmiyor; mağaza sayfasının
      ona ihtiyacı yok. Vitrin boyandıktan sonra arka planda çekiliyor (bkz. firebaseBaslat). -->
 <script>
@@ -5580,6 +5675,10 @@ function firebaseBaslat(){
     auth = firebase.auth();
     db = firebase.database();
     firebaseHazir = true;
+    /* Bakım durumu oturumdan BAĞIMSIZ dinleniyor: giriş yapmamış ziyaretçi
+       de sitenin kapalı olduğunu görmeli, üstelik kapalıyken zaten giriş
+       yapamıyor. */
+    bakimIzle();
     auth.onAuthStateChanged(oturumDegisti);
   }).catch((e) => {
     console.error('Firebase başlatılamadı:', e);
@@ -5667,6 +5766,8 @@ async function oturumDegisti(kullanici){
     oturumVar = false;
     uzakBildirimiBirak();
     ben = null; benimAdim = '';
+    bakimYonetici = false; bakimUygula();
+    komutlariBirak();
     kanaliDurdur();
     vitrineGec();
     hesapDurumu();
@@ -5681,6 +5782,8 @@ async function oturumDegisti(kullanici){
   // panelin açılmasını beklerlerse vitrindeyken gelen çağrı hiç ulaşmıyordu.
   if (!kanalAcik) kanaliBaslat();
   uzakBildirimiKur();
+  bakimYetkiTazele();     // yönetici perdeden muaf
+  komutlariDinle();       // uzaktan "sayfayı yenile" isteği
   if (elleGiris) {
     // Az önce formdan parolayla girildi: kimlik zaten kanıtlandı, kilit ekranı atlanır.
     elleGiris = false; bekleyenTiklama = false;
@@ -10781,6 +10884,167 @@ function bildirimKuyruguna(hedefUid, tur, baslik, metin, ek){
    bilgisi gösteriliyor. Böylece iki ayrı profil düzenleme yüzeyi kalmıyor. */
 let profilHedefi = null;
 
+/* ================= SİTEYİ GEÇİCİ OLARAK KAPATMA =================
+
+   Durum tek bir düğümde: sistem/bakim = { acik, mesaj, baslangic, kapatan }.
+   Herkes OKUYABİLİR (kapalı olduğunu bilmesi gerekiyor), yalnız yönetici
+   yazabilir.
+
+   CANLI dinleniyor: yönetici anahtarı çevirdiği anda açık olan her sekmede
+   perde iniyor ya da kalkıyor. Alttaki sayfa yok edilmiyor, o yüzden site
+   yeniden açıldığında kimsenin sayfayı yenilemesi gerekmiyor.
+
+   SINIRI açıkça söylemek gerekiyor: bu bir NEZAKET kapısı, kasa kapısı
+   değil. Perde tarayıcıda çiziliyor; teknik bilgisi olan biri geliştirici
+   araçlarıyla kaldırabilir. Gerçek anlamda kilitlemek için veritabanı
+   kurallarının da bakım açıkken okumayı reddetmesi gerekir — bu, uygulamanın
+   her düğümünü etkileyen ayrı ve riskli bir adım.
+
+   Okuma hata verirse (kural bloğu henüz yayımlanmadıysa) site AÇIK kabul
+   ediliyor: bir kural hatası yüzünden herkesin dışarıda kalması, kapalıyken
+   birinin içeri girmesinden çok daha kötü.                                  */
+const BAKIM_VARSAYILAN = 'Meridyen kısa bir süreliğine bakımda. Birazdan yeniden buradayız.';
+let bakimDurumu = null;        // sistem/bakim'ın son okunan hâli
+let bakimYonetici = false;     // bu kullanıcı perdeden muaf mı
+let bakimSonKayit = 0;         // günlüğe en son ne zaman yazdık
+let bakimIzleniyor = false;
+
+function bakimIzle(){
+  if (!db || bakimIzleniyor) return;
+  bakimIzleniyor = true;
+  db.ref('sistem/bakim').on('value',
+    (s) => { bakimDurumu = s.val() || null; bakimUygula(); },
+    ()  => { bakimDurumu = null; bakimUygula(); });
+}
+
+/* Yönetici perdeyi görmemeli, yoksa kapattığı siteyi kendisi de açamaz.
+   Yetki profil/<uid>/yonetici'den okunuyor; profil önbelleği henüz
+   dolmamış olabildiği için doğrudan veritabanından da teyit ediliyor. */
+function bakimYetkiTazele(){
+  if (!ben || !db) { bakimYonetici = false; bakimUygula(); return; }
+  if ((profilKesi[ben.uid] || {}).yonetici) { bakimYonetici = true; bakimUygula(); }
+  db.ref('profil/' + ben.uid + '/yonetici').get()
+    .then(s => { bakimYonetici = s.val() === true; bakimUygula(); })
+    .catch(() => {});
+}
+
+function bakimUygula(){
+  const perdeEl = $('#bakimPerde'), serit = $('#bakimSerit');
+  if (!perdeEl) return;
+  const kapali = !!(bakimDurumu && bakimDurumu.acik);
+
+  if (!kapali) {
+    perdeEl.classList.remove('gor');
+    serit.classList.remove('gor');
+    document.body.classList.remove('bakim-seritli');
+    ynBakimCiz();
+    return;
+  }
+  if (bakimYonetici) {
+    // Yönetici içeride; yalnız üstte bir şerit hatırlatıyor.
+    perdeEl.classList.remove('gor');
+    serit.classList.add('gor');
+    document.body.classList.add('bakim-seritli');
+    ynBakimCiz();
+    return;
+  }
+  $('#bakimMesaj').textContent = (bakimDurumu.mesaj || '').trim() || BAKIM_VARSAYILAN;
+  perdeEl.classList.add('gor');
+  serit.classList.remove('gor');
+  document.body.classList.remove('bakim-seritli');
+  bakimZiyaretiYaz();
+  ynBakimCiz();
+}
+
+/* ---- kapalıyken kim geldi ----
+   Giriş yapmış biriyse uid ve adı yazılıyor. Değilse tarayıcısına özel,
+   kalıcı bir kimlik üretiliyor: aynı kişinin ikinci denemesi aynı satırda
+   sayılabilsin diye. IP adresi tarayıcıdan GÖRÜLEMİYOR; onun için sunucu
+   tarafı gerekir. */
+function ziyaretciAnahtari(){
+  if (ben) return 'u_' + ben.uid;
+  let k = null;
+  try { k = localStorage.getItem('meridyen_ziyaretci'); } catch (e) {}
+  if (!k) {
+    k = 'z_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+    try { localStorage.setItem('meridyen_ziyaretci', k); } catch (e) {}
+  }
+  return k;
+}
+
+function bakimZiyaretiYaz(){
+  if (!db) return;
+  const simdi = Date.now();
+  /* Aynı sayfa açılışında bir kez yazıyoruz. Sekme uzun süre arkada kalıp
+     geri geldiyse bu YENİ bir deneme sayılıyor — kullanıcının bakış açısıyla
+     gerçekten yeniden denemiş oluyor. */
+  if (bakimSonKayit && simdi - bakimSonKayit < 5 * 60 * 1000) return;
+  bakimSonKayit = simdi;
+  const kayit = {
+    ts: firebase.database.ServerValue.TIMESTAMP,
+    cihaz: (navigator.userAgent || '').slice(0, 160)
+  };
+  if (ben) { kayit.uid = ben.uid; if (benimAdim) kayit.ad = benimAdim; }
+  db.ref('bakimGunlugu/' + ziyaretciAnahtari()).push(kayit).catch(() => {});
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (bakimDurumu && bakimDurumu.acik && !bakimYonetici) bakimZiyaretiYaz();
+});
+
+/* ================= UZAKTAN SAYFA YENİLEME =================
+
+   cihazKomut/<uid>/<itme> = { tur:'yenile', ts, kimden }
+   Yalnız yönetici yazabiliyor; kullanıcı kendi kutusunu okuyup SİLEBİLİYOR.
+
+   Döngüye karşı üç ayrı emniyet var, çünkü sonsuz yenilenen bir sayfa
+   uygulamayı tamamen kullanılmaz yapar:
+     1. Komut işlenir işlenmez siliniyor.
+     2. İşlenen komut anahtarları localStorage'da tutuluyor (silme
+        başarısız olursa ikinci kez tetiklenmesin).
+     3. Bir oturumda en fazla 3 kez yenileniyor; fazlası sayılıp durduruluyor.
+   Silme yanıtı gecikirse diye en fazla 800 ms bekleniyor.               */
+let komutRef = null;
+
+function komutlariDinle(){
+  if (!db || !ben) return;
+  komutlariBirak();
+  komutRef = db.ref('cihazKomut/' + ben.uid);
+  komutRef.on('child_added', (s) => {
+    const v = s.val() || {};
+    if (v.tur !== 'yenile') return;
+
+    let islenen = [];
+    try { islenen = JSON.parse(localStorage.getItem('meridyen_komut') || '[]'); } catch (e) {}
+    if (islenen.indexOf(s.key) >= 0) return;
+    islenen.push(s.key);
+    if (islenen.length > 30) islenen = islenen.slice(-30);
+    try { localStorage.setItem('meridyen_komut', JSON.stringify(islenen)); } catch (e) {}
+
+    let sayi = 0;
+    try { sayi = parseInt(sessionStorage.getItem('meridyen_yenileme') || '0', 10) || 0; } catch (e) {}
+    if (sayi >= 3) {
+      s.ref.remove().catch(() => {});
+      bildir('Yenileme isteği geldi ama bu oturumda çok fazla yenilendi.');
+      return;
+    }
+    try { sessionStorage.setItem('meridyen_yenileme', String(sayi + 1)); } catch (e) {}
+
+    bildir('Sayfa yenileniyor…', 1200);
+    let yapildi = false;
+    const yenile = () => { if (yapildi) return; yapildi = true; location.reload(); };
+    setTimeout(yenile, 800);
+    s.ref.remove().then(yenile).catch(yenile);
+  }, () => {});
+}
+
+function komutlariBirak(){
+  if (!komutRef) return;
+  try { komutRef.off(); } catch (e) {}
+  komutRef = null;
+}
+
 /* ================= YÖNETİM PANELİ =================
    Erişim: profil/<uid>/yonetici === true. Bu alanı Firebase konsolundan
    elle açman gerekiyor; uygulamadan yönetici yapılamaz (yoksa kodu gören
@@ -10796,6 +11060,133 @@ function yoneticiMiyim(){
 function yonetimSatiriTazele(){
   const s = $('#ayarYonetimSatir');
   if (s) s.classList.toggle('gizli', !yoneticiMiyim());
+}
+
+
+/* ---- site durumu: yönetici tarafı ---- */
+function ynBakimCiz(){
+  const an = $('#ynBakimAnahtar');
+  if (!an) return;
+  const kapali = !!(bakimDurumu && bakimDurumu.acik);
+  an.classList.toggle('acik', kapali);
+  an.setAttribute('aria-checked', String(kapali));
+  const d = $('#ynBakimDurum');
+  if (d) {
+    d.textContent = kapali
+      ? ('Site KAPALI' + (bakimDurumu.baslangic
+          ? " — " + kisaZaman(bakimDurumu.baslangic) + "'den beri" : ''))
+      : 'Site açık.';
+  }
+  /* Yazarken elinin altından değiştirmeyelim: alan odaktaysa dokunmuyoruz. */
+  const g = $('#ynBakimMesaj');
+  if (g && document.activeElement !== g) g.value = (bakimDurumu && bakimDurumu.mesaj) || '';
+}
+
+function bakimAyarla(kapali){
+  if (!(bakimYonetici || yoneticiMiyim())) return bildir('Bu bölüm yalnız yöneticiye açık.');
+  const alan = $('#ynBakimMesaj');
+  const mesaj = (alan ? alan.value : '').trim().slice(0, 160);
+  const veri = { acik: !!kapali, mesaj: mesaj };
+  /* Açarken zamanı da yazıyoruz: "ne zamandır kapalı" bilgisi yönetim
+     ekranında görünsün. Kapatırken bilerek sıfırlıyoruz. */
+  if (kapali) { veri.baslangic = firebase.database.ServerValue.TIMESTAMP; veri.kapatan = ben.uid; }
+  db.ref('sistem/bakim').set(veri)
+    .then(() => bildir(kapali ? 'Site kapatıldı.' : 'Site yeniden açıldı.'))
+    .catch(() => bildir('Yazılamadı — veritabanı kurallarını yayımladın mı?'));
+}
+
+/* Tarayıcı kimliği uzun ve okunmaz; yönetim ekranında işe yarayan kısmı
+   cihaz ve tarayıcı. APK'dan gelenler ayrıca işaretleniyor. */
+function cihazOzeti(ua){
+  ua = String(ua || '');
+  if (!ua) return 'bilinmeyen cihaz';
+  let sistem = /Android/i.test(ua) ? 'Android'
+             : /iPhone/i.test(ua) ? 'iPhone'
+             : /iPad/i.test(ua) ? 'iPad'
+             : /Windows/i.test(ua) ? 'Windows'
+             : /Mac OS X|Macintosh/i.test(ua) ? 'Mac'
+             : /Linux/i.test(ua) ? 'Linux' : 'bilinmeyen';
+  if (/;\s*wv\)/.test(ua)) return 'Meridyen uygulaması · ' + sistem;
+  let tarayici = /Edg\//.test(ua) ? 'Edge'
+               : /OPR\//.test(ua) ? 'Opera'
+               : /SamsungBrowser/i.test(ua) ? 'Samsung Internet'
+               : /Firefox\//.test(ua) ? 'Firefox'
+               : /Chrome\//.test(ua) ? 'Chrome'
+               : /Safari\//.test(ua) ? 'Safari' : 'tarayıcı';
+  return tarayici + ' · ' + sistem;
+}
+
+/* Kapalıyken linke girenler. Her satır BİR ziyaretçi; sağdaki sayı kaç kez
+   denediği. Giriş yapmışsa adı, yapmamışsa tarayıcısına özel kimliğin ilk
+   birkaç hanesi yazılıyor — aynı kişi ikinci kez denediğinde aynı satırda
+   sayılabilsin diye. */
+function ynGunlukCiz(gunluk, profiller){
+  const kutu = $('#ynGunluk');
+  if (!kutu) return;
+  kutu.innerHTML = '';
+  gunluk = gunluk || {};
+  profiller = profiller || {};
+
+  const satirlar = [];
+  Object.keys(gunluk).forEach(anahtar => {
+    const denemeler = Object.keys(gunluk[anahtar] || {})
+      .map(k => gunluk[anahtar][k])
+      .filter(x => x && x.ts)
+      .sort((a, b) => b.ts - a.ts);
+    if (!denemeler.length) return;
+    satirlar.push({ anahtar: anahtar, denemeler: denemeler, son: denemeler[0].ts });
+  });
+  satirlar.sort((a, b) => b.son - a.son);
+
+  const toplam = satirlar.reduce((t, x) => t + x.denemeler.length, 0);
+  $('#ynGunlukSayi').textContent = toplam
+    ? (satirlar.length + ' kişi · ' + toplam + ' deneme') : '';
+
+  if (!satirlar.length) {
+    kutu.innerHTML = '<div class="iz-bos">Site kapalıyken kimse gelmedi.</div>';
+    return;
+  }
+
+  satirlar.forEach(x => {
+    const son = x.denemeler[0];
+    const ilk = x.denemeler[x.denemeler.length - 1];
+    let ad;
+    if (x.anahtar.indexOf('u_') === 0) {
+      const uid = x.anahtar.slice(2);
+      ad = (profiller[uid] || {}).ad || son.ad || uid;
+    } else {
+      ad = 'Misafir · ' + x.anahtar.slice(2, 8);
+    }
+    const satir = document.createElement('div');
+    satir.className = 'yn-gunluk-satir';
+    const ic = document.createElement('div');
+    ic.className = 'yn-gunluk-ic';
+    // En fazla 6 deneme saati gösteriliyor; gerisi sayıda zaten var.
+    const saatler = x.denemeler.slice(0, 6)
+      .map(d => kisaZaman(d.ts) + ' ' + saat(d.ts)).join(' · ');
+    ic.innerHTML = '<b>' + kacir(ad) + '</b>' +
+      '<span>' + kacir(cihazOzeti(son.cihaz)) + '</span>' +
+      '<span class="yn-gunluk-zaman">' + kacir(saatler) +
+      (x.denemeler.length > 6 ? ' · +' + (x.denemeler.length - 6) : '') + '</span>' +
+      (x.denemeler.length > 1
+        ? '<span>ilk deneme: ' + kacir(kisaZaman(ilk.ts) + ' ' + saat(ilk.ts)) + '</span>' : '');
+    const sayi = document.createElement('span');
+    sayi.className = 'yn-gunluk-sayi';
+    sayi.textContent = x.denemeler.length;
+    sayi.title = x.denemeler.length + ' deneme';
+    satir.append(ic, sayi);
+    kutu.appendChild(satir);
+  });
+}
+
+/* ---- uzaktan yenileme: yönetici tarafı ---- */
+function yenilemeGonder(uid){
+  if (!db || !uid) return Promise.resolve(false);
+  return db.ref('cihazKomut/' + uid).push({
+    tur: 'yenile',
+    ts: firebase.database.ServerValue.TIMESTAMP,
+    kimden: ben ? ben.uid : ''
+  }).then(() => true).catch(() => false);
 }
 
 function ynSayi(n){ return (n === null || n === undefined) ? '—' : String(n); }
@@ -11019,11 +11410,13 @@ async function yonetimYenile(){
     catch (e) { kapali.push(yol); return null; }
   };
 
-  const [profiller, varlik, akisV, begeni, yorum, medyaAdet, hafiza, benlik, kisiModel] = await Promise.all([
+  const [profiller, varlik, akisV, begeni, yorum, medyaAdet, hafiza, benlik, kisiModel, gunluk] = await Promise.all([
     oku('profil'), oku('varlik'), oku('akis'), oku('akisBegeni'), oku('akisYorum'), ynMedyaSayisi(),
-    oku('yapay/hafiza'), oku('yapay/benlik'), oku('yapay/kisi')
+    oku('yapay/hafiza'), oku('yapay/benlik'), oku('yapay/kisi'), oku('bakimGunlugu')
   ]);
   ynHafizaCiz(hafiza, profiller || {});
+  ynGunlukCiz(gunluk, profiller || {});
+  ynBakimCiz();
   ynBenlikCiz(benlik, kisiModel, profiller || {});
 
   const kisiler2 = profiller || {};
@@ -11076,7 +11469,27 @@ async function yonetimYenile(){
         ok.innerHTML = '<svg class="ay-ok" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>';
         b.append(av, orta, ok);
         b.addEventListener('click', () => kimlikAc(uid));
-        liste.appendChild(b);
+
+        /* Satırın kendisi zaten bir düğme; ikinci düğmeyi İÇİNE koyamayız
+           (geçersiz HTML, üstelik tıklama satıra da giderdi). Yan yana
+           duran bir sarmalayıcı kullanıyoruz. */
+        const sar = document.createElement('div');
+        sar.className = 'yn-satir-sar';
+        const yen = document.createElement('button');
+        yen.className = 'yn-yenile-btn';
+        yen.type = 'button';
+        yen.title = 'Bu kişinin sayfasını yenile';
+        yen.setAttribute('aria-label', (p.ad || 'Kullanıcı') + ' sayfasını yenile');
+        yen.innerHTML = '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v5h-5"/></svg>';
+        yen.addEventListener('click', async () => {
+          yen.disabled = true;
+          const oldu = await yenilemeGonder(uid);
+          yen.disabled = false;
+          bildir(oldu ? (p.ad || 'Kullanıcı') + ' için yenileme gönderildi.'
+                      : 'Gönderilemedi (kurallar).');
+        });
+        sar.append(b, yen);
+        liste.appendChild(sar);
       });
   }
 
@@ -11099,6 +11512,38 @@ async function yonetimYenile(){
   if (btn) { btn.disabled = false; btn.textContent = 'Yenile'; }
 }
 $('#ynYenile').addEventListener('click', yonetimYenile);
+
+/* ---- site durumu ve uzaktan yenileme düğmeleri ---- */
+$('#ynBakimAnahtar').addEventListener('click', () => {
+  bakimAyarla(!(bakimDurumu && bakimDurumu.acik));
+});
+$('#ynBakimMesajBtn').addEventListener('click', () => {
+  /* Yazıyı değiştirmek sitenin AÇIK/KAPALI durumunu değiştirmemeli:
+     o yüzden mevcut durum aynen korunuyor. */
+  bakimAyarla(!!(bakimDurumu && bakimDurumu.acik));
+});
+$('#ynGunlukTemizle').addEventListener('click', () => {
+  if (!db) return;
+  db.ref('bakimGunlugu').remove()
+    .then(() => { ynGunlukCiz({}, {}); bildir('Günlük temizlendi.'); })
+    .catch(() => bildir('Temizlenemedi (kurallar).'));
+});
+$('#ynHepsiniYenile').addEventListener('click', async () => {
+  const btn = $('#ynHepsiniYenile');
+  btn.disabled = true; btn.textContent = 'Gönderiliyor…';
+  let kac = 0;
+  try {
+    /* Herkese tek düğümden komut göndermek işe yaramıyor: komutu ilk
+       gören siliyor ve diğerleri hiç görmüyor. Bu yüzden her kullanıcıya
+       KENDİ kutusuna ayrı komut yazılıyor. */
+    const s2 = await db.ref('profil').get();
+    const uidler = Object.keys(s2.val() || {});
+    const sonuclar = await Promise.all(uidler.map(u => yenilemeGonder(u)));
+    kac = sonuclar.filter(Boolean).length;
+  } catch (e) {}
+  btn.disabled = false; btn.textContent = 'Yenile';
+  bildir(kac ? kac + ' kişiye yenileme gönderildi.' : 'Gönderilemedi (kurallar).');
+});
 
 /* ================= PROFİL SAYFASI (Instagram düzeni) =================
    profilAc() sohbete özgü "kişi bilgisi" ekranını açar (medya, kaybolan

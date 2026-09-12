@@ -581,6 +581,110 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Siteyi geçici olarak kapatma, ziyaret günlüğü ve uzaktan yenileme
+
+Üç ayrı iş, hepsi Yönetim ekranından (Ayarlar → Yönetim → **Site durumu**).
+
+### 1) Siteyi kapatmak ve açmak
+
+Durum tek bir düğümde: `sistem/bakim`. Anahtarı çevirdiğin anda, açık olan
+**her sekmede** perde iniyor; geri çevirdiğinde kalkıyor. Altındaki sayfa yok
+edilmiyor, o yüzden site yeniden açıldığında kimsenin sayfayı yenilemesi
+gerekmiyor — kaldığı yerden devam ediyor.
+
+Kapalıyken görünecek yazıyı sen belirliyorsun (160 karaktere kadar); boş
+bırakırsan varsayılan metin çıkıyor. Yazıyı değiştirmek sitenin açık/kapalı
+durumunu **değiştirmiyor** — o yüzden kapalıyken metni serbestçe düzeltebilirsin.
+
+Sen perdeyi görmüyorsun: yönetici muaf. Ama kapattığını unutmayasın diye
+ekranın üstünde turuncu bir şerit duruyor ("Site KAPALI — yalnız sen
+görüyorsun"). Muafiyet `profil/<uid>/yonetici` alanından okunuyor.
+
+Kural bloğu okunamazsa (henüz yayımlamadıysan) site **açık** kabul ediliyor.
+Bu bilerek böyle: bir kural hatası yüzünden herkesin dışarıda kalması,
+kapalıyken birinin içeri girmesinden çok daha kötü.
+
+> **Sınırını açıkça söylemek gerekiyor:** bu bir nezaket kapısı, kasa kapısı
+> değil. Perde tarayıcıda çiziliyor; teknik bilgisi olan biri geliştirici
+> araçlarıyla kaldırabilir. Gerçekten kilitlemek için veritabanı kurallarının
+> da bakım açıkken okumayı reddetmesi gerekir — bu, uygulamanın 26 düğümünün
+> hepsini etkileyen ayrı ve riskli bir adım. İstersen ayrı bir turda yaparız.
+
+### 2) Kapalıyken linke kim girdi
+
+Perde her indiğinde bir kayıt düşüyor: `bakimGunlugu/<ziyaretçi>/<deneme>`.
+Yönetim ekranında her satır bir kişi, sağdaki sayı kaç kez denediği; altında
+deneme saatleri ve cihazı yazıyor ("Chrome · Android", "Meridyen uygulaması ·
+Android" gibi).
+
+Kim olduğu şuna bağlı:
+
+- **Giriş yapmışsa** adı ve `uid`'si yazılıyor.
+- **Giriş yapmamışsa** tarayıcısına özel, kalıcı bir kimlik üretiliyor
+  (`z_...`). Aynı kişi ikinci kez denediğinde aynı satırda sayılıyor.
+  Tarayıcı verilerini silerse yeni bir kimlik alır; site verilerini tümden
+  engelliyorsa her deneme ayrı görünür.
+
+**IP adresi yok.** Tarayıcı kendi IP'sini göremiyor; onu ancak bir sunucu
+kaydedebilir. Bunu uydurmak yerine olmadığını söylüyorum.
+
+Aynı sayfa açılışında bir kez yazılıyor. Sekme uzun süre (5 dk) arkada kalıp
+geri geldiyse yeni bir deneme sayılıyor — kullanıcının bakış açısıyla gerçekten
+yeniden denemiş oluyor. Kayıt yazma izni yalnız **bakım açıkken** var; site
+açıkken o düğüme kimse yazamıyor. Kayıtlar oluşturulabiliyor ama
+değiştirilemiyor ve silinemiyor; yalnız yönetici okuyup temizleyebiliyor.
+
+### 3) İstediğin kişinin sayfasını yenilemek
+
+Yönetim → Kullanıcılar listesinde her satırın sağında bir yenileme düğmesi var.
+Bastığında `cihazKomut/<uid>` altına bir komut düşüyor; o kişinin açık olan
+sayfası komutu görüp kendini yeniliyor. "Herkesin sayfasını yenile" düğmesi de
+aynı işi her kullanıcı için ayrı ayrı yapıyor.
+
+> Neden herkese tek düğümden komut göndermiyoruz: komutu ilk gören siler ve
+> diğerleri hiç görmez. Her kullanıcının kendi kutusu olması şart.
+
+Sonsuz yenilenen bir sayfa uygulamayı tamamen kullanılmaz yapacağı için
+**üç ayrı emniyet** var:
+
+1. Komut işlenir işlenmez siliniyor.
+2. İşlenen komut anahtarları tarayıcıda tutuluyor — silme başarısız olsa bile
+   aynı komut ikinci kez tetiklenmiyor.
+3. Bir oturumda en fazla 3 yenileme; fazlası sayılıp durduruluyor ve kullanıcıya
+   söyleniyor.
+
+Yazma iznini yalnız yönetici alıyor; kullanıcı kendi kutusunu okuyup işlediği
+komutu silebiliyor, başkasınınkine dokunamıyor.
+
+### Kural kopyası artık kendiliğinden denetleniyor
+
+`index.html`'in başındaki yorum bloğu kuralların kopyala-yapıştır kopyasını
+taşıyor ve dosyanın kendisi bunun neden tehlikeli olduğunu yazıyor: ikisi
+saparsa biri oradaki **eski ve gevşek** kuralları konsola yapıştırıp daha önce
+kapatılmış bir açığı kendi eliyle yeniden açabilir.
+
+Uyarı yazmak yetmiyor — unutmak bedava. `scripts/test_kurallar_ayni.py` artık
+yorumdaki metni JSON olarak okuyup `database.rules.json` ile anlam düzeyinde
+karşılaştırıyor (girinti ve anahtar sırası önemsiz) ve saptıklarında derlemeyi
+kırıyor. İş akışında koşuyor; kasıtlı bir sapmayla denenip gerçekten yakaladığı
+doğrulandı.
+
+### Doğrulama
+
+35 senaryo geçti: perde açılıp kapanması, yöneticinin muafiyeti ve şeridi,
+kural hatasında açık kalma, günlüğe yazma ve tekrar yazmama, misafir kimliğinin
+kalıcılığı, yenileme komutunun bir kez çalışması, aynı komutun tekrarlanmaması,
+oturum başına 3 yenileme sınırı ve cihaz özetinin okunur çıkması. APK yeniden
+derlendi, yeni kodun içinde olduğu doğrulandı.
+
+### Senin yapman gereken
+
+`database.rules.json`'ı Firebase konsoluna yeniden yapıştır — **üç yeni düğüm**
+var (`sistem`, `bakimGunlugu`, `cihazKomut`) ve bunlar olmadan ne kapatma ne
+günlük ne de yenileme çalışır. Ayrıca `profil/<uid>/yonetici` alanının senin
+hesabında `true` olması gerekiyor (konsoldan elle; uygulamadan yönetici
+yapılamıyor).
+
 ## Bildirimler sağlamlaştırıldı
 
 "Bildirim gelmiyor" tek bir arıza değil — birbirine hiç benzemeyen birkaç ayrı

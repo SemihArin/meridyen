@@ -228,6 +228,74 @@
         ".read": "auth != null",
         ".write": "false"
       }
+    },
+    "sistem": {
+      ".read": true,
+      "bakim": {
+        ".write": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true",
+        ".validate": "newData.hasChild('acik')",
+        "acik": {
+          ".validate": "newData.isBoolean()"
+        },
+        "mesaj": {
+          ".validate": "newData.isString() && newData.val().length <= 160"
+        },
+        "baslangic": {
+          ".validate": "newData.isNumber()"
+        },
+        "kapatan": {
+          ".validate": "newData.isString() && newData.val().length <= 64"
+        },
+        "$baska": {
+          ".validate": false
+        }
+      }
+    },
+    "bakimGunlugu": {
+      ".read": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true",
+      ".write": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true",
+      "$ziyaretci": {
+        "$deneme": {
+          ".write": "!data.exists() && newData.exists() && root.child('sistem').child('bakim').child('acik').val() === true",
+          ".validate": "newData.hasChild('ts') && newData.child('ts').val() <= now + 60000 && newData.child('ts').val() > now - 300000",
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "uid": {
+            ".validate": "newData.isString() && newData.val().length <= 64 && (auth == null || newData.val() === auth.uid)"
+          },
+          "ad": {
+            ".validate": "newData.isString() && newData.val().length <= 60"
+          },
+          "cihaz": {
+            ".validate": "newData.isString() && newData.val().length <= 200"
+          },
+          "$baska": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "cihazKomut": {
+      "$uid": {
+        ".read": "(auth != null && auth.uid === $uid) || (auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true)",
+        "$komut": {
+          ".write": "(auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true) || (auth != null && auth.uid === $uid && !newData.exists())",
+          ".validate": "newData.hasChildren(['tur','ts'])",
+          "tur": {
+            ".validate": "newData.isString() && newData.val() === 'yenile'"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "kimden": {
+            ".validate": "newData.isString() && newData.val().length <= 64"
+          },
+          "$baska": {
+            ".validate": false
+          }
+        }
+      }
     }
   }
 }
