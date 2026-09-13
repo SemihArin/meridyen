@@ -80,6 +80,27 @@ def main():
             + kayitlar +
             "        super.onCreate(savedInstanceState);\n"
             "    }\n"
+            "\n"
+            "    /* Kayan ekran (Picture-in-Picture) iki Activity geri çağrısına\n"
+            "       dayanıyor ve ikisi de Capacitor'un Plugin sınıfında YOK; bu\n"
+            "       yüzden burada karşılanıp eklentiye aktarılıyor. */\n"
+            "    @Override\n"
+            "    public void onUserLeaveHint() {\n"
+            "        // Ana ekrana dönülüyor. enterPictureInPictureMode yalnız\n"
+            "        // BURADA kabul ediliyor; JavaScript'in visibilitychange'i\n"
+            "        // geç kalıyor (pencere o an zaten arkaya geçmiş oluyor).\n"
+            "        MeridyenIlerleme.ayrilirken(this);\n"
+            "        super.onUserLeaveHint();\n"
+            "    }\n"
+            "\n"
+            "    @Override\n"
+            "    public void onPictureInPictureModeChanged(boolean icinde,\n"
+            "            android.content.res.Configuration yapilandirma) {\n"
+            "        super.onPictureInPictureModeChanged(icinde, yapilandirma);\n"
+            "        // Web tarafı bu kipte yalnız karşı tarafın görüntüsünü\n"
+            "        // çiziyor: küçük pencerede tüm arayüzün anlamı yok.\n"
+            "        MeridyenIlerleme.kayanEkranDegisti(icinde);\n"
+            "    }\n"
             "}\n"
         )
         yeni = re.sub(
@@ -105,6 +126,10 @@ def main():
     for s in eklentiler:
         if s + ".class" not in son:
             sys.exit("HATA: %s eklentisi MainActivity'de kayıtlı değil." % s)
+    for geri, ne in (("onUserLeaveHint", "kayan ekrana otomatik geçiş"),
+                     ("onPictureInPictureModeChanged", "kayan ekran kip bildirimi")):
+        if geri not in son:
+            sys.exit("HATA: MainActivity'de %s yok (%s çalışmaz)." % (geri, ne))
 
     print("native sınıflar kuruldu (paket %s): %s" % (paket, ", ".join(dosyalar)))
     print("kayıtlı eklentiler: %s" % ", ".join(eklentiler))

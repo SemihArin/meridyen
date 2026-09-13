@@ -581,6 +581,101 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Kamera, kayan ekran ve arka planda bağlı kalma
+
+### 1) Doğrudan kamera
+
+Yazma çubuğuna bir kamera düğmesi geldi: **Fotoğraf çek** / **Video çek**.
+Dosya seçiciyi atlayıp telefonun kamerasını doğrudan açıyor.
+
+Yeni bir eklenti gerekmedi — `<input type="file" capture="environment">`
+Capacitor'un WebView'ı tarafından karşılanıyor (`ACTION_IMAGE_CAPTURE` /
+`ACTION_VIDEO_CAPTURE`) ve mobil tarayıcılar da destekliyor. Yani aynı düğme
+sitede de çalışıyor. Masaüstünde karşılığı olmadığı için orada gizleniyor:
+tıklayınca sıradan bir dosya seçici açılması kullanıcıyı yanıltırdı.
+
+Çekilen dosya gönderim yoluna dosya seçiciyle **aynı** yerden giriyor
+(`ekleriAl`) — kamera yalnız dosyanın nereden geldiğini değiştiriyor, ne
+olduğunu değil. Yani sıkıştırma, önizleme, arka planda yükleme ve ilerleme
+bildirimi olduğu gibi çalışıyor.
+
+### 2) Kayan ekran (görüntülü görüşmede resim-içinde-resim)
+
+Uygulamada bir "ayrı pencerede sürdür" düğmesi zaten vardı ama **APK'da hiç
+görünmüyordu**: web'in Picture-in-Picture API'si Android WebView'da yok
+(`document.pictureInPictureEnabled` false döner), kod da bunu doğru şekilde
+denetleyip düğmeyi gizliyordu. Artık orada Android'in kendi kayan ekranı
+devreye giriyor.
+
+Üç ince nokta vardı:
+
+- **Giriş anı.** `enterPictureInPictureMode` yalnız pencere **henüz
+  öndeyken** kabul ediliyor. JavaScript'in `visibilitychange` olayı bunun için
+  geç kalıyor — o an pencere zaten arkaya geçmiş oluyor. Bu yüzden karar
+  native tarafta, `Activity.onUserLeaveHint` içinde veriliyor; Android 12 ve
+  üstünde ayrıca sistemin kendi otomatik girişi (`setAutoEnterEnabled`)
+  açılıyor, çünkü jestle çıkışta o daha güvenilir.
+- **Yalnız görüşme sürerken.** Web tarafı görüşmenin başladığını/bittiğini
+  native tarafa bildiriyor. Bildirmeseydik ana ekrana her dönüşte vitrin küçük
+  bir pencerede asılı kalırdı.
+- **Küçük pencerede ne görünecek.** Android'in PiP'i Activity düzeyinde:
+  pencere küçülünce sayfanın **tamamı** küçülüyor. Avuç içi kadar bir alanda
+  vitrini ve düğmeleri göstermenin anlamı yok, o yüzden native taraf kipe
+  girildiğini web'e bildiriyor ve `body.kayan-ekran` yalnız karşı tarafın
+  görüntüsünü bırakıyor.
+
+Manifestte `supportsPictureInPicture` ve `resizeableActivity` açıldı. `configChanges`
+içindeki `screenSize/screenLayout/smallestScreenSize` ayrıca **denetleniyor**:
+biri eksik olsa pencere küçülürken activity yeniden yaratılır ve görüşme düşerdi.
+
+### 3) Arka planda bağlı kalma — "bir süre sonra bildirimler duruyor"
+
+Sebep Android'in kendi davranışı: arka plandaki uygulama bir süre sonra
+"önbelleğe alınmış" sayılıyor, Android 14'ten beri işlem **dondurulabiliyor**
+ve Doze kipinde ağ erişimi kesiliyor. WebView'daki JavaScript durunca
+veritabanı bağlantısı ölüyor; yeni mesaj gelse bile kimse görmüyor.
+
+Çözüm bir ön plan servisi (`MeridyenNobet`). Tek işi **var olmak** — hiçbir şey
+hesaplamıyor, uyanık tutma kilidi almıyor. Varlığı işlemi "önbelleğe alınmış"
+olmaktan çıkarıyor: dondurulmuyor ve Doze'da ağ erişimi sürüyor.
+
+Bedeli dürüstçe: Android 8'den beri ön plan servisi **kalıcı bir bildirim**
+göstermek zorunda. Bu yüzden bildirim en düşük önemde ve sessiz — gölgenin en
+altında tek satır. Ayarlar → Bildirimler → **Arka planda bağlı kal** ile
+kapatılabiliyor (varsayılan açık).
+
+Birkaç karar:
+
+- Servis uygulama **görünürken** başlatılıyor (oturum açılınca, ayar
+  değişince). Android 12'den beri arka plandan ön plan servisi başlatmak
+  reddediliyor; sayfa gizlenince başlatmaya çalışsaydık tam ihtiyaç anında
+  başarısız olurdu.
+- Ön plan servisi türü `specialUse`. `dataSync` bilerek seçilmedi: Android
+  15'te 24 saatte 6 saatle sınırlanıyor ve nöbet sessizce sona ererdi.
+- `START_STICKY`: sistem belleğe ihtiyaç duyup servisi kapatırsa yeniden
+  başlatsın — nöbetin anlamı sürekliliği.
+- Ayrıca **Pil kısıtını kaldır** düğmesi eklendi; muafiyet olmadan üretici
+  katmanları (Xiaomi, Huawei, Samsung...) uygulamayı yine uyutabiliyor.
+
+Bildirim tanısı da bunu biliyor: ayar kapalıysa "arka planda bir süre sonra
+bildirimler kesilebilir", servis başlatılamadıysa onu söylüyor.
+
+> **Neyi çözmüyor:** uygulama tamamen kapatıldığında (görevlerden atıldığında)
+> çalışan bir kod kalmıyor; orada bildirim yine sunucunun gönderdiği FCM'e
+> bağlı (bkz. *Bildirimler sağlamlaştırıldı*). Bu servis "açık ama arka planda"
+> durumunu çözüyor — senin tarif ettiğin durum bu.
+
+### Doğrulama
+
+22 yeni senaryo geçti (kayan ekran yetenek bildirimi, görüşme durumu ve oranın
+aktarılması, elle geçiş, kip değişiminde gövde sınıfı, nöbetin açılıp
+kapanması, pil izni, tarayıcıda ve eklentisiz APK'da sessizce devre dışı
+kalma, nöbet karar tablosu). Önceki 107 senaryo da hâlâ geçiyor. APK açıldı:
+`supportsPictureInPicture` ve `resizeableActivity` açık, nöbet servisi
+`specialUse` türüyle tanımlı, izin yerinde, `onUserLeaveHint` /
+`onPictureInPictureModeChanged` / `enterPictureInPictureMode` /
+`setAutoEnterEnabled` derlenmiş dex içinde.
+
 ## Siteyi geçici olarak kapatma, ziyaret günlüğü ve uzaktan yenileme
 
 Üç ayrı iş, hepsi Yönetim ekranından (Ayarlar → Yönetim → **Site durumu**).

@@ -50,6 +50,11 @@ public class MeridyenIlerleme extends Plugin {
      *  sıkıştırılıyor, böylece iki bildirim birbirinin üstüne yazamıyor. */
     private static final int BILDIRIM_ID = 2000000001;
 
+    /** MainActivity'nin Activity geri çağrıları (onUserLeaveHint,
+     *  onPictureInPictureModeChanged) Capacitor'un Plugin sınıfında YOK;
+     *  oradan buraya ulaşabilmek için tek örneği tutuyoruz. */
+    private static MeridyenIlerleme ornek = null;
+
     /** Bildirime dokunularak açıldıysa, hangi sohbetin açılacağı.
      *  JS dinleyicisi köprü yüklenmeden ÖNCE gelebildiği için (soğuk açılış)
      *  değeri saklıyoruz; web tarafı hazır olunca `bekleyenAcilis` ile alıyor. */
@@ -57,6 +62,7 @@ public class MeridyenIlerleme extends Plugin {
 
     @Override
     public void load() {
+        ornek = this;
         /* Kanallar uygulama daha ilk kez açılırken kurulmalı: bildirim
            geldiğinde kanal yoksa Android bildirimi hiç göstermez. */
         try { MeridyenBildirimler.mesajKanaliniKur(getContext()); } catch (Exception e) {}
@@ -251,6 +257,8 @@ public class MeridyenIlerleme extends Plugin {
             /* Pil iyileştirmesi açıkken üretici katmanları (Xiaomi, Huawei,
                Samsung...) uygulamayı uyutup push teslimini geciktirebiliyor. */
             s.put("pilSerbest", pilSerbest);
+            s.put("nobet", MeridyenNobet.calisiyor);
+            s.put("kayanEkran", MeridyenKayanEkran.desteklenir(getContext()));
         } catch (Exception e) {
             s.put("hata", String.valueOf(e.getMessage()));
         }
@@ -274,6 +282,94 @@ public class MeridyenIlerleme extends Plugin {
             null,
             "sinama");
         call.resolve();
+    }
+
+    /* ================= ARKA PLANDA BAĞLI KALMA ================= */
+
+    /** Web tarafı "oturum açık ve ayar açık" dediğinde nöbeti başlatıyor.
+     *  Bilerek uygulama GÖRÜNÜRKEN çağrılıyor: Android 12'den beri arka
+     *  plandan ön plan servisi başlatmak reddediliyor. */
+    @PluginMethod
+    public void nobet(PluginCall call) {
+        boolean acik = Boolean.TRUE.equals(call.getBoolean("acik", Boolean.FALSE));
+        try {
+            if (acik) MeridyenNobet.baslat(getContext());
+            else MeridyenNobet.durdur(getContext());
+        } catch (Exception e) {}
+        JSObject s = new JSObject();
+        s.put("calisiyor", MeridyenNobet.calisiyor);
+        call.resolve(s);
+    }
+
+    /** Pil iyileştirmesinden muafiyet penceresi. Muafiyet olmadan üretici
+     *  katmanları (Xiaomi, Huawei, Samsung...) uygulamayı arka planda
+     *  uyutup bildirimleri geciktirebiliyor. */
+    @PluginMethod
+    public void pilIzniIste(PluginCall call) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+                String paket = getContext().getPackageName();
+                if (pm != null && !pm.isIgnoringBatteryOptimizations(paket)) {
+                    Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    i.setData(Uri.parse("package:" + paket));
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(i);
+                }
+            }
+        } catch (Exception e) {
+            /* Bazı cihazlarda bu niyet hiç yok; kullanıcı ayarlardan elle
+               yapabilir, uygulama çalışmaya devam etmeli. */
+        }
+        call.resolve();
+    }
+
+    /* ================= KAYAN EKRAN (Picture-in-Picture) ================= */
+
+    /** Görüntülü görüşme başladı/bitti. Yalnız sürerken kendiliğinden kayan
+     *  ekrana geçiliyor; yoksa ana ekrana dönerken vitrin küçük bir pencerede
+     *  asılı kalırdı. */
+    @PluginMethod
+    public void kayanEkranDurumu(PluginCall call) {
+        final boolean suruyor = Boolean.TRUE.equals(call.getBoolean("gorusme", Boolean.FALSE));
+        final Integer e = call.getInt("en", 16);
+        final Integer b = call.getInt("boy", 9);
+        if (getActivity() != null) {
+            getActivity().runOnUiThread(() -> MeridyenKayanEkran.gorusmeDurumu(
+                getActivity(), suruyor, e == null ? 16 : e, b == null ? 9 : b));
+        }
+        JSObject s = new JSObject();
+        s.put("destek", MeridyenKayanEkran.desteklenir(getContext()));
+        call.resolve(s);
+    }
+
+    /** Düğmeyle elle geçiş. */
+    @PluginMethod
+    public void kayanEkranaGec(PluginCall call) {
+        final JSObject s = new JSObject();
+        if (getActivity() == null) { s.put("oldu", false); call.resolve(s); return; }
+        getActivity().runOnUiThread(() -> {
+            boolean oldu = MeridyenKayanEkran.gir(getActivity());
+            s.put("oldu", oldu);
+            call.resolve(s);
+        });
+    }
+
+    /** MainActivity'den: ana ekrana dönülüyor. */
+    public static void ayrilirken(android.app.Activity a) {
+        try { MeridyenKayanEkran.ayrilirken(a); } catch (Exception e) {}
+    }
+
+    /** MainActivity'den: kayan ekran kipine girildi/çıkıldı. Web tarafı bu
+     *  kipte yalnız karşı tarafın görüntüsünü çiziyor — küçük pencerede
+     *  tüm arayüzü göstermenin anlamı yok. */
+    public static void kayanEkranDegisti(boolean icinde) {
+        if (ornek == null) return;
+        try {
+            JSObject v = new JSObject();
+            v.put("icinde", icinde);
+            ornek.notifyListeners("kayanEkranDegisti", v, true);
+        } catch (Exception e) {}
     }
 
     /** Sistemin bildirim ayarlarını açar: tanı bir şeyin kapalı olduğunu

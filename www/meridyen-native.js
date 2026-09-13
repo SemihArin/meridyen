@@ -607,3 +607,82 @@
     return Promise.resolve();
   };
 })();
+
+/* ================= KAYAN EKRAN ve ARKA PLAN NÖBETİ =================
+ *
+ * İkisi de yalnız APK'da anlamlı; tarayıcıda bu nesneler tanımlı ama hiçbir
+ * şey yapmıyor, index.html koşulsuz çağırabilsin diye.
+ *
+ * KAYAN EKRAN: Web'in Picture-in-Picture API'si Android WebView'da YOK, o
+ * yüzden uygulamada düğme hiç görünmüyordu. Android'in kendi PiP'i Activity
+ * düzeyinde; giriş kararı native tarafta veriliyor (Activity ön plandayken
+ * verilmek zorunda), web tarafı yalnız "görüntülü görüşme sürüyor" bilgisini
+ * geçiyor ve kipe girildiğinde haber alıyor.
+ *
+ * NÖBET: Arka planda bir süre sonra Android işlemi donduruyor, veritabanı
+ * bağlantısı ölüyor ve bildirimler kesiliyor. Ön plan servisi bunu
+ * engelliyor. Servis uygulama GÖRÜNÜRKEN başlatılıyor: Android 12'den beri
+ * arka plandan başlatmak reddediliyor.
+ */
+(function () {
+  'use strict';
+
+  var cap = window.Capacitor;
+  var IP = cap && cap.Plugins && cap.Plugins.MeridyenIlerleme;
+  var yerli = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform() && IP);
+  var K = window.MeridyenKopru || (window.MeridyenKopru = {});
+
+  K.kayanEkranVar = yerli && typeof IP.kayanEkranaGec === 'function';
+  K.nobetVar = yerli && typeof IP.nobet === 'function';
+
+  /* Görüntülü görüşme başladı/bitti. en/boy, küçük pencerenin oranı:
+     yanlış oran Android'de hata fırlatıp görüşmeyi düşürebiliyor, o yüzden
+     native tarafta ayrıca sınırlanıyor. */
+  K.kayanEkranDurumu = function (gorusmeSuruyor, en, boy) {
+    if (!K.kayanEkranVar) return Promise.resolve(false);
+    try {
+      return IP.kayanEkranDurumu({
+        gorusme: !!gorusmeSuruyor,
+        en: en || 16,
+        boy: boy || 9
+      }).then(function (s) { return !!(s && s.destek); }).catch(function () { return false; });
+    } catch (e) { return Promise.resolve(false); }
+  };
+
+  K.kayanEkranaGec = function () {
+    if (!K.kayanEkranVar) return Promise.resolve(false);
+    try {
+      return IP.kayanEkranaGec()
+        .then(function (s) { return !!(s && s.oldu); })
+        .catch(function () { return false; });
+    } catch (e) { return Promise.resolve(false); }
+  };
+
+  /* Kipe girildi/çıkıldı: index.html body'ye 'kayan-ekran' sınıfını koyup
+     yalnız karşı tarafın görüntüsünü çiziyor. */
+  if (K.kayanEkranVar) {
+    try {
+      IP.addListener('kayanEkranDegisti', function (v) {
+        var icinde = !!(v && v.icinde);
+        try { document.body.classList.toggle('kayan-ekran', icinde); } catch (e) {}
+        try {
+          if (typeof window.kayanEkranDegisti === 'function') window.kayanEkranDegisti(icinde);
+        } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  K.nobet = function (acik) {
+    if (!K.nobetVar) return Promise.resolve(false);
+    try {
+      return IP.nobet({ acik: !!acik })
+        .then(function (s) { return !!(s && s.calisiyor); })
+        .catch(function () { return false; });
+    } catch (e) { return Promise.resolve(false); }
+  };
+
+  K.pilIzniIste = function () {
+    if (!yerli || typeof IP.pilIzniIste !== 'function') return Promise.resolve();
+    try { return IP.pilIzniIste().catch(function () {}); } catch (e) { return Promise.resolve(); }
+  };
+})();

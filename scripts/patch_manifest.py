@@ -23,6 +23,10 @@ PERMISSIONS = [
     '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
     '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
     '    <uses-permission android:name="android.permission.WAKE_LOCK" />',
+    # Arka planda bağlı kalma (MeridyenNobet): ön plan servisi olmadan
+    # Android uygulamayı bir süre sonra donduruyor ve bildirimler kesiliyor.
+    '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+    '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />',
 ]
 
 FEATURES = [
@@ -159,3 +163,76 @@ for beklenen, aciklama in (
     if beklenen not in son:
         raise SystemExit("HATA: manifestte %s yok (%s)." % (beklenen, aciklama))
 print("manifest doğrulandı.")
+
+# ---------------------------------------------------------------------------
+# KAYAN EKRAN (Picture-in-Picture)
+#
+# Web'in kendi PiP API'si Android WebView'da yok. Android'inki Activity
+# düzeyinde çalışıyor ve iki şey istiyor: activity'nin PiP desteklediğini
+# BİLDİRMESİ ve boyut değişimlerini kendisinin karşılaması (configChanges'te
+# screenSize/screenLayout/smallestScreenSize zaten var — yoksa pencere
+# küçülürken activity yeniden yaratılır ve görüşme düşerdi).
+# ---------------------------------------------------------------------------
+with io.open(MANIFEST_PATH, encoding="utf-8") as f:
+    manifest = f.read()
+
+if "supportsPictureInPicture" not in manifest:
+    eslesme = re.search(r'(<activity\b[^>]*android:name="\.MainActivity"[^>]*)(>)', manifest, re.S)
+    if not eslesme:
+        raise SystemExit("HATA: MainActivity etiketi bulunamadı, kayan ekran açılamadı.")
+    ek = ('\n            android:supportsPictureInPicture="true"'
+          '\n            android:resizeableActivity="true"')
+    manifest = manifest[:eslesme.end(1)] + ek + manifest[eslesme.end(1):]
+    for gerekli in ("screenSize", "screenLayout", "smallestScreenSize"):
+        if gerekli not in manifest:
+            raise SystemExit(
+                "HATA: configChanges içinde %s yok; kayan ekranda activity yeniden "
+                "yaratılır ve görüşme düşer." % gerekli)
+    with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+        f.write(manifest)
+    print("kayan ekran (PiP) açıldı: supportsPictureInPicture + resizeableActivity")
+else:
+    print("kayan ekran zaten açık.")
+
+# ---------------------------------------------------------------------------
+# ARKA PLAN NÖBETİ
+#
+# Android 14'ten beri her ön plan servisinin bir TÜRÜ olmak zorunda.
+# Buradaki iş "gerçek zamanlı mesajlaşma bağlantısını açık tutmak" — hazır
+# türlerin hiçbiri bunu tam karşılamıyor, o yüzden specialUse ve alt türü
+# açıkça yazılıyor. dataSync bilerek seçilmedi: Android 15'te 24 saatte
+# 6 saatle sınırlanıyor ve nöbet sessizce sona ererdi.
+# ---------------------------------------------------------------------------
+NOBET_SERVIS = PAKET + ".MeridyenNobet"
+if NOBET_SERVIS not in manifest:
+    blok = (
+        '\n        <service android:name="' + NOBET_SERVIS + '"\n'
+        '            android:exported="false"\n'
+        '            android:foregroundServiceType="specialUse">\n'
+        '            <property\n'
+        '                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'
+        '                android:value="Gercek zamanli mesaj baglantisini acik tutar" />\n'
+        '        </service>'
+    )
+    eslesme = re.search(r"<application\b[^>]*>", manifest)
+    if not eslesme:
+        raise SystemExit("HATA: <application> etiketi bulunamadı, nöbet servisi eklenemedi.")
+    yer = eslesme.end()
+    manifest = manifest[:yer] + blok + manifest[yer:]
+    with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+        f.write(manifest)
+    print("nöbet servisi eklendi: " + NOBET_SERVIS)
+else:
+    print("nöbet servisi zaten tanımlı.")
+
+with io.open(MANIFEST_PATH, encoding="utf-8") as f:
+    son = f.read()
+for beklenen, aciklama in (
+    (NOBET_SERVIS, "arka plan nöbeti servisi"),
+    ('android:foregroundServiceType="specialUse"', "ön plan servisi türü"),
+    ("FOREGROUND_SERVICE_SPECIAL_USE", "ön plan servisi izni"),
+    ('android:supportsPictureInPicture="true"', "kayan ekran desteği"),
+):
+    if beklenen not in son:
+        raise SystemExit("HATA: manifestte %s yok (%s)." % (beklenen, aciklama))
+print("kayan ekran ve nöbet doğrulandı.")

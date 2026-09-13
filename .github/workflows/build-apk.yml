@@ -126,7 +126,7 @@ jobs:
           # Bildirim yığını: kapalıyken gelen push'u çizen servis ve onun
           # dayandığı ortak sınıf. Biri eksik kalırsa uygulama kapalıyken
           # hiçbir bildirim görünmez ve bu dışarıdan hiç belli olmaz.
-          for SINIF in MeridyenBildirimler MeridyenMesajServisi; do
+          for SINIF in MeridyenBildirimler MeridyenMesajServisi MeridyenNobet MeridyenKayanEkran; do
             test -f "android/app/src/main/java/$PAKET/$SINIF.java" \
               || { echo "HATA: $SINIF.java kopyalanmamış"; exit 1; }
           done
@@ -141,6 +141,26 @@ jobs:
             || { echo "HATA: varsayılan bildirim kanalı manifestte yok"; exit 1; }
           grep -q 'com.google.firebase:firebase-messaging' android/app/build.gradle \
             || { echo "HATA: firebase-messaging uygulama modülüne eklenmemiş"; exit 1; }
+          # Kayan ekran (PiP): manifest bayrağı olmadan enterPictureInPictureMode
+          # sessizce başarısız olur, düğme hiçbir şey yapmaz.
+          grep -q 'android:supportsPictureInPicture="true"' "$MANIFEST" \
+            || { echo "HATA: kayan ekran manifestte açık değil"; exit 1; }
+          # PiP'te pencere yeniden boyutlanıyor; configChanges bunları
+          # karşılamazsa activity yeniden yaratılır ve GÖRÜŞME DÜŞER.
+          for D in screenSize screenLayout smallestScreenSize; do
+            grep -q "$D" "$MANIFEST" \
+              || { echo "HATA: configChanges içinde $D yok, kayan ekranda görüşme düşer"; exit 1; }
+          done
+          ANA="android/app/src/main/java/$PAKET/MainActivity.java"
+          for GERI in onUserLeaveHint onPictureInPictureModeChanged; do
+            grep -q "$GERI" "$ANA" \
+              || { echo "HATA: MainActivity'de $GERI yok, kayan ekran çalışmaz"; exit 1; }
+          done
+          # Arka plan nöbeti: servis + türü + izni birlikte olmalı.
+          grep -q 'android:foregroundServiceType="specialUse"' "$MANIFEST" \
+            || { echo "HATA: nöbet servisinin ön plan türü tanımlı değil"; exit 1; }
+          grep -q 'FOREGROUND_SERVICE_SPECIAL_USE' "$MANIFEST" \
+            || { echo "HATA: ön plan servisi izni eksik"; exit 1; }
           # Açılış ekranı: şablonun jenerik splash.png'leri yönelim/yoğunluk
           # klasörlerine de kopyalanıyor ve Android daha ÖZEL olanı seçtiği
           # için markalı olanı gölgeliyorlardı. Hiç kalmadığını doğruluyoruz.
@@ -151,7 +171,7 @@ jobs:
             find android/app/src/main/res -name 'splash.png'
             exit 1
           fi
-          echo "köprü, bildirim yığını, native eklenti ve açılış ekranı doğrulandı."
+          echo "köprü, bildirim yığını, kayan ekran, nöbet ve açılış ekranı doğrulandı."
 
       - name: APK derle (debug imzalı — doğrudan telefona kurulabilir)
         working-directory: android

@@ -180,6 +180,32 @@
   --r:14px;
   --gecis:.35s cubic-bezier(.2,.8,.2,1);
 }
+/* ---- KAMERA MENÜSÜ ---- */
+.kamera-arka{position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,.35)}
+.kamera-menu{position:absolute;left:12px;right:12px;
+  bottom:calc(env(safe-area-inset-bottom) + 78px);max-width:280px;margin:0 auto;
+  background:var(--gece-2);border:1px solid rgba(255,255,255,.08);border-radius:15px;
+  overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.45)}
+.kamera-menu button{display:flex;align-items:center;gap:11px;width:100%;
+  padding:14px 16px;background:none;border:0;border-bottom:1px solid rgba(255,255,255,.06);
+  color:var(--kar);font:inherit;font-size:.93rem;text-align:left;cursor:pointer}
+.kamera-menu button:last-child{border-bottom:none}
+.kamera-menu button:active{background:var(--gece-3)}
+.kamera-menu button svg{width:19px;height:19px;flex:none;fill:none;stroke:var(--gri);
+  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---- KAYAN EKRAN (Picture-in-Picture) ----
+   Android'in PiP'i Activity düzeyinde çalışıyor: pencere küçülünce sayfanın
+   TAMAMI küçülüyor. Avuç içi kadar bir pencerede vitrini, sohbet listesini ve
+   düğmeleri göstermenin anlamı yok — bu kipte yalnız karşı tarafın görüntüsü
+   kalıyor, gerisi gizleniyor. */
+body.kayan-ekran > *:not(#aramaKatman){display:none !important}
+body.kayan-ekran #aramaKatman{position:fixed;inset:0;background:#000;
+  display:block !important;opacity:1 !important;transform:none !important}
+body.kayan-ekran #aramaKatman > *:not(#uzakVideo){display:none !important}
+body.kayan-ekran #uzakVideo{position:fixed;inset:0;width:100%;height:100%;
+  object-fit:cover;display:block}
+
 /* ---- BAKIM PERDESİ ----
    Site kapatıldığında her şeyin üstünü örten tam ekran katman. Alttaki
    sayfayı SİLMİYORUZ: yönetici kapatmayı kaldırdığı anda perde kalkıyor ve
@@ -4457,6 +4483,7 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
                       autocomplete="off" autocapitalize="sentences" enterkeyhint="enter"
                       inputmode="text" data-form-type="other" data-lpignore="true"
                       data-1p-ignore data-bwignore></textarea>
+                  <button class="yazma-arac" id="kameraBtn" title="Kamera" aria-label="Kamerayla çek"><svg viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h2.2l1.3-2h6l1.3 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.5"/></svg></button>
                   <button class="yazma-arac" id="ekleBtn" title="Dosya ekle" aria-label="Dosya ekle"><svg viewBox="0 0 24 24"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
                 </div>
               </div>
@@ -4483,6 +4510,12 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
             <div class="surum">v3.18.0</div>
           </div>
           <input type="file" id="dosyaGirdi" class="gizli" multiple accept="image/*,video/*,application/pdf,text/*,.zip,.doc,.docx,.xls,.xlsx">
+          <!-- Doğrudan KAMERA. `capture` özniteliği dosya seçiciyi atlayıp
+               telefonun kamerasını açıyor; Capacitor'un WebView'ı bunu
+               karşılıyor (BridgeWebChromeClient, ACTION_IMAGE_CAPTURE /
+               ACTION_VIDEO_CAPTURE), mobil tarayıcılar da destekliyor. -->
+          <input type="file" id="kameraFoto" class="gizli" accept="image/*" capture="environment">
+          <input type="file" id="kameraVideo" class="gizli" accept="video/*" capture="environment">
         </section>
 
       </div>
@@ -5250,6 +5283,16 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
               <div class="ayar-bilgi"><b>Yeni mesaj sesi</b><small>Sekme arkadayken kısa bir uyarı sesi çalar.</small></div>
               <button class="anahtar acik" id="ayarSes" role="switch" aria-checked="true" aria-label="Yeni mesaj sesi"></button>
             </div>
+            <div class="ayar-satir uzun gizli" id="satirArkaPlan">
+              <span class="ay-ikon yesil"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 3v9l6 3"/></svg></span>
+              <div class="ayar-bilgi"><b>Arka planda bağlı kal</b><small>Kapalıyken uygulama bir süre arka planda kalınca bildirimler kesilir. Açıkken bildirim gölgesinin en altında sessiz bir satır durur.</small></div>
+              <button class="anahtar acik" id="ayarArkaPlan" role="switch" aria-checked="true" aria-label="Arka planda bağlı kal"></button>
+            </div>
+            <div class="ayar-satir uzun gizli" id="satirPilIzni">
+              <span class="ay-ikon turuncu"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/><path d="m11 9-2 3h3l-2 3"/></svg></span>
+              <div class="ayar-bilgi"><b>Pil kısıtını kaldır</b><small>Telefon uygulamayı uyutmasın; bildirimler gecikmeden gelsin.</small></div>
+              <button class="ayar-dugme" id="ayarPilBtn">İzin ver</button>
+            </div>
             <div class="ayar-satir uzun" id="satirBildirimTani">
               <span class="ay-ikon mor"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 8v5"/><circle cx="12" cy="16.5" r=".8"/></svg></span>
               <div class="ayar-bilgi"><b>Bildirim tanısı</b><small id="ayarBildirimTani">Kontrol ediliyor…</small></div>
@@ -5529,6 +5572,15 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
 <!-- Site geçici olarak kapatıldığında görünen katman. Durum veritabanından
      CANLI okunuyor (sistem/bakim): yönetici açıp kapattığı anda, açık olan
      her sekmede kendiliğinden beliriyor ya da kalkıyor. -->
+<!-- Kamera seçimi: tek dokunuşta fotoğraf mı video mu. Yazma çubuğunun
+     üstünde açılan küçük bir liste; dışına dokununca kapanır. -->
+<div class="kamera-arka" id="kameraArka" hidden>
+  <div class="kamera-menu" role="menu" aria-label="Kamera">
+    <button type="button" id="kameraFotoBtn" role="menuitem"><svg viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h2.2l1.3-2h6l1.3 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.5"/></svg>Fotoğraf çek</button>
+    <button type="button" id="kameraVideoBtn" role="menuitem"><svg viewBox="0 0 24 24"><path d="m23 7-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>Video çek</button>
+  </div>
+</div>
+
 <div class="bakim-perde" id="bakimPerde" role="alertdialog" aria-modal="true" aria-labelledby="bakimBaslik">
   <div class="bakim-ic">
     <span class="bakim-im"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
@@ -5768,6 +5820,7 @@ async function oturumDegisti(kullanici){
     ben = null; benimAdim = '';
     bakimYonetici = false; bakimUygula();
     komutlariBirak();
+    nobetiTazele();       // oturum yoksa nöbete de gerek yok
     kanaliDurdur();
     vitrineGec();
     hesapDurumu();
@@ -5784,6 +5837,7 @@ async function oturumDegisti(kullanici){
   uzakBildirimiKur();
   bakimYetkiTazele();     // yönetici perdeden muaf
   komutlariDinle();       // uzaktan "sayfayı yenile" isteği
+  nobetiTazele();         // arka planda bağlı kal (ön plan servisi)
   if (elleGiris) {
     // Az önce formdan parolayla girildi: kimlik zaten kanıtlandı, kilit ekranı atlanır.
     elleGiris = false; bekleyenTiklama = false;
@@ -6763,6 +6817,11 @@ const TERCIH_VARSAYILAN = {
   kayitElle: false,      // kullanıcı bunu Ayarlar'dan kendisi mi değiştirdi
   bildirimIcerik: false, // sistem bildiriminde mesaj metni görünsün mü
   ses: true,             // yeni mesaj sesi
+  /* Arka planda bağlı kalma: Android'de ön plan servisi açıp uygulamanın
+     dondurulmasını engelliyor (bkz. MeridyenNobet). Varsayılan AÇIK —
+     kapalıyken uygulama bir süre arka planda kalınca bildirimler kesiliyor.
+     Tarayıcıda hiçbir etkisi yok. */
+  arkaPlanBagli: true,
   sayfaBoyu: 30,         // sayfa başına mesaj
   enterGonder: true      // Enter ile gönder
 };
@@ -6832,6 +6891,7 @@ function ayarAc(){
   anahtarCiz('#ayarEnter', tercihler.enterGonder);
   ayarKilitDurumuCiz();
   ayarBildirimDurumuCiz();
+  arkaPlanSatirlariniCiz();
   bildirimTanisiCiz();
   ayarBagimlilikTazele();
   yonetimSatiriTazele();
@@ -6944,6 +7004,12 @@ async function bildirimTanisiCiz(){
     mesaj = 'Belirteç kaydedilemedi (veritabanı kuralları?): ' + (t.belirtecHatasi || '');
   } else if (t && t.yerli && !t.belirtecVar) {
     mesaj = 'Bildirim belirteci henüz alınmadı; uygulama kapalıyken bildirim gelmeyebilir.';
+  } else if (t && t.nobet !== undefined && !tercihler.arkaPlanBagli) {
+    // Bu, "arka planda bir süre sonra bildirim gelmiyor"un en sık sebebi.
+    mesaj = 'Çalışıyor ama "arka planda bağlı kal" kapalı — uygulama bir süre '
+          + 'arka planda kalınca bildirimler kesilebilir.';
+  } else if (t && t.nobet === false && tercihler.arkaPlanBagli) {
+    mesaj = 'Arka plan bağlantısı başlatılamadı; uygulamayı bir kez açıp kapat.';
   } else if (t && t.pilSerbest === false) {
     mesaj = 'Çalışıyor. Pil iyileştirmesi açık olduğu için gecikebilir.';
   } else if (t && t.kanalOnem >= 0 && t.kanalOnem < 3) {
@@ -7223,6 +7289,36 @@ anahtarKur('#ayarKayitAnahtar', 'kayitGoster', () => {
   /* Kullanıcı bilerek değiştirdi: bir daha varsayılana çekmeyelim. */
   tercihler.kayitElle = true; tercihYaz(); tercihleriUygula();
 });
+/* ---- arka planda bağlı kalma ----
+   Ön plan servisi, uygulama GÖRÜNÜRKEN başlatılmak zorunda: Android 12'den
+   beri arka plandan başlatmak reddediliyor. Bu yüzden oturum açılınca ve
+   ayar değişince burada çağırıyoruz, sayfa gizlenince değil. */
+function nobetiTazele(){
+  if (!window.MeridyenKopru || !window.MeridyenKopru.nobetVar) return;
+  const olmali = !!(oturumVar && tercihler.arkaPlanBagli);
+  window.MeridyenKopru.nobet(olmali);
+}
+function arkaPlanSatirlariniCiz(){
+  const yerli = !!(window.MeridyenKopru && window.MeridyenKopru.nobetVar);
+  const s1 = $('#satirArkaPlan'), s2 = $('#satirPilIzni');
+  // Tarayıcıda karşılığı yok: orada satırları hiç göstermiyoruz.
+  if (s1) s1.classList.toggle('gizli', !yerli);
+  if (s2) s2.classList.toggle('gizli', !yerli);
+  anahtarCiz('#ayarArkaPlan', tercihler.arkaPlanBagli);
+}
+anahtarKur('#ayarArkaPlan', 'arkaPlanBagli', () => {
+  nobetiTazele();
+  bildir(tercihler.arkaPlanBagli
+    ? 'Arka planda bağlı kalınacak.'
+    : 'Kapatıldı — uygulama arka planda bir süre sonra bildirim almayabilir.');
+  bildirimTanisiCiz();
+});
+$('#ayarPilBtn').addEventListener('click', async () => {
+  if (window.MeridyenKopru && window.MeridyenKopru.pilIzniIste) {
+    await window.MeridyenKopru.pilIzniIste();
+  }
+});
+
 anahtarKur('#ayarBildirimIcerik', 'bildirimIcerik', () => {
   // Tercih sunucuya da bildirilsin; yoksa uygulama kapalıyken gelen
   // bildirimde metin gizlenmez.
@@ -10046,6 +10142,7 @@ function aramaEkraniAc(kip, uid){
   $('#kamBtn').style.display = aramaTur === 'goruntu' ? '' : 'none';
   $('#aramaKontrol').classList.toggle('gizli', kip === 'gelen');
   $('#gelenKontrol').classList.toggle('gizli', kip !== 'gelen');
+  kayanEkranBildir();   // görüntülü ise: ana ekrana dönünce kayan ekrana geçsin
   $('#aramaDurum').textContent = kip === 'gelen'
     ? (aramaTur === 'goruntu' ? 'görüntülü arıyor' : 'sesli arıyor')
     : 'çağrılıyor…';
@@ -10271,12 +10368,17 @@ function aramaBuyut(){
   kilitGuncelle();
 }
 /* ---- ayrı pencere (Picture-in-Picture): uygulama arka plana alınsa da görüşme sürer ---- */
-const PIP_VAR = !!(document.pictureInPictureEnabled && HTMLVideoElement.prototype.requestPictureInPicture);
+/* Tarayıcının kendi PiP'i. Android WebView'da YOK — bu yüzden APK'da düğme
+   hiç görünmüyordu. Orada Android'in kendi kayan ekranı devreye giriyor. */
+const PIP_WEB = !!(document.pictureInPictureEnabled && HTMLVideoElement.prototype.requestPictureInPicture);
+const PIP_YERLI = !!(window.MeridyenKopru && window.MeridyenKopru.kayanEkranVar);
+const PIP_VAR = PIP_WEB || PIP_YERLI;
 if (!PIP_VAR) $('#pipBtn').style.display = 'none';
 
 async function pipAc(){
+  if (PIP_YERLI) { await window.MeridyenKopru.kayanEkranaGec(); return; }
   const v = $('#uzakVideo');
-  if (!PIP_VAR || !v.srcObject || document.pictureInPictureElement) return;
+  if (!PIP_WEB || !v.srcObject || document.pictureInPictureElement) return;
   if (!v.videoWidth) return;                       // henüz görüntü yoksa deneme
   try { await v.requestPictureInPicture(); } catch (e) {}
 }
@@ -10284,10 +10386,29 @@ $('#pipBtn').addEventListener('click', async () => {
   if (document.pictureInPictureElement) { try { await document.exitPictureInPicture(); } catch (e) {} }
   else pipAc();
 });
-/* sekme arka plana alınınca kendiliğinden ayrı pencereye geç */
+/* sekme arka plana alınınca kendiliğinden ayrı pencereye geç.
+   APK'da BUNU KULLANMIYORUZ: Android, kayan ekrana geçişi yalnız pencere
+   HENÜZ öndeyken kabul ediyor ve visibilitychange o an için geç kalıyor —
+   orada kararı native taraf onUserLeaveHint içinde veriyor. */
 document.addEventListener('visibilitychange', () => {
+  if (PIP_YERLI) return;
   if (document.hidden && pc && aramaTur === 'goruntu') pipAc();
 });
+
+/* Native tarafa "görüntülü görüşme sürüyor mu" bilgisini geçiyoruz; yalnız
+   sürerken kendiliğinden kayan ekrana geçiliyor, yoksa ana ekrana dönerken
+   vitrin küçük bir pencerede asılı kalırdı. Oran, karşı tarafın görüntüsünden
+   alınıyor: yanlış oran pencereyi çarpıtır. */
+function kayanEkranBildir(){
+  if (!PIP_YERLI) return;
+  const gorusme = !!(pc && aramaTur === 'goruntu');
+  const v = $('#uzakVideo');
+  const en = (gorusme && v && v.videoWidth) ? v.videoWidth : 16;
+  const boy = (gorusme && v && v.videoHeight) ? v.videoHeight : 9;
+  window.MeridyenKopru.kayanEkranDurumu(gorusme, en, boy);
+}
+/* Görüntü boyutu ilk karede belli oluyor; oranı o an tazeliyoruz. */
+$('#uzakVideo').addEventListener('loadedmetadata', kayanEkranBildir);
 
 $('#aramaKucult').addEventListener('click', aramaKucult);
 $('#miniBuyut').addEventListener('click', aramaBuyut);
@@ -10638,6 +10759,13 @@ async function aramayiBitir(mesaj, uzaktan){
   clearTimeout(kontrolGizleTimer);
   konusmayiDurdur();
   if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+  /* Görüşme bitti: artık ana ekrana dönerken kayan ekrana geçilmemeli.
+     Bildirmezsek uygulama her küçültmede küçük bir pencerede asılı kalırdı. */
+  if (typeof kayanEkranBildir === 'function') {
+    try { if (window.MeridyenKopru && window.MeridyenKopru.kayanEkranVar)
+      window.MeridyenKopru.kayanEkranDurumu(false, 16, 9); } catch (e) {}
+  }
+  try { document.body.classList.remove('kayan-ekran'); } catch (e) {}
   $('#aramaAvatar').classList.remove('caliyor');
   sonIstatistik = null; sonKaliteSeviyesi = null; zayifSayac = 0; videoAskida = false;
   if (uyanikKilit) { try { uyanikKilit.release(); } catch (e) {} uyanikKilit = null; }
@@ -14313,6 +14441,38 @@ const EK_SINIR = 6;
 let ekler = [];
 
 $('#ekleBtn').addEventListener('click', () => dosyaGirdi.click());
+
+/* ---- doğrudan kamera ----
+   `capture` özniteliği dosya seçiciyi ATLAYIP telefonun kamerasını açıyor.
+   APK'da Capacitor'un WebView'ı bunu karşılıyor (ACTION_IMAGE_CAPTURE /
+   ACTION_VIDEO_CAPTURE); mobil tarayıcılar da destekliyor. Masaüstünde
+   karşılığı olmadığı için düğme orada gizleniyor: tıklayınca sıradan bir
+   dosya seçici açılması kullanıcıyı yanıltırdı. */
+const KAMERA_VAR = (function(){
+  try {
+    if (window.MeridyenKopru && window.MeridyenKopru.yerli) return true;
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  } catch (e) { return false; }
+})();
+if (!KAMERA_VAR) $('#kameraBtn').classList.add('gizli');
+
+function kameraMenuAc(acik){
+  const a = $('#kameraArka');
+  if (!a) return;
+  a.hidden = !acik;
+}
+$('#kameraBtn').addEventListener('click', () => kameraMenuAc(true));
+$('#kameraArka').addEventListener('click', (e) => { if (e.target === $('#kameraArka')) kameraMenuAc(false); });
+$('#kameraFotoBtn').addEventListener('click', () => { kameraMenuAc(false); $('#kameraFoto').click(); });
+$('#kameraVideoBtn').addEventListener('click', () => { kameraMenuAc(false); $('#kameraVideo').click(); });
+['#kameraFoto', '#kameraVideo'].forEach(id => {
+  $(id).addEventListener('change', (e) => {
+    // Gönderim yolu dosya seçiciyle AYNI: kamera yalnız dosyanın nereden
+    // geldiğini değiştiriyor, ne olduğunu değil.
+    if (e.target.files && e.target.files.length) ekleriAl(e.target.files);
+    e.target.value = '';
+  });
+});
 dosyaGirdi.addEventListener('change', (e) => { ekleriAl(e.target.files); dosyaGirdi.value = ''; });
 
 document.addEventListener('paste', (e) => {
