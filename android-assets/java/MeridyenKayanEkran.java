@@ -1,6 +1,7 @@
 package __PAKET__;
 
 import android.app.Activity;
+import android.app.AppOpsManager;
 import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -32,6 +33,35 @@ public final class MeridyenKayanEkran {
     private static int en = 16, boy = 9;
 
     private MeridyenKayanEkran() {}
+
+    /**
+     * Kayan ekran cihazda DESTEKLENİYOR ama kullanıcı ya da üretici bu
+     * uygulamaya kapatmış olabilir (Ayarlar → Uygulamalar → Özel erişim →
+     * Resim içinde resim). O zaman enterPictureInPictureMode hiçbir şey
+     * yapmıyor ve dışarıdan "çalışmıyor" gibi görünüyor. Ayrı ayrı
+     * okuyabilmek için bu var.
+     */
+    public static boolean izinVarMi(Context c) {
+        if (c == null) return false;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
+        try {
+            AppOpsManager aom = (AppOpsManager) c.getSystemService(Context.APP_OPS_SERVICE);
+            if (aom == null) return true;
+            int mod;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                mod = aom.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_PICTURE_IN_PICTURE,
+                    android.os.Process.myUid(), c.getPackageName());
+            } else {
+                mod = aom.checkOpNoThrow(AppOpsManager.OPSTR_PICTURE_IN_PICTURE,
+                    android.os.Process.myUid(), c.getPackageName());
+            }
+            return mod == AppOpsManager.MODE_ALLOWED;
+        } catch (Exception e) {
+            /* Okunamadıysa izin VAR sayıyoruz: okunamayan bir ayar yüzünden
+               çalışan bir özelliği kapatmak, yanlış tarafa düşmek olurdu. */
+            return true;
+        }
+    }
 
     public static boolean desteklenir(Context c) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
@@ -71,11 +101,16 @@ public final class MeridyenKayanEkran {
         return new Rational(en, boy);
     }
 
-    /** Ana ekrana dönülüyor: görüşme sürüyorsa kayan ekrana geç. */
+    /** Ana ekrana dönülüyor: görüşme sürüyorsa kayan ekrana geç.
+     *
+     *  Android 12+'da sistemin kendi otomatik girişi de açık, ama BURADA
+     *  ayrıca deniyoruz. Önce "zaten sistem hallediyor" diye atlanıyordu;
+     *  oysa otomatik giriş sessizce çalışmayabiliyor (parametreler activity
+     *  hazır olmadan kurulmuşsa, ya da üretici katmanı devre dışı bırakmışsa)
+     *  ve o durumda kayan ekran hiç açılmıyordu. gir() zaten kipin içindeysek
+     *  hiçbir şey yapmıyor, yani ikisi birlikte güvenli. */
     public static void ayrilirken(Activity a) {
         if (!gorusmeSuruyor) return;
-        /* Android 12+ zaten kendisi geçiriyor; ikinci kez çağırmak gereksiz. */
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return;
         gir(a);
     }
 

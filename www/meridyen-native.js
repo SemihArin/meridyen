@@ -691,8 +691,22 @@
         gorusme: !!gorusmeSuruyor,
         en: en || 16,
         boy: boy || 9
-      }).then(function (s) { return !!(s && s.destek); }).catch(function () { return false; });
+      }).then(function (s) {
+        /* İzin ayrı tutuluyor: cihaz kayan ekranı DESTEKLİYOR olabilir ama
+           kullanıcı/üretici bu uygulamaya kapatmış olabilir. İkisi
+           karışırsa "neden açılmıyor" sorusu yanıtsız kalıyor. */
+        K.kayanEkranIzni = !!(s && s.izin);
+        return !!(s && s.destek);
+      }).catch(function () { return false; });
     } catch (e) { return Promise.resolve(false); }
+  };
+
+  K.kayanEkranAyarlariniAc = function () {
+    if (!K.kayanEkranVar || typeof IP.kayanEkranAyarlariniAc !== 'function') {
+      return Promise.resolve();
+    }
+    try { return IP.kayanEkranAyarlariniAc().catch(function () {}); }
+    catch (e) { return Promise.resolve(); }
   };
 
   K.kayanEkranaGec = function () {

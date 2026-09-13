@@ -202,9 +202,30 @@
 body.kayan-ekran > *:not(#aramaKatman){display:none !important}
 body.kayan-ekran #aramaKatman{position:fixed;inset:0;background:#000;
   display:block !important;opacity:1 !important;transform:none !important}
-body.kayan-ekran #aramaKatman > *:not(#uzakVideo){display:none !important}
+/* Karşı tarafın görüntüsü tam ekran; KENDİ görüntün küçük bir köşede.
+   Önce yalnız karşı taraf gösteriliyordu ve kullanıcı kayan ekranda kendini
+   hiç göremiyordu — kameranın doğru yöne baktığını anlamanın yolu yok. */
+body.kayan-ekran #aramaKatman > *:not(#uzakVideo):not(.arama-ic){display:none !important}
+body.kayan-ekran .arama-ic{position:absolute;inset:0;padding:0;display:block;
+  pointer-events:none;background:none}
+body.kayan-ekran .arama-ic::before,
+body.kayan-ekran .arama-ic::after{display:none !important}
+body.kayan-ekran .arama-ic > *:not(#yerelVideo){display:none !important}
+/* Görünürlük kararına DOKUNMUYORUZ: hangi görüntünün açık olduğunu
+   .uzak-var / .kamera-acik sınıfları zaten söylüyor. Burada yalnız yerleşim
+   değişiyor. */
 body.kayan-ekran #uzakVideo{position:fixed;inset:0;width:100%;height:100%;
-  object-fit:cover;display:block}
+  object-fit:cover}
+/* Pencere avuç içi kadar: kendi görüntün oransal ve küçük kalmalı, yoksa
+   asıl görüntüyü kapatır. */
+body.kayan-ekran #yerelVideo{position:absolute;
+  top:auto;left:auto;right:5px;bottom:5px;width:30%;max-width:78px;height:auto;
+  aspect-ratio:3/4;border-radius:7px;border:1px solid rgba(255,255,255,.45);
+  box-shadow:0 4px 10px -4px rgba(0,0,0,.9);z-index:4}
+/* Karşı taraftan görüntü YOKSA (kamerası kapalı ya da sesli arama) kendi
+   görüntün tam pencereyi kaplasın; küçük bir kutuda kalması anlamsız. */
+body.kayan-ekran #aramaKatman:not(.uzak-var) #yerelVideo{inset:0;width:100%;
+  max-width:none;height:100%;aspect-ratio:auto;border:0;border-radius:0}
 
 /* ---- BAKIM PERDESİ ----
    Site kapatıldığında her şeyin üstünü örten tam ekran katman. Alttaki
@@ -5553,7 +5574,7 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
     <div class="arama-kontrol" id="aramaKontrol">
       <button class="yuvarlak" id="mikBtn" title="Mikrofon"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg></button>
       <button class="yuvarlak" id="kamBtn" title="Kamera"><svg viewBox="0 0 24 24"><path d="m23 7-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></button>
-      <button class="yuvarlak" id="pipBtn" title="Ayrı pencerede sürdür"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="12" width="8" height="6" rx="1" fill="currentColor" stroke="none"/></svg></button>
+      <button class="yuvarlak" id="pipBtn" title="Kayan ekrana al" aria-label="Kayan ekrana al"><svg viewBox="0 0 24 24"><rect x="2.75" y="4.75" width="18.5" height="14.5" rx="2.5"/><rect x="12.5" y="11.5" width="7" height="5.5" rx="1.5"/><path d="M6 9.5h4"/></svg></button>
       <button class="yuvarlak" id="aramaKucult" title="Küçült"><svg viewBox="0 0 24 24"><path d="M9 3v6H3M21 15h-6v6"/><path d="M9 9 3 3M15 15l6 6"/></svg></button>
       <button class="yuvarlak" id="kameraCevir" title="Kamerayı çevir"><svg viewBox="0 0 24 24"><path d="M3 7h3l2-2h8l2 2h3v12H3z"/><path d="M9.5 13.5a3 3 0 0 0 5-1.5M14.5 12.5a3 3 0 0 0-5 1.5"/><path d="M9 12.5 7.5 14 6 12.5M15 13.5l1.5-1.5L18 13.5"/></svg></button>
       <button class="yuvarlak kapat" id="aramaKapatBtn" title="Kapat"><svg viewBox="0 0 24 24" style="transform:rotate(135deg)"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg></button>
@@ -10181,7 +10202,7 @@ function aramaEkraniKapat(){
 async function medyaAl(tur){
   return navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true },
-    video: tur === 'goruntu' ? { width: { ideal: 1280 }, facingMode: 'user' } : false
+    video: tur === 'goruntu' ? { width: { ideal: 1280 }, facingMode: kameraYonu || 'user' } : false
   });
 }
 
@@ -10203,6 +10224,9 @@ async function pcKur(){
   $('#uzakVideo').srcObject = uzakAkis;
   $('#yerelVideo').srcObject = yerelAkis;
   aynalamaGuncelle();
+  /* `pc` ancak BURADA var oluyor; kayan ekranın otomatik açılması buna
+     bakıyor, o yüzden hemen bildiriyoruz. */
+  kayanEkranBildir();
   if (aramaTur === 'goruntu') $('#aramaKatman').classList.add('kamera-acik');
 
   yerelAkis.getTracks().forEach(iz => pc.addTrack(iz, yerelAkis));
@@ -10257,7 +10281,7 @@ function aramaBagli(){
   };
   yaz();
   sureSayaci = setInterval(yaz, 1000);
-  $('#kameraCevir').style.display = aramaTur === 'goruntu' ? '' : 'none';
+  kameraCevirGorunurluk();
   $('#pipBtn').style.display = (PIP_VAR && aramaTur === 'goruntu') ? '' : 'none';
   kaliteyiIzle();
   konusmaIzle();
@@ -10383,8 +10407,22 @@ async function pipAc(){
   try { await v.requestPictureInPicture(); } catch (e) {}
 }
 $('#pipBtn').addEventListener('click', async () => {
-  if (document.pictureInPictureElement) { try { await document.exitPictureInPicture(); } catch (e) {} }
-  else pipAc();
+  if (document.pictureInPictureElement) {
+    try { await document.exitPictureInPicture(); } catch (e) {}
+    return;
+  }
+  if (!PIP_YERLI) { pipAc(); return; }
+  const oldu = await window.MeridyenKopru.kayanEkranaGec();
+  if (oldu) return;
+  /* Açılmadıysa sebep neredeyse her zaman aynı: bu uygulamaya "resim içinde
+     resim" izni verilmemiş. Kullanıcıyı tahmine bırakmayıp doğrudan o ayara
+     götürüyoruz. */
+  if (window.MeridyenKopru.kayanEkranIzni === false) {
+    bildir('Kayan ekran izni kapalı, ayarları açıyorum.');
+    window.MeridyenKopru.kayanEkranAyarlariniAc();
+  } else {
+    bildir('Kayan ekran açılamadı.');
+  }
 });
 /* sekme arka plana alınınca kendiliğinden ayrı pencereye geç.
    APK'da BUNU KULLANMIYORUZ: Android, kayan ekrana geçişi yalnız pencere
@@ -10399,6 +10437,12 @@ document.addEventListener('visibilitychange', () => {
    sürerken kendiliğinden kayan ekrana geçiliyor, yoksa ana ekrana dönerken
    vitrin küçük bir pencerede asılı kalırdı. Oran, karşı tarafın görüntüsünden
    alınıyor: yanlış oran pencereyi çarpıtır. */
+/* Otomatik geçişin ŞARTI: native tarafın "görüntülü görüşme sürüyor"
+   bilgisini zamanında almış olması. Eskiden bu yalnız arama ekranı açılırken
+   çağrılıyordu — ama o an `pc` henüz kurulmamış oluyor (aramaEkraniAc,
+   pcKur'dan ÖNCE çalışıyor), dolayısıyla native tarafa "görüşme yok" deniyor
+   ve ana ekrana dönüldüğünde hiçbir şey olmuyordu. Artık görüşmenin durumu
+   değişebilecek her noktadan bildiriliyor. */
 function kayanEkranBildir(){
   if (!PIP_YERLI) return;
   const gorusme = !!(pc && aramaTur === 'goruntu');
@@ -10685,7 +10729,7 @@ async function cagriKabul(){
   // Kamera çevirme düğmesi gelen çağrı ekranında gizleniyordu ve kabul edilince
   // bir daha gösterilmiyordu: kabul edilen görüntülü aramalarda kamera hiç
   // çevrilemiyordu.
-  $('#kameraCevir').style.display = aramaTur === 'goruntu' ? '' : 'none';
+  kameraCevirGorunurluk();
   $('#aramaDurum').textContent = 'bağlanıyor…';
   await pcKur();
   try {
@@ -10837,31 +10881,135 @@ $('#kamBtn').addEventListener('click', () => {
   durumumuYaz();
 });
 
-/* ---- ön/arka kamera ---- */
-$('#kameraCevir').addEventListener('click', async () => {
+/* ---- ön/arka kamera ----
+
+   APK'da çalışmıyordu ve sebebi şuydu: yeni kamera, ESKİSİ HÂLÂ AÇIKKEN
+   isteniyordu. Android'de cihazların çoğu iki kamerayı aynı anda açtırmıyor;
+   istek NotReadableError ile düşüyor ve kullanıcı yalnız "Diğer kamera
+   açılamadı" yazısını görüyordu. Tarayıcıda (masaüstü) sorun çıkmadığı için
+   fark edilmemişti.
+
+   Yeni sıra: önce eski iz DURDURULUYOR, sonra yenisi isteniyor. Bunun bedeli,
+   yeni kamera da açılmazsa görüntüsüz kalma riski — o yüzden başarısızlıkta
+   ESKİ kameraya geri dönülüyor.
+
+   Hedef seçimi de değişti: yön (facingMode) yerine önce cihaz LİSTESİ
+   kullanılıyor. Bazı WebView'lar facingMode'u yok sayıp aynı kamerayı geri
+   veriyor; deviceId ile sıradaki kameraya geçmek kesin sonuç veriyor. Liste
+   alınamazsa yöne düşülüyor.                                              */
+let kameraCihazlari = [];
+
+async function kameralariTazele(){
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+    const hepsi = await navigator.mediaDevices.enumerateDevices();
+    kameraCihazlari = hepsi.filter(d => d.kind === 'videoinput' && d.deviceId);
+  } catch (e) { kameraCihazlari = []; }
+  return kameraCihazlari;
+}
+
+/* Tek kamerası olan cihazda düğmenin durması yanıltıcı: basınca hiçbir şey
+   olmuyor. Liste alınamadıysa (izin yok, WebView bildirmiyor) gösteriyoruz —
+   var olan bir özelliği gizlemek, boşa basmaktan daha kötü. */
+async function kameraCevirGorunurluk(){
+  const btn = $('#kameraCevir');
+  if (!btn) return;
+  if (aramaTur !== 'goruntu') { btn.style.display = 'none'; return; }
+  await kameralariTazele();
+  btn.style.display = (kameraCihazlari.length === 0 || kameraCihazlari.length > 1) ? '' : 'none';
+}
+
+function sonrakiKamera(mevcutId){
+  if (kameraCihazlari.length > 1) {
+    let i = kameraCihazlari.findIndex(d => d.deviceId === mevcutId);
+    if (i < 0) i = 0;
+    return { deviceId: kameraCihazlari[(i + 1) % kameraCihazlari.length].deviceId };
+  }
+  return { facingMode: kameraYonu === 'environment' ? 'user' : 'environment' };
+}
+
+/* Kısıtları sırayla deniyoruz: `exact` kesin sonuç verir ama desteklenmeyen
+   cihazda hiç açılmaz; gevşek biçim her yerde açılır ama yanlış kamerayı
+   verebilir. Önce kesini, sonra gevşeği. */
+async function videoIziAl(hedef){
+  const temel = { width: { ideal: 1280 } };
+  const denemeler = [];
+  if (hedef.deviceId) {
+    denemeler.push(Object.assign({ deviceId: { exact: hedef.deviceId } }, temel));
+    denemeler.push(Object.assign({ deviceId: hedef.deviceId }, temel));
+  }
+  if (hedef.facingMode) {
+    denemeler.push(Object.assign({ facingMode: { exact: hedef.facingMode } }, temel));
+    denemeler.push(Object.assign({ facingMode: hedef.facingMode }, temel));
+  }
+  if (!denemeler.length) denemeler.push(temel);
+  let sonHata = null;
+  for (const video of denemeler) {
+    try {
+      const akis = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      const iz = akis.getVideoTracks()[0];
+      if (iz) return iz;
+      akis.getTracks().forEach(t => t.stop());
+    } catch (e) { sonHata = e; }
+  }
+  throw sonHata || new Error('kamera açılamadı');
+}
+
+async function kamerayiCevir(){
   if (!pc || !yerelAkis || aramaTur !== 'goruntu') return;
   const btn = $('#kameraCevir');
+  if (btn.disabled) return;
   btn.disabled = true;
-  kameraYonu = kameraYonu === 'user' ? 'environment' : 'user';
-  try {
-    const yeni = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: kameraYonu, width: { ideal: 1280 } }, audio: false
-    });
-    const yeniIz = yeni.getVideoTracks()[0];
-    const gonderici = pc.getSenders().find(g => g.track && g.track.kind === 'video');
-    if (gonderici) await gonderici.replaceTrack(yeniIz);
-    const eski = yerelAkis.getVideoTracks()[0];
-    if (eski) { yerelAkis.removeTrack(eski); eski.stop(); }
-    yerelAkis.addTrack(yeniIz);
-    $('#yerelVideo').srcObject = yerelAkis;
-    aynalamaGuncelle();
-  } catch (e) {
-    kameraYonu = kameraYonu === 'user' ? 'environment' : 'user';
-    bildir('Diğer kamera açılamadı.');
-  } finally {
-    btn.disabled = false;
+
+  const eskiIz = yerelAkis.getVideoTracks()[0];
+  const eskiAyar = (eskiIz && eskiIz.getSettings) ? eskiIz.getSettings() : {};
+  const eskiHedef = eskiAyar.deviceId ? { deviceId: eskiAyar.deviceId }
+                                      : { facingMode: kameraYonu };
+
+  await kameralariTazele();
+  const hedef = sonrakiKamera(eskiAyar.deviceId);
+
+  /* ÖNCE durdur. Asıl düzeltme bu satır: Android iki kamerayı aynı anda
+     açtırmadığı için eski iz canlıyken yeni istek hep düşüyordu. */
+  if (eskiIz) {
+    try { yerelAkis.removeTrack(eskiIz); } catch (e) {}
+    try { eskiIz.stop(); } catch (e) {}
   }
-});
+
+  let yeniIz = null;
+  try {
+    yeniIz = await videoIziAl(hedef);
+  } catch (e) {
+    try { yeniIz = await videoIziAl(eskiHedef); } catch (e2) {}   // eskisine dön
+  }
+
+  if (!yeniIz) {
+    bildir('Kamera açılamadı.');
+    $('#aramaKatman').classList.remove('kamera-acik');
+    btn.disabled = false;
+    durumumuYaz();
+    return;
+  }
+
+  const gonderici = pc.getSenders().find(g => g.track && g.track.kind === 'video');
+  if (gonderici) { try { await gonderici.replaceTrack(yeniIz); } catch (e) {} }
+  yerelAkis.addTrack(yeniIz);
+  $('#yerelVideo').srcObject = yerelAkis;
+  /* Kamera kapalıyken çevrildiyse kapalı kalsın: yeni iz varsayılan olarak
+     açık geliyor, kullanıcının kararını ezmemeli. */
+  const kamKapali = $('#kamBtn').classList.contains('kapali');
+  if (kamKapali) yeniIz.enabled = false;
+
+  const ayar = yeniIz.getSettings ? yeniIz.getSettings() : {};
+  if (ayar.facingMode) kameraYonu = ayar.facingMode;
+  else if (hedef.facingMode) kameraYonu = hedef.facingMode;
+
+  aynalamaGuncelle();
+  kayanEkranBildir();
+  btn.disabled = false;
+}
+
+$('#kameraCevir').addEventListener('click', kamerayiCevir);
 
 /* ---- küçük/büyük görüntüyü değiştir ---- */
 [$('#uzakVideo'), $('#yerelVideo')].forEach(v => {

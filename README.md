@@ -581,6 +581,90 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Görüntülü görüşme: kamera değişimi, kayan ekranda kendi görüntün
+
+Dört ayrı şikayet, dört ayrı sebep.
+
+### 1) Kamera değişimi APK'da çalışmıyordu
+
+Sebep tek bir satırın sırasıydı: yeni kamera, **eskisi hâlâ açıkken**
+isteniyordu. Android'de cihazların çoğu iki kamerayı aynı anda açtırmıyor;
+istek `NotReadableError` ile düşüyor ve kullanıcı yalnız "Diğer kamera
+açılamadı" yazısını görüyordu. Masaüstü tarayıcıda bu sınır olmadığı için
+fark edilmemişti.
+
+Yeni sıra: **önce eski iz durduruluyor**, sonra yenisi isteniyor. Bunun
+bedeli, yeni kamera da açılmazsa görüntüsüz kalma riski — o yüzden
+başarısızlıkta eski kameraya geri dönülüyor ve görüşme görüntüsüz kalmıyor.
+
+Hedef seçimi de değişti. Eskiden yalnız yön (`facingMode`) kullanılıyordu ama
+bazı WebView'lar bunu yok sayıp aynı kamerayı geri veriyor. Artık önce cihaz
+**listesi** kullanılıyor: `enumerateDevices` ile sıradaki kameraya `deviceId`
+üzerinden geçiliyor, liste alınamazsa yöne düşülüyor. Her hedef için önce
+`exact` (kesin ama desteklenmeyebilir), sonra gevşek biçim deneniyor.
+
+İki küçük ayrıntı: tek kamerası olan cihazda düğme gizleniyor (basınca hiçbir
+şey olmaması yanıltıcıydı), ama liste hiç okunamıyorsa gösteriliyor — var olan
+bir özelliği gizlemek, boşa basmaktan daha kötü. Ve kamera kapalıyken
+çevrildiyse kapalı kalıyor: yeni iz açık geliyor, kullanıcının kararını
+ezmemeli.
+
+### 2) Kayan ekranda kendi görüntün yoktu
+
+İlk sürümde kayan ekran kipinde yalnız karşı tarafın görüntüsü bırakılıyordu.
+Kendi görüntünü göremeyince kameranın doğru yöne baktığını anlamanın yolu
+kalmıyor. Artık karşı taraf tam pencereyi kaplıyor, kendi görüntün sağ altta
+küçük bir kutuda duruyor. Karşı taraftan görüntü yoksa (kamerası kapalı ya da
+sesli arama) kendi görüntün tam pencereye geçiyor — küçük bir kutuda kalması
+anlamsızdı.
+
+Görünürlük kararına dokunulmadı: hangi görüntünün açık olduğunu zaten
+`.uzak-var` / `.kamera-acik` sınıfları söylüyor, kayan ekran kipi yalnız
+yerleşimi değiştiriyor.
+
+### 3) Otomatik devreye girmiyordu
+
+İki sebebi vardı, ikisi de düzeldi.
+
+**Zamanlama.** Native tarafa "görüntülü görüşme sürüyor" bilgisi yalnız arama
+ekranı açılırken gönderiliyordu — ama o an `pc` (bağlantı nesnesi) henüz
+kurulmamış oluyor, çünkü `aramaEkraniAc`, `pcKur`'dan **önce** çalışıyor.
+Yani native tarafa "görüşme yok" deniyor ve ana ekrana dönüldüğünde hiçbir şey
+olmuyordu. Artık durum, değişebileceği her noktadan bildiriliyor: bağlantı
+kurulunca, görüntü gelince, kamera çevrilince.
+
+**Tek yola güvenmek.** Android 12 ve üstünde sistemin kendi otomatik girişi
+(`setAutoEnterEnabled`) açık olduğu için `onUserLeaveHint` içinde ikinci bir
+deneme yapılmıyordu. Oysa otomatik giriş sessizce çalışmayabiliyor. Artık
+ikisi birlikte: `gir()` zaten kipin içindeysek hiçbir şey yapmıyor, yani
+çakışmıyorlar.
+
+**Üçüncü bir sebep de olabilir ve artık görünür:** bu uygulamaya "resim içinde
+resim" izni verilmemiş olabilir (Ayarlar → Uygulamalar → Özel erişim). Cihazın
+desteklemesiyle iznin verilmiş olması ayrı şeyler; artık ayrı ayrı okunuyor
+(`AppOpsManager`). Düğmeye basınca açılmazsa uygulama bunu söylüyor ve
+doğrudan o ayar ekranına götürüyor. Bildirim tanısı da bu bilgiyi taşıyor.
+
+### 4) Düğme kaba görünüyordu
+
+Simge, diğerleriyle uyumsuzdu: içteki küçük dikdörtgen **dolu** çiziliyordu,
+yandaki bütün simgeler ise ince çizgiliydi. Artık ikisi de aynı çizgi
+kalınlığında, köşeleri yumuşatılmış ve ekranı temsil eden küçük bir çizgi
+eklendi. Başlığı da "Ayrı pencerede sürdür" yerine "Kayan ekrana al" oldu.
+
+### Doğrulama
+
+Kamera değişimi için 24 senaryo. En önemlisi **sıralamayı** kilitliyor:
+`getUserMedia` çağrıldığı anda eski izin durmuş olduğu doğrulanıyor — asıl
+arıza buydu ve sessizce geri gelmesi kolay. Ayrıca: cihaz listesi yokken yöne
+düşme, `exact` desteklenmeyince gevşek biçime düşme, yeni kamera açılmayınca
+eskisine dönüp görüşmeyi kurtarma, hiçbiri açılmazsa dürüstçe söyleme, kapalı
+kameranın kapalı kalması, düğmenin ne zaman görüneceği.
+
+Kayan ekran köprüsünde 3 senaryo daha (iznin destekten ayrı okunması, izin
+kapalıyken ayarların açılabilmesi). Önceki 149 senaryo da geçiyor. APK açıldı:
+yeni native parçalar ve web tarafındaki yeni kod derlenmiş hâlde içinde.
+
 ## Bildirimler artık birikiyor ve gruplanıyor
 
 Şikayet: "bildirimler birbirlerini siliyor".
