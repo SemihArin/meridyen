@@ -581,6 +581,81 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Bildirimler artık birikiyor ve gruplanıyor
+
+Şikayet: "bildirimler birbirlerini siliyor".
+
+Doğruydu ve sebebi bizim kendi kararımızdı. Aynı sohbetin bildirimi hep **aynı
+id'ye** yazılıyordu, yani ikinci mesaj birincinin üstüne biniyordu. Amaç "her
+mesaj için ayrı bildirim yığılmasın" idi ama sonucu, gelen mesajı okumadan
+kaybetmek oldu: bildirime bakan kişi yalnız sonuncu mesajı görüyordu.
+
+Artık WhatsApp'taki gibi: **sohbet başına tek bildirim, içinde biriken
+mesajlar.**
+
+- Satırlar `MessagingStyle` ile yazılıyor — Android açılmamış hâlde "3 yeni
+  mesaj" diyor, bildirimi açınca hepsini alt alta gösteriyor.
+- Birden çok kişiden mesaj varsa hepsi tek bir **Meridyen** başlığı altında
+  toplanıyor; özet satırında "5 mesaj · 2 sohbet" yazıyor.
+- Bir sohbette en fazla 8 satır tutuluyor; sınır aşılınca **en eski** satır
+  düşüyor.
+
+### Tek yol
+
+Bunun için bildirim yolu birleştirildi. Uygulama açıkken bildirimi Capacitor'un
+yerel bildirim eklentisi çiziyordu ve o eklenti her çağrıda aynı id'yi **silip
+yeniden yayınlıyor** — biriktirmenin önündeki asıl engel buydu. Artık açıkken de
+kapalıyken de bildirim aynı native yoldan geçiyor (`MeridyenBildirimler`).
+Eklentisi olmayan eski bir APK'da kod eski yola düşüyor, yani kurulu sürüm
+eskiyse hiçbir şey bozulmuyor.
+
+### Ne zaman düşüyor
+
+- **Sohbeti açınca** o sohbetin bildirimi ve birikimi siliniyor: okunan mesaj
+  bildirim gölgesinde durmamalı.
+- **Kaydırıp atınca** birikim de unutuluyor. Bunun için bildirime bir "silindi"
+  niyeti bağlandı (`MeridyenBildirimSil`). Olmasaydı bir sonraki mesajda
+  kullanıcının zaten kapattığı eski satırlar geri gelirdi — attığı bildirim
+  dirilmiş gibi görünürdü.
+
+### Birkaç ayrıntı
+
+- Biriken satırlar **diskte** tutuluyor, bellekte değil: uygulama kapalıyken
+  bildirimi FCM servisi çiziyor ve o servis işlem öldükten sonra sıfırdan
+  başlayabiliyor. Bellekte tutsaydık her uyanışta önceki mesajlar kaybolurdu.
+- Özet **yalnız iki ve daha fazla sohbet varken** çiziliyor. Android tek
+  çocuklu bir grubu özetin kendisiyle gösteriyor; tek sohbette özet çizseydik
+  kullanıcı mesajı değil "1 sohbet" yazısını görürdü.
+- Özet sessiz: ses ve titreşimi asıl sohbet bildirimi veriyor. İkisi birden
+  uyarsaydı her mesajda çift titreşim olurdu.
+- Her bildirimin ve her "silindi" niyetinin `requestCode`'u kendi id'si.
+  Hepsine 0 verilseydi `FLAG_UPDATE_CURRENT` yüzünden açık olan bütün
+  bildirimlerin hedefi sonuncusununkine döner, yanlış sohbet açılır ve yanlış
+  birikim silinirdi.
+- Bildirime dokununca doğru sohbetin açılması için gönderenin kimliği web'den
+  native'e `data` alanıyla geçiyor — `data` web'in Notification API'sinde
+  standart bir alan, tarayıcıda yok sayılıyor.
+
+### Doğrulama
+
+Bu davranışın doğrudan gözleneceği tek yer bir telefon ve burada cihaz yok. Bu
+yüzden biriktirme kuralları Android'e **hiç dokunmayan** saf metotlara ayrıldı
+(`depoyaEkle`, `depodanSil`, `ozetSatirlari`, `ozetMesajSayisi`,
+`ozetGerekliMi`) ve `scripts/test_biriken_bildirim.py` onları **gerçek kaynak
+dosyadan çıkarıp** çalıştırıyor — kopyasını değil. 20 kural sınanıyor: ikinci
+mesajın üstüne yazmaması, sohbetlerin ayrı birikmesi, sınır aşılınca en
+eskinin (en yeninin değil) atılması, yalnız açılan sohbetin düşmesi, özetin ne
+zaman gerektiği, boş/bozuk depoda çökmemesi.
+
+> `android.jar` içindeki `org.json` yalnız bir iskelet — her metodu "Stub!"
+> diye hata fırlatıyor. Sınama bu yüzden gerçek uygulamayı sabit sürümle
+> indiriyor ve önbelleğe alıyor.
+
+Köprü tarafında 20 senaryo daha: mesajın kendi eklentimize gitmesi, yerel
+bildirim eklentisinin artık hiç kullanılmaması, aynı etiketli ikinci mesajın
+ayıklanmadan yollanması, kapatmanın birikimi silmesi, eski APK'da eski yola
+düşülmesi. Önceki 129 senaryo da geçiyor.
+
 ## Kamera, kayan ekran ve arka planda bağlı kalma
 
 ### 1) Doğrudan kamera

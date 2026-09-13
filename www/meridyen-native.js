@@ -24,6 +24,14 @@
 
   var cap = window.Capacitor;
   var YB = cap && cap.Plugins && cap.Plugins.LocalNotifications;
+  /* Mesaj bildirimini artık kendi eklentimiz çiziyor. Capacitor'un yerel
+     bildirim eklentisi her çağrıda aynı id'yi SİLİP yeniden yayınlıyor, bu
+     yüzden aynı sohbetin ikinci mesajı birincinin üstüne yazıyordu —
+     "bildirimler birbirini siliyor" şikayetinin sebebi buydu. Kendi yolumuz
+     mesajları biriktiriyor ve bildirimleri tek başlık altında grupluyor.
+     Eklenti yoksa (eski APK) eski yola düşülüyor. */
+  var IP = cap && cap.Plugins && cap.Plugins.MeridyenIlerleme;
+  var BIRIKEN = !!(IP && typeof IP.mesajBildirimi === 'function');
 
   /* KÖPRÜ İMZASI — teşhis için.
      Bu dosya bir kez APK'ya girdiği hâlde sayfaya HİÇ yüklenmedi (enjeksiyon
@@ -35,6 +43,7 @@
     yuklendi: true,
     yerli: !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()),
     yerelBildirim: !!YB,
+    birikenBildirim: BIRIKEN,
     push: !!(cap && cap.Plugins && cap.Plugins.PushNotifications)
   };
 
@@ -42,7 +51,9 @@
   // Gerçek API varsa (ileride WebView desteklerse) ona karışma.
   if ('Notification' in window) { window.MeridyenKopru.gercekApi = true; return; }
 
-  if (!YB) return;
+  /* Kendi eklentimiz varsa yerel bildirim eklentisine ihtiyaç yok; yoksa
+     eski yol için gerekiyor. İkisi de yoksa shim kurulamaz. */
+  if (!YB && !BIRIKEN) return;
 
   var izin = 'default';           // Notification.permission ile aynı sözlük
   var acikOlanlar = {};           // id -> örnek (tıklama ve close() için)
@@ -84,6 +95,7 @@
     this.body = secenekler.body || '';
     this.tag = secenekler.tag;
     this.lang = secenekler.lang;
+    this.data = secenekler.data || null;
     this.onclick = null;
     this.onclose = null;
     this.onerror = null;
@@ -93,6 +105,30 @@
     acikOlanlar[this._id] = this;
 
     var self = this;
+
+    if (BIRIKEN) {
+      /* Web'in Notification API'sinde `data` standart bir alan; tarayıcıda
+         yok sayılıyor, burada gönderenin kim olduğunu taşıyor ki bildirime
+         dokununca doğru sohbet açılsın. */
+      var d = secenekler.data || {};
+      try {
+        IP.mesajBildirimi({
+          baslik: String(baslik == null ? 'Meridyen' : baslik),
+          govde: String(this.body),
+          etiket: String(secenekler.tag == null ? 'meridyen-' + this._id : secenekler.tag),
+          gonderen: d.gonderen ? String(d.gonderen) : null,
+          tur: d.tur ? String(d.tur) : null
+        }).then(function () {
+          if (typeof self.onshow === 'function') { try { self.onshow(); } catch (e) {} }
+        }).catch(function () {
+          if (typeof self.onerror === 'function') { try { self.onerror(); } catch (e) {} }
+        });
+      } catch (e) {
+        if (typeof this.onerror === 'function') { try { this.onerror(); } catch (e2) {} }
+      }
+      return;
+    }
+
     try {
       var istek = {
         id: this._id,
@@ -126,12 +162,21 @@
   }
 
   Bildirim.prototype.close = function () {
+    if (BIRIKEN) {
+      /* Yalnız bildirimi kaldırmakla kalmıyor, biriken satırları da siliyor:
+         kullanıcı o sohbeti açtığı için kapatılıyor, okunmuş sayılmalı. */
+      try { IP.bildirimTemizle({ etiket: this.tag || '' }).catch(function () {}); } catch (e) {}
+      delete acikOlanlar[this._id];
+      if (typeof this.onclose === 'function') { try { this.onclose(); } catch (e) {} }
+      return;
+    }
     try { YB.cancel({ notifications: [{ id: this._id }] }); } catch (e) {}
     delete acikOlanlar[this._id];
     if (typeof this.onclose === 'function') { try { this.onclose(); } catch (e) {} }
   };
 
   Bildirim.requestPermission = function (geriCagri) {
+    if (!YB) return Promise.resolve(izin);
     return YB.requestPermissions().then(function (sonuc) {
       izin = durumCevir(sonuc);
       arayuzuTazele();
@@ -156,7 +201,7 @@
   // Bildirime dokunulduğunda uygulamayı ilgili yere götür: index.html bunu
   // onclick içinde tarif ediyor, biz yalnız tetikliyoruz.
   try {
-    YB.addListener('localNotificationActionPerformed', function (olay) {
+    if (YB) YB.addListener('localNotificationActionPerformed', function (olay) {
       var id = olay && olay.notification && olay.notification.id;
       var n = acikOlanlar[id];
       if (n && typeof n.onclick === 'function') { try { n.onclick(); } catch (e) {} }
@@ -177,6 +222,7 @@
   var SORULDU = 'meridyen_bildirim_soruldu';
 
   function izniHazirla() {
+    if (!YB) return;
     try {
       YB.checkPermissions().then(function (sonuc) {
         izin = durumCevir(sonuc);
@@ -197,7 +243,7 @@
      `izin` bayatlıyor ve Ayarlar ekranı yanlış durumu gösteriyordu. */
   try {
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) return;
+      if (document.hidden || !YB) return;
       YB.checkPermissions().then(function (sonuc) {
         var yeni = durumCevir(sonuc);
         if (yeni === izin) return;
@@ -684,5 +730,25 @@
   K.pilIzniIste = function () {
     if (!yerli || typeof IP.pilIzniIste !== 'function') return Promise.resolve();
     try { return IP.pilIzniIste().catch(function () {}); } catch (e) { return Promise.resolve(); }
+  };
+})();
+
+/* ================= BİLDİRİM TEMİZLEME =================
+ * Sohbet uygulamada açıldığında o sohbetin biriken bildirimi düşmeli:
+ * okunan mesaj bildirim gölgesinde durmamalı.
+ */
+(function () {
+  'use strict';
+  var cap = window.Capacitor;
+  var IP = cap && cap.Plugins && cap.Plugins.MeridyenIlerleme;
+  var K = window.MeridyenKopru || (window.MeridyenKopru = {});
+  var var_ = !!(IP && typeof IP.bildirimTemizle === 'function');
+  K.bildirimTemizleVar = var_;
+  K.bildirimTemizle = function (etiket) {
+    if (!var_) return Promise.resolve(false);
+    try {
+      return IP.bildirimTemizle({ etiket: etiket || '' })
+        .then(function () { return true; }).catch(function () { return false; });
+    } catch (e) { return Promise.resolve(false); }
   };
 })();

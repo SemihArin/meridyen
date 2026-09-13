@@ -203,6 +203,25 @@ else:
 # açıkça yazılıyor. dataSync bilerek seçilmedi: Android 15'te 24 saatte
 # 6 saatle sınırlanıyor ve nöbet sessizce sona ererdi.
 # ---------------------------------------------------------------------------
+# Bildirim kaydırılıp atılınca biriken satırları unutan alıcı. Olmazsa
+# kullanıcının kapattığı eski mesajlar bir sonraki bildirimde geri gelir.
+SILME_ALICI = PAKET + ".MeridyenBildirimSil"
+if SILME_ALICI not in manifest:
+    blok = (
+        '\n        <receiver android:name="' + SILME_ALICI + '"\n'
+        '            android:exported="false" />'
+    )
+    eslesme = re.search(r"<application\b[^>]*>", manifest)
+    if not eslesme:
+        raise SystemExit("HATA: <application> etiketi bulunamadı, silme alıcısı eklenemedi.")
+    yer = eslesme.end()
+    manifest = manifest[:yer] + blok + manifest[yer:]
+    with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+        f.write(manifest)
+    print("bildirim silme alıcısı eklendi: " + SILME_ALICI)
+else:
+    print("bildirim silme alıcısı zaten tanımlı.")
+
 NOBET_SERVIS = PAKET + ".MeridyenNobet"
 if NOBET_SERVIS not in manifest:
     blok = (
@@ -232,6 +251,7 @@ for beklenen, aciklama in (
     ('android:foregroundServiceType="specialUse"', "ön plan servisi türü"),
     ("FOREGROUND_SERVICE_SPECIAL_USE", "ön plan servisi izni"),
     ('android:supportsPictureInPicture="true"', "kayan ekran desteği"),
+    (SILME_ALICI, "bildirim silme alıcısı"),
 ):
     if beklenen not in son:
         raise SystemExit("HATA: manifestte %s yok (%s)." % (beklenen, aciklama))

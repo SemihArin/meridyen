@@ -265,6 +265,37 @@ public class MeridyenIlerleme extends Plugin {
         call.resolve(s);
     }
 
+    /* ================= MESAJ BİLDİRİMİ =================
+     *
+     * Uygulama açıkken bildirimi eskiden Capacitor'un yerel bildirim eklentisi
+     * çiziyordu; o eklenti her çağrıda aynı id'yi silip yeniden yayınladığı
+     * için aynı sohbetin ikinci mesajı birincinin ÜSTÜNE yazıyordu — okunmadan
+     * kaybolan mesajın sebebi buydu. Artık açıkken de kapalıyken de bildirim
+     * TEK yoldan geçiyor (MeridyenBildirimler): mesajlar birikiyor ve
+     * bildirimler tek başlık altında gruplanıyor.
+     */
+    @PluginMethod
+    public void mesajBildirimi(PluginCall call) {
+        MeridyenBildirimler.mesaj(
+            getContext(),
+            call.getString("baslik", "Meridyen"),
+            call.getString("govde", ""),
+            call.getString("etiket", "meridyen"),
+            call.getString("gonderen", null),
+            call.getString("tur", null));
+        call.resolve();
+    }
+
+    /** Sohbet uygulamada açıldığında çağrılıyor: okunan mesaj bildirimde
+     *  durmamalı, biriken satırlar da unutulmalı. */
+    @PluginMethod
+    public void bildirimTemizle(PluginCall call) {
+        String etiket = call.getString("etiket", null);
+        if (etiket == null || etiket.length() == 0) MeridyenBildirimler.hepsiniTemizle(getContext());
+        else MeridyenBildirimler.temizle(getContext(), etiket);
+        call.resolve();
+    }
+
     /**
      * Sınama bildirimi — GERÇEK mesaj bildirimiyle aynı yoldan.
      *

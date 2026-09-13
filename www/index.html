@@ -10922,7 +10922,13 @@ function sistemBildirimi(digerUid, metin){
   const baslik = tercihler.bildirimIcerik ? ad : 'Meridyen';
   const govde = tercihler.bildirimIcerik ? metin : 'Yeni bir mesajın var.';
   try {
-    const n = new Notification(baslik, { body: govde, tag: 'meridyen-' + digerUid, lang: 'tr' });
+    /* `data` web'in Notification API'sinde standart bir alan: tarayıcıda yok
+       sayılıyor, APK'da köprü bunu okuyup bildirime dokunulduğunda doğru
+       sohbetin açılmasını sağlıyor. */
+    const n = new Notification(baslik, {
+      body: govde, tag: 'meridyen-' + digerUid, lang: 'tr',
+      data: { gonderen: digerUid, tur: 'mesaj' }
+    });
     n.onclick = () => {
       window.focus();
       panelGirisTalebi(() => { paneleGec(); sohbetAc(digerUid); });
@@ -12664,7 +12670,20 @@ function sohbetKatmaniAc(){
    düşüyordu. Jeton değiştiyse eski çağrı sessizce çekilir. */
 let sohbetJetonu = 0;
 
+/* Sohbet açıldığında o sohbetin biriken bildirimi düşmeli: okunan mesaj
+   bildirim gölgesinde durmamalı. Tarayıcıda karşılığı yok, orada zaten
+   bildirimler sekme öndeyken hiç çıkmıyor. */
+function sohbetBildirimleriniDusur(uid){
+  if (!uid) return;
+  try {
+    if (window.MeridyenKopru && window.MeridyenKopru.bildirimTemizle) {
+      window.MeridyenKopru.bildirimTemizle('meridyen-' + uid);
+    }
+  } catch (e) {}
+}
+
 async function sohbetAc(uid){
+  sohbetBildirimleriniDusur(uid);
   if (aktifSohbet && aktifSohbet.uid === uid) {
     sohbetKatmaniAc();
     /* Telefonda geri çıkıp aynı kişiye dönünce de tazele: bu arada gelen

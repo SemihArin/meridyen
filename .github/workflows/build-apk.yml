@@ -106,6 +106,13 @@ jobs:
       - name: Kural kopyasının aynı olduğunu sına
         run: python3 scripts/test_kurallar_ayni.py
 
+      # Bildirimler eskiden birbirinin üstüne yazıyordu; artık sohbet başına
+      # tek bildirimde BİRİKİYORLAR. Bunun doğrudan gözleneceği tek yer bir
+      # telefon, o yüzden biriktirme kuralları Android'e dokunmayan saf
+      # metotlara ayrıldı ve burada gerçek kaynaktan çıkarılıp koşuyor.
+      - name: Biriken bildirim kurallarını sına
+        run: python3 scripts/test_biriken_bildirim.py
+
       - name: Bildirim köprüsünü ekle
         run: python3 scripts/inject_native_script.py
 
@@ -126,7 +133,7 @@ jobs:
           # Bildirim yığını: kapalıyken gelen push'u çizen servis ve onun
           # dayandığı ortak sınıf. Biri eksik kalırsa uygulama kapalıyken
           # hiçbir bildirim görünmez ve bu dışarıdan hiç belli olmaz.
-          for SINIF in MeridyenBildirimler MeridyenMesajServisi MeridyenNobet MeridyenKayanEkran; do
+          for SINIF in MeridyenBildirimler MeridyenMesajServisi MeridyenNobet MeridyenKayanEkran MeridyenBildirimSil; do
             test -f "android/app/src/main/java/$PAKET/$SINIF.java" \
               || { echo "HATA: $SINIF.java kopyalanmamış"; exit 1; }
           done
@@ -161,6 +168,11 @@ jobs:
             || { echo "HATA: nöbet servisinin ön plan türü tanımlı değil"; exit 1; }
           grep -q 'FOREGROUND_SERVICE_SPECIAL_USE' "$MANIFEST" \
             || { echo "HATA: ön plan servisi izni eksik"; exit 1; }
+          # Bildirim kaydırılıp atılınca biriken satırları unutan alıcı.
+          # Olmazsa kullanıcının kapattığı mesajlar bir sonraki bildirimde
+          # geri gelir — atılan bildirim dirilmiş gibi görünür.
+          grep -q 'MeridyenBildirimSil' "$MANIFEST" \
+            || { echo "HATA: bildirim silme alıcısı manifestte yok"; exit 1; }
           # Açılış ekranı: şablonun jenerik splash.png'leri yönelim/yoğunluk
           # klasörlerine de kopyalanıyor ve Android daha ÖZEL olanı seçtiği
           # için markalı olanı gölgeliyorlardı. Hiç kalmadığını doğruluyoruz.
