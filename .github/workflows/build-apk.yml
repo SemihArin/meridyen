@@ -133,7 +133,7 @@ jobs:
           # Bildirim yığını: kapalıyken gelen push'u çizen servis ve onun
           # dayandığı ortak sınıf. Biri eksik kalırsa uygulama kapalıyken
           # hiçbir bildirim görünmez ve bu dışarıdan hiç belli olmaz.
-          for SINIF in MeridyenBildirimler MeridyenMesajServisi MeridyenNobet MeridyenKayanEkran MeridyenBildirimSil; do
+          for SINIF in MeridyenBildirimler MeridyenMesajServisi MeridyenNobet MeridyenKayanEkran MeridyenBildirimSil MeridyenCagri; do
             test -f "android/app/src/main/java/$PAKET/$SINIF.java" \
               || { echo "HATA: $SINIF.java kopyalanmamış"; exit 1; }
           done
@@ -173,6 +173,11 @@ jobs:
           # geri gelir — atılan bildirim dirilmiş gibi görünür.
           grep -q 'MeridyenBildirimSil' "$MANIFEST" \
             || { echo "HATA: bildirim silme alıcısı manifestte yok"; exit 1; }
+          # Gelen çağrıda uygulamanın öne çıkmasının Android'deki tek meşru
+          # yolu tam ekran niyeti; izin olmadan bildirim çıkar ama uygulama
+          # ekrana gelmez ve bu dışarıdan "çağrı gelmiyor" görünür.
+          grep -q 'USE_FULL_SCREEN_INTENT' "$MANIFEST" \
+            || { echo "HATA: tam ekran çağrı izni manifestte yok"; exit 1; }
           # Açılış ekranı: şablonun jenerik splash.png'leri yönelim/yoğunluk
           # klasörlerine de kopyalanıyor ve Android daha ÖZEL olanı seçtiği
           # için markalı olanı gölgeliyorlardı. Hiç kalmadığını doğruluyoruz.

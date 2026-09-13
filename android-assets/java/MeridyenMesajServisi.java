@@ -55,6 +55,18 @@ public class MeridyenMesajServisi extends MessagingService {
 
             if (baslik == null && govde == null) return;   // gösterilecek bir şey yok
 
+            /* ÇAĞRI, mesajdan ayrı ele alınıyor. Uygulama tamamen kapalıyken
+               gelen çağrıyı yalnız buradan duyurabiliyoruz (veritabanı
+               dinleyicisi çalışmıyor), ve çağrı bildiriminin tam ekran
+               niyeti olmak zorunda: uygulamanın öne gelmesinin Android'deki
+               tek meşru yolu o. Sıradan mesaj bildirimi bunu yapamaz.
+               Sunucu yükünde tür alanı "arama" ya da "cagri" olabiliyor. */
+            if ("arama".equals(tur) || "cagri".equals(tur)) {
+                String aramaTuru = ilk(d.get("aramaTuru"), d.get("aramaTur"), "ses");
+                MeridyenCagri.goster(this, baslik, gonderen, aramaTuru);
+                return;
+            }
+
             /* Etiket = hangi bildirimin hangisinin üstüne yazacağı. Web tarafı
                'meridyen-<gonderenUid>' kullanıyor; aynısını üretiyoruz ki iki
                yol aynı id'ye düşsün. Gönderen bilinmiyorsa mesaj kimliğine

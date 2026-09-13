@@ -59,6 +59,8 @@ public class MeridyenIlerleme extends Plugin {
      *  JS dinleyicisi köprü yüklenmeden ÖNCE gelebildiği için (soğuk açılış)
      *  değeri saklıyoruz; web tarafı hazır olunca `bekleyenAcilis` ile alıyor. */
     private String bekleyenGonderen = null;
+    /** Soğuk açılışta kaçırılan çağrı eylemi (köprü henüz yüklenmemiş olabilir). */
+    private JSObject bekleyenCagri = null;
 
     @Override
     public void load() {
@@ -66,6 +68,7 @@ public class MeridyenIlerleme extends Plugin {
         /* Kanallar uygulama daha ilk kez açılırken kurulmalı: bildirim
            geldiğinde kanal yoksa Android bildirimi hiç göstermez. */
         try { MeridyenBildirimler.mesajKanaliniKur(getContext()); } catch (Exception e) {}
+        try { MeridyenCagri.kanaliKur(getContext()); } catch (Exception e) {}
         try { kanaliKur(); } catch (Exception e) {}
         if (getActivity() != null) niyetiIsle(getActivity().getIntent());
     }
@@ -79,6 +82,26 @@ public class MeridyenIlerleme extends Plugin {
 
     private void niyetiIsle(Intent niyet) {
         if (niyet == null) return;
+
+        /* Gelen çağrı bildiriminden mi açıldık? Öyleyse hem ekranı kilidin
+           üstüne çıkarıyoruz hem de kullanıcının bastığı düğmeyi (cevapla /
+           reddet) web tarafına iletiyoruz. */
+        try {
+            String cagri = niyet.getStringExtra(MeridyenCagri.EK_CAGRI);
+            if (cagri != null && cagri.length() > 0) {
+                String eylem = niyet.getStringExtra(MeridyenCagri.EK_EYLEM);
+                niyet.removeExtra(MeridyenCagri.EK_CAGRI);
+                niyet.removeExtra(MeridyenCagri.EK_EYLEM);
+                MeridyenCagri.kilitUstunde(getActivity(), true);
+                JSObject v = new JSObject();
+                v.put("arayan", cagri);
+                v.put("eylem", eylem == null ? "" : eylem);
+                notifyListeners("cagriEylemi", v, true);
+                bekleyenCagri = v;
+                return;
+            }
+        } catch (Exception e) {}
+
         String g;
         try {
             g = niyet.getStringExtra(MeridyenBildirimler.EK_GONDEREN);
@@ -102,6 +125,10 @@ public class MeridyenIlerleme extends Plugin {
         JSObject sonuc = new JSObject();
         sonuc.put("gonderen", bekleyenGonderen == null ? "" : bekleyenGonderen);
         bekleyenGonderen = null;
+        if (bekleyenCagri != null) {
+            sonuc.put("cagri", bekleyenCagri);
+            bekleyenCagri = null;
+        }
         call.resolve(sonuc);
     }
 
@@ -260,6 +287,7 @@ public class MeridyenIlerleme extends Plugin {
             s.put("nobet", MeridyenNobet.calisiyor);
             s.put("kayanEkran", MeridyenKayanEkran.desteklenir(getContext()));
             s.put("kayanEkranIzni", MeridyenKayanEkran.izinVarMi(getContext()));
+            s.put("tamEkranCagri", MeridyenCagri.tamEkranIzniVarMi(getContext()));
         } catch (Exception e) {
             s.put("hata", String.valueOf(e.getMessage()));
         }
@@ -284,6 +312,58 @@ public class MeridyenIlerleme extends Plugin {
             call.getString("etiket", "meridyen"),
             call.getString("gonderen", null),
             call.getString("tur", null));
+        call.resolve();
+    }
+
+    /* ================= GELEN ÇAĞRI ================= */
+
+    /**
+     * Gelen çağrıyı tam ekran bildirimle duyurur; uygulama arka plandaysa
+     * ya da ekran kilitliyse Android uygulamayı öne çıkarır.
+     *
+     * Dönen `tamEkran` değeri, uygulamanın gerçekten öne gelip gelemeyeceğini
+     * söylüyor (Android 14'te ayrı bir izin). Web tarafı buna bakarak kendi
+     * zil sesini çalıp çalmayacağına karar veriyor: sistem zaten çalacaksa
+     * ikinci bir zil gürültü olurdu.
+     */
+    @PluginMethod
+    public void cagriBildirimi(PluginCall call) {
+        boolean tamEkran = MeridyenCagri.goster(
+            getContext(),
+            call.getString("ad", "Bilinmeyen"),
+            call.getString("arayan", null),
+            call.getString("tur", "ses"));
+        JSObject s = new JSObject();
+        s.put("gosterildi", true);
+        s.put("tamEkran", tamEkran);
+        call.resolve(s);
+    }
+
+    /** Çağrı bitti/kabul edildi/reddedildi: bildirim ve kilit üstü kipi kalksın. */
+    @PluginMethod
+    public void cagriKapat(PluginCall call) {
+        MeridyenCagri.kapat(getContext());
+        if (getActivity() != null) {
+            getActivity().runOnUiThread(() -> MeridyenCagri.kilitUstunde(getActivity(), false));
+        }
+        call.resolve();
+    }
+
+    /** Tam ekran çağrı izni kapalıysa kullanıcı tek dokunuşla açabilsin. */
+    @PluginMethod
+    public void tamEkranAyarlariniAc(PluginCall call) {
+        try {
+            Intent i;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                i = new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
+                i.setData(Uri.parse("package:" + getContext().getPackageName()));
+            } else {
+                i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                i.setData(Uri.parse("package:" + getContext().getPackageName()));
+            }
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+        } catch (Exception e) {}
         call.resolve();
     }
 

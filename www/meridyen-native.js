@@ -453,7 +453,13 @@
       setTimeout(function () {
         try {
           IP.bekleyenAcilis().then(function (s) {
-            if (s && s.gonderen) sohbeteGit(String(s.gonderen));
+            if (!s) return;
+            if (s.gonderen) sohbeteGit(String(s.gonderen));
+            /* Aynı yanıtta bekleyen bir ÇAĞRI eylemi de olabilir; onu da
+               burada dağıtıyoruz, yoksa kaybolurdu. */
+            if (s.cagri && window.MeridyenKopru && window.MeridyenKopru.cagriEylemiIsle) {
+              window.MeridyenKopru.cagriEylemiIsle(s.cagri);
+            }
           }).catch(function () {});
         } catch (e) {}
       }, 1200);   // uygulamanın kendi açılışı bitsin
@@ -765,4 +771,72 @@
         .then(function () { return true; }).catch(function () { return false; });
     } catch (e) { return Promise.resolve(false); }
   };
+})();
+
+/* ================= GELEN ÇAĞRI =================
+ *
+ * Web tarafı gelen çağrıyı veritabanı dinleyicisinden öğreniyor ve çağrı
+ * ekranını açıyor — ama bu yalnız uygulama ÖNDEYSE bir işe yarıyor. Arka
+ * plandaysa ya da ekran kilitliyse hiçbir şey görünmüyordu: Android 10'dan
+ * beri arka plandaki bir uygulama kendi kendine ekrana gelemiyor.
+ *
+ * Bunun tek meşru yolu, tam ekran niyeti olan bir çağrı bildirimi. Sistem,
+ * telefon boştayken ya da kilitliyken o niyeti doğrudan açıyor.
+ */
+(function () {
+  'use strict';
+
+  var cap = window.Capacitor;
+  var IP = cap && cap.Plugins && cap.Plugins.MeridyenIlerleme;
+  var yerli = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform() && IP);
+  var K = window.MeridyenKopru || (window.MeridyenKopru = {});
+
+  K.cagriBildirimiVar = yerli && typeof IP.cagriBildirimi === 'function';
+
+  /* Dönüş: { gosterildi, tamEkran }. tamEkran false ise uygulama kendiliğinden
+     öne GELMİYOR (Android 14'te ayrı izin) — web tarafı o zaman kendi zilini
+     çalmaya devam etmeli. */
+  K.cagriBildirimi = function (ad, arayan, tur) {
+    if (!K.cagriBildirimiVar) return Promise.resolve({ gosterildi: false, tamEkran: false });
+    try {
+      return IP.cagriBildirimi({
+        ad: String(ad || 'Bilinmeyen'),
+        arayan: arayan ? String(arayan) : null,
+        tur: tur === 'goruntu' ? 'goruntu' : 'ses'
+      }).then(function (s) {
+        return { gosterildi: !!(s && s.gosterildi), tamEkran: !!(s && s.tamEkran) };
+      }).catch(function () { return { gosterildi: false, tamEkran: false }; });
+    } catch (e) { return Promise.resolve({ gosterildi: false, tamEkran: false }); }
+  };
+
+  K.cagriKapat = function () {
+    if (!K.cagriBildirimiVar) return Promise.resolve();
+    try { return IP.cagriKapat().catch(function () {}); } catch (e) { return Promise.resolve(); }
+  };
+
+  K.tamEkranAyarlariniAc = function () {
+    if (!yerli || typeof IP.tamEkranAyarlariniAc !== 'function') return Promise.resolve();
+    try { return IP.tamEkranAyarlariniAc().catch(function () {}); } catch (e) { return Promise.resolve(); }
+  };
+
+  /* Bildirimdeki "Cevapla" / "Reddet" düğmeleri uygulamayı açıyor ve eylemi
+     buradan geçiyor. index.html o eylemi kendi çağrı mantığına bağlıyor. */
+  function cagriEylemi(v) {
+    if (!v) return;
+    try {
+      if (typeof window.cagriBildiriminden === 'function') {
+        window.cagriBildiriminden(String(v.arayan || ''), String(v.eylem || ''));
+      }
+    } catch (e) {}
+  }
+
+  /* Soğuk açılışta `bekleyenAcilis` TEK yerden okunuyor (yukarıdaki push
+     bölümünde): ilk okuyan native taraftaki bekleyeni temizlediği için iki
+     ayrı yerden sorulsaydı biri boş dönerdi. Oradan buraya bu kancayla
+     ulaşılıyor. */
+  K.cagriEylemiIsle = cagriEylemi;
+
+  if (yerli) {
+    try { IP.addListener('cagriEylemi', cagriEylemi); } catch (e) {}
+  }
 })();

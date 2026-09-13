@@ -581,6 +581,79 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Gelen çağrı: uygulama öne çıkıyor, tam ekran çalıyor
+
+Gelen çağrıyı web tarafı zaten veritabanı dinleyicisinden öğreniyor ve çağrı
+ekranını açıyordu — ama bu yalnız uygulama **zaten öndeyse** işe yarıyor. Arka
+plandaysa ya da ekran kilitliyse hiçbir şey görünmüyordu.
+
+Sebep bir eksiklik değil, Android'in kuralı: **Android 10'dan beri arka
+plandaki bir uygulama kendi kendine ekrana gelemiyor.** `startActivity`
+sessizce yok sayılıyor. Bunun tek meşru kapısı, **tam ekran niyeti** olan bir
+bildirim (`setFullScreenIntent`). Sistem, telefon boştayken ya da kilitliyken
+o niyeti doğrudan açıyor — çağrı ekranı tam ekran geliyor; kullanıcı telefonu
+aktif kullanıyorsa üstte bir çağrı şeridi olarak beliriyor. WhatsApp'ta gördüğün
+davranış tam olarak bu.
+
+### Ne eklendi
+
+- **Ayrı bir çağrı kanalı** (`meridyen_cagri`): telefonun **kendi zil sesi**,
+  uzun titreşim örüntüsü, en yüksek önem. Mesaj kanalının sesi kısa bir "ding",
+  çağrınınki zil olmalı — Android'de ses kanal başına ayarlandığı için bu ayrı
+  kanal şart. Ses `USAGE_NOTIFICATION_RINGTONE` ile zil düzeyine bağlanıyor,
+  yani sessiz kipte susuyor.
+- **Android'in kendi çağrı görünümü** (`CallStyle`, Android 12+): büyük
+  "Cevapla" ve "Reddet" düğmeleriyle. Daha eski sürümlerde iki eylem düğmesine
+  düşülüyor.
+- **Kilit ekranının üstünde açılma**: çağrı geldiğinde `setShowWhenLocked` ve
+  `setTurnScreenOn` açılıyor, kilit ekranı geçilmesi isteniyor. Bilerek
+  **kalıcı değil**: uygulamanın kendi kilit kodu var, her açılışta kilidi aşmak
+  gizliliği bozardı — çağrı bitince geri alınıyor.
+- **Uygulama kapalıyken** çağrıyı yalnız sunucudan gelen FCM duyurabiliyor
+  (veritabanı dinleyicisi çalışmıyor). FCM servisi artık türü `arama`/`cagri`
+  olan yükü mesaj değil **çağrı** olarak işliyor ve aynı tam ekran bildirimi
+  çıkarıyor.
+
+### Tek zil
+
+Bildirim gösterildiyse uygulamanın kendi zili susturuluyor. İki zil bir arada
+gürültüden başka bir şey değil; kararı "bildirim gösterildi mi" veriyor,
+"uygulama öne geldi mi" değil — çünkü tam ekran izni olmasa bile bildirim
+çıkıyor ve zil çalıyor.
+
+### Bildirimdeki düğmeler
+
+"Cevapla" ve "Reddet" uygulamayı açıp eylemi web tarafına geçiriyor. Çağrı
+verisi o an henüz gelmemiş olabiliyor (uygulama yeni açıldı), o yüzden kısa
+aralıklarla ~5 saniye boyunca tekrar bakılıyor.
+
+Soğuk açılışta bir incelik vardı: native tarafta bekleyen açılış bilgisi **tek
+okumada** temizleniyor. Hem bildirim dokunuşu hem çağrı eylemi ayrı ayrı
+sorsaydı biri boş dönerdi; artık tek yerden okunup dağıtılıyor.
+
+### Çalışmazsa sebebi görünür
+
+Android 14'ten beri tam ekran niyeti **ayrı bir izin**. Verilmemişse bildirim
+yalnız üstte bir şerit olarak çıkıyor, uygulama öne gelmiyor — ve bu dışarıdan
+"çağrı gelmiyor" gibi görünüyor. Bildirim tanısı artık bunu ayrı okuyup
+söylüyor, yanındaki düğme de doğrudan o iznin ekranını açıyor (genel bildirim
+ayarlarında o seçenek görünmüyor).
+
+### Doğrulama
+
+Köprüde 15 senaryo (bildirimin tetiklenmesi, ad/kimlik/türün aktarılması,
+bilinmeyen türün sesliye düşmesi, kapatma, tam ekran izninin ayrı
+bildirilmesi, bildirimden gelen cevapla/reddet, soğuk açılışta eylemin
+kaybolmaması, tarayıcıda sessizce devre dışı kalma).
+
+Web tarafında 15 senaryo daha: profilden ad çözme, sistem zili devralınca kendi
+zilimizin susması, bildirim gösterilemezse kendi zilimizin devrede kalması,
+çağrı verisi henüz yokken bekleyip tekrar deneme, eylemsiz açılışta hiçbir şey
+yapmama. Önceki 152 senaryo da geçiyor.
+
+APK açıldı: izin manifestte, `MeridyenCagri` ve `CallStyle`/`setFullScreenIntent`/
+`canUseFullScreenIntent`/`setShowWhenLocked` derlenmiş dex içinde.
+
 ## Görüntülü görüşme: kamera değişimi, kayan ekranda kendi görüntün
 
 Dört ayrı şikayet, dört ayrı sebep.

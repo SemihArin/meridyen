@@ -6646,6 +6646,7 @@ function kanaliBaslat(){
     const veri = s.val();
     if (!veri) {
       // yalnızca henüz kabul edilmemiş bir çağrı varsa iptal say
+      cagriDuyurusunuKapat();
       if (gelenCagri && !pc) { gelenCagri = null; aramayiBitir(null, true); }
       return;
     }
@@ -6667,6 +6668,10 @@ function kanaliBaslat(){
        da bitince PIN hiç sorulmadan geçmiş yazışmalar ortadaydı.
        Bildirim tıklamalarıyla aynı desen: panelGirisTalebi kilit
        açıksa hemen devam eder, değilse önce kod ister. */
+    /* Duyuru ÖNCE: uygulama arka plandaysa ekrana gelmesi buna bağlı.
+       panelGirisTalebi kilit kapalıysa kod isteyip bekleyebiliyor; çağrının
+       o beklemeye takılmaması gerekiyor. */
+    cagriyiDuyur(veri);
     panelGirisTalebi(() => { paneleGec(); gelenCagriGoster(veri); });
   });
 
@@ -7031,6 +7036,12 @@ async function bildirimTanisiCiz(){
           + 'arka planda kalınca bildirimler kesilebilir.';
   } else if (t && t.nobet === false && tercihler.arkaPlanBagli) {
     mesaj = 'Arka plan bağlantısı başlatılamadı; uygulamayı bir kez açıp kapat.';
+  } else if (t && t.tamEkranCagri === false) {
+    /* Android 14'te ayrı bir izin. Verilmemişse gelen çağrıda uygulama öne
+       GELMİYOR, yalnız üstte bir şerit çıkıyor — "çağrı gelmiyor" diye
+       bilinen durumun sık sebebi bu. */
+    mesaj = 'Gelen çağrıda uygulama öne çıkamıyor: "tam ekran bildirim" izni kapalı.';
+    ayarGerek = true;
   } else if (t && t.pilSerbest === false) {
     mesaj = 'Çalışıyor. Pil iyileştirmesi açık olduğu için gecikebilir.';
   } else if (t && t.kanalOnem >= 0 && t.kanalOnem < 3) {
@@ -7242,6 +7253,13 @@ $('#ayarBildirimSinaBtn').addEventListener('click', async () => {
   // Tanı "kapalı" diyorsa sınama boşa gider; doğrudan ayarlara götür.
   if (btn.textContent === 'Ayarlar') {
     if (window.MeridyenKopru && window.MeridyenKopru.bildirimAyarlariniAc) {
+      /* Eksik olan tam ekran izniyse doğrudan ONUN ekranını açıyoruz;
+         genel bildirim ayarlarında o seçenek görünmüyor. */
+      if (bildirimTanisiSonucu && bildirimTanisiSonucu.tamEkranCagri === false
+          && window.MeridyenKopru.tamEkranAyarlariniAc) {
+        await window.MeridyenKopru.tamEkranAyarlariniAc();
+        return;
+      }
       await window.MeridyenKopru.bildirimAyarlariniAc();
     } else {
       bildir('Tarayıcı ayarlarından bu sitenin bildirimlerine izin vermen gerekiyor.');
@@ -10708,6 +10726,10 @@ function aramaAkisiniDinle(){
 }
 
 /* ---- gelen çağrı ---- */
+/* Sistemin zili çalıyorsa kendi zilimizi çalmıyoruz: iki zil bir arada
+   gürültüden başka bir şey değil. */
+let cagriZiliSistemde = false;
+
 function gelenCagriGoster(veri){
   gelenCagri = veri;
   aramaTur = veri.tur; aramaRolu = 'aranan';
@@ -10716,8 +10738,53 @@ function gelenCagriGoster(veri){
   cagriSesi(true);
 }
 
+/* Uygulama arka planda ya da ekran kilitliyken gelen çağrı.
+
+   Web tarafı çağrı ekranını açabiliyor ama uygulamayı ÖNE ÇIKARAMIYOR:
+   Android 10'dan beri arka plandaki bir uygulama kendi kendine ekrana
+   gelemiyor. Tek meşru yol, tam ekran niyeti olan bir çağrı bildirimi —
+   sistem onu telefon boştayken ya da kilitliyken doğrudan açıyor. */
+async function cagriyiDuyur(veri){
+  if (!window.MeridyenKopru || !window.MeridyenKopru.cagriBildirimiVar) return;
+  const ad = (profilKesi[veri.arayan] || {}).ad || 'Bilinmeyen';
+  const sonuc = await window.MeridyenKopru.cagriBildirimi(ad, veri.arayan, veri.tur);
+  /* Sistem zili çalacaksa kendi zilimizi susturuyoruz. Tam ekran izni yoksa
+     uygulama öne gelmiyor ama bildirim yine çıkıyor ve zil yine çalıyor;
+     yani karar "gösterildi"ye bakıyor, "tamEkran"a değil. */
+  if (sonuc.gosterildi) {
+    cagriZiliSistemde = true;
+    cagriSesi(false);
+  }
+}
+
+function cagriDuyurusunuKapat(){
+  cagriZiliSistemde = false;
+  try {
+    if (window.MeridyenKopru && window.MeridyenKopru.cagriKapat) window.MeridyenKopru.cagriKapat();
+  } catch (e) {}
+}
+
+/* Bildirimdeki "Cevapla" / "Reddet" düğmeleri uygulamayı açıyor ve buraya
+   düşüyor. Çağrı verisi henüz gelmemiş olabilir (uygulama yeni açıldı):
+   o yüzden kısa bir süre bekleyip tekrar bakıyoruz. */
+function cagriBildiriminden(arayan, eylem){
+  if (!eylem) return;                     // yalnız tam ekran açılışı
+  let kalan = 20;                         // ~5 sn
+  const dene = () => {
+    if (gelenCagri) {
+      if (eylem === 'kabul') cagriKabul();
+      else if (eylem === 'reddet') cagriReddet();
+      return;
+    }
+    if (--kalan > 0) setTimeout(dene, 250);
+  };
+  dene();
+}
+window.cagriBildiriminden = cagriBildiriminden;
+
 async function cagriKabul(){
   if (!gelenCagri) return;
+  cagriDuyurusunuKapat();
   cagriSesi(false);
   try {
     yerelAkis = await medyaAl(aramaTur);
@@ -10757,6 +10824,7 @@ async function cagriKabul(){
 }
 
 async function cagriReddet(){
+  cagriDuyurusunuKapat();
   cagriSesi(false);
   if (aramaSid) await db.ref('aramalar/' + aramaSid).update({ durum: 'reddedildi' }).catch(() => {});
   await db.ref('cagri/' + ben.uid).remove().catch(() => {});
@@ -10797,6 +10865,7 @@ function aramaKaydiYaz(sonuc){
 
 /* ---- bitiş ve temizlik ---- */
 async function aramayiBitir(mesaj, uzaktan){
+  cagriDuyurusunuKapat();
   cagriSesi(false);
   clearTimeout(cagriZamanAsimi); cagriZamanAsimi = null;
   clearInterval(kaliteSayaci); kaliteSayaci = null;
@@ -10846,6 +10915,8 @@ async function aramayiBitir(mesaj, uzaktan){
 /* ---- zil sesi ---- */
 let zilTimer = null;
 function cagriSesi(calsin){
+  // Sistem zili çalıyorsa kendi zilimizi hiç başlatmıyoruz (susturmak serbest).
+  if (calsin && cagriZiliSistemde) return;
   clearInterval(zilTimer); zilTimer = null;
   if (!calsin) return;
   const cal = () => { sesCal(); setTimeout(sesCal, 320); };

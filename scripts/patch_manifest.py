@@ -27,6 +27,10 @@ PERMISSIONS = [
     # Android uygulamayı bir süre sonra donduruyor ve bildirimler kesiliyor.
     '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
     '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />',
+    # Gelen çağrının uygulamayı ÖNE ÇIKARABİLMESİ için. Android 10'dan beri
+    # arka plandaki uygulama kendi kendine ekrana gelemiyor; tam ekran niyeti
+    # olan bir bildirim bunun tek meşru yolu.
+    '    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />',
 ]
 
 FEATURES = [
@@ -252,6 +256,7 @@ for beklenen, aciklama in (
     ("FOREGROUND_SERVICE_SPECIAL_USE", "ön plan servisi izni"),
     ('android:supportsPictureInPicture="true"', "kayan ekran desteği"),
     (SILME_ALICI, "bildirim silme alıcısı"),
+    ("USE_FULL_SCREEN_INTENT", "tam ekran gelen çağrı izni"),
 ):
     if beklenen not in son:
         raise SystemExit("HATA: manifestte %s yok (%s)." % (beklenen, aciklama))
