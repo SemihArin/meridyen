@@ -2482,15 +2482,20 @@ body.sepet-acik .bildirim{bottom:150px}
   padding:9px 18px;border-radius:100px;flex-direction:row;gap:12px;align-items:center;
 }
 .arama-katman.uzak-var .arama-kimlik .avatar{width:34px;height:34px;font-size:.9rem}
-.arama-kimlik h3{font-family:'Syne',sans-serif;font-size:1.5rem;font-weight:700}
+.arama-kimlik h3{font-family:'Syne',sans-serif;font-size:1.5rem;font-weight:700;
+  letter-spacing:-.01em;line-height:1.15}
 .arama-katman.uzak-var .arama-kimlik h3{font-size:1rem;font-weight:500}
 .arama-durum{font-family:'DM Mono',monospace;font-size:.72rem;letter-spacing:.1em;color:var(--gri)}
 .arama-durum.canli{color:#3ddc84}
+/* Süre sayarken rakamlar zıplamasın: eşit genişlikli rakamlar. */
+.arama-durum{font-variant-numeric:tabular-nums}
+.mini-bilgi span{font-variant-numeric:tabular-nums}
 #yerelVideo{
-  position:absolute;top:calc(24px + env(safe-area-inset-top));right:16px;z-index:3;
-  width:104px;height:150px;object-fit:cover;border-radius:14px;
-  background:#12151c;border:1px solid rgba(255,255,255,.14);
-  box-shadow:0 14px 30px -14px rgba(0,0,0,.9);display:none;
+  position:absolute;top:calc(14px + env(safe-area-inset-top));right:14px;z-index:3;
+  width:clamp(84px,25vw,112px);aspect-ratio:3/4;height:auto;
+  object-fit:cover;border-radius:16px;
+  background:#12151c;border:1px solid rgba(255,255,255,.16);
+  box-shadow:0 16px 34px -16px rgba(0,0,0,.95);display:none;
 }
 .arama-katman.kamera-acik #yerelVideo{display:block}
 /* Kendi görüntün ön kamerada aynalanır (aynaya bakar gibi), arka kamerada
@@ -2498,16 +2503,45 @@ body.sepet-acik .bildirim{bottom:150px}
 #yerelVideo.aynali{transform:scaleX(-1)}
 .arama-katman.ters #yerelVideo.aynali{transform:scaleX(-1)}
 #uzakVideo{transform:none !important}
-.arama-kontrol{display:flex;gap:18px;align-items:center}
+/* Düğmeler EKRANA GÖRE ölçülüyor ve sığmazsa alt satıra geçiyor.
+   Eskiden sabit 60px ve 18px aralıktı; altı düğme 450px eder, telefon
+   ekranı 360-400px. Flex onları yatayda ezip daireleri OVALE çeviriyordu.
+   Artık ikisi yukarı alındı (bkz. .arama-pencere) ve kalanlar da esniyor. */
+.arama-kontrol{
+  display:flex;gap:clamp(10px,4.5vw,20px);align-items:center;
+  justify-content:center;flex-wrap:wrap;max-width:100%;
+}
 .arama-kontrol.gizli{display:none}
 .yuvarlak{
-  width:60px;height:60px;border-radius:50%;display:grid;place-items:center;
-  background:rgba(255,255,255,.12);color:#fff;backdrop-filter:blur(8px);
+  width:clamp(52px,15vw,62px);height:clamp(52px,15vw,62px);flex:none;
+  border-radius:50%;display:grid;place-items:center;
+  background:rgba(255,255,255,.13);color:#fff;backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.08);
   transition:transform .16s,background .16s;
 }
-.yuvarlak:hover{transform:scale(1.07)}
-.yuvarlak svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-.yuvarlak.kapali{background:#fff;color:#0c0d10}
+.yuvarlak:hover{transform:scale(1.07);background:rgba(255,255,255,.2)}
+.yuvarlak:active{transform:scale(.94)}
+.yuvarlak svg{width:clamp(21px,6vw,25px);height:clamp(21px,6vw,25px);fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+/* Kapalı durum: beyaz dolgu, "üstü çizili" gibi okunsun diye. */
+.yuvarlak.kapali{background:#fff;color:#0c0d10;border-color:transparent}
+
+/* ---- pencere düğmeleri (küçült / kayan ekran) ----
+   Çağrı eylemi değiller; sol üstte, küçük ve sessiz duruyorlar. Sağ üst
+   bilerek boş: kendi görüntün orada. */
+.arama-pencere{
+  position:absolute;left:14px;top:calc(14px + env(safe-area-inset-top));z-index:4;
+  display:flex;gap:8px;
+}
+.pencere-btn{
+  width:38px;height:38px;border-radius:12px;display:grid;place-items:center;
+  background:rgba(8,9,12,.5);border:1px solid rgba(255,255,255,.12);
+  color:rgba(255,255,255,.82);backdrop-filter:blur(10px);
+  transition:background .16s,color .16s;
+}
+.pencere-btn:hover{background:rgba(8,9,12,.75);color:#fff}
+.pencere-btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.arama-katman.gizli-kontrol .arama-pencere{opacity:0;pointer-events:none}
+.arama-pencere{transition:opacity .3s}
 /* PiP düğmesi CSS ile kalıcı gizleniyordu; oysa özellik tam çalışıyor.
    Görünürlüğü artık PIP_VAR (tarayıcı desteği) ve görüntülü arama koşulu belirler. */
 .yuvarlak.kapat,.yuvarlak.reddet{background:#e5484d}
@@ -2566,13 +2600,19 @@ body.sepet-acik .bildirim{bottom:150px}
   background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);
   padding:7px 14px;border-radius:100px;color:var(--vurgu-2);
 }
+/* Karşı taraf kamerasını KAPATTIYSA bu bir arıza değil, bir durum: avatar
+   sakinleşiyor ve not onun altında duruyor. "Bekliyor" durumunda hiçbir şey
+   değişmiyor — bağlanırken yanlış bilgi vermektense sessiz kalmak doğru. */
+.arama-katman.uzak-kapali .arama-kimlik .avatar.buyuk{
+  opacity:.85;box-shadow:0 0 0 1px rgba(255,255,255,.12), 0 22px 45px -22px rgba(0,0,0,.9);
+}
 .kapali-not svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;flex:none}
 .kapali-not.gor{display:inline-flex}
 
 /* ---- kendi kameran kapalıyken küçük kutu boş kalmasın ---- */
 .yerel-kapali{
-  position:absolute;top:calc(24px + env(safe-area-inset-top));right:16px;z-index:3;
-  width:104px;height:150px;border-radius:14px;display:none;
+  position:absolute;top:calc(14px + env(safe-area-inset-top));right:14px;z-index:3;
+  width:clamp(84px,25vw,112px);aspect-ratio:3/4;height:auto;border-radius:16px;display:none;
   background:linear-gradient(180deg,#191d26,#12151c);
   border:1px solid rgba(255,255,255,.14);box-shadow:0 14px 30px -14px rgba(0,0,0,.9);
   flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:8px;text-align:center;
@@ -2583,9 +2623,9 @@ body.sepet-acik .bildirim{bottom:150px}
 
 /* küçük ve büyük görüntü yer değiştirebilir */
 .arama-katman.ters #uzakVideo{
-  position:absolute;inset:auto 16px auto auto;top:calc(24px + env(safe-area-inset-top));
-  width:104px;height:150px;border-radius:14px;z-index:3;
-  border:1px solid rgba(255,255,255,.14);box-shadow:0 14px 30px -14px rgba(0,0,0,.9);
+  position:absolute;inset:auto 14px auto auto;top:calc(14px + env(safe-area-inset-top));
+  width:clamp(84px,25vw,112px);aspect-ratio:3/4;height:auto;border-radius:16px;z-index:3;
+  border:1px solid rgba(255,255,255,.16);box-shadow:0 16px 34px -16px rgba(0,0,0,.95);
 }
 .arama-katman.ters #yerelVideo{position:absolute;inset:0;width:100%;height:100%;border-radius:0;border:none;box-shadow:none;z-index:1}
 #uzakVideo,#yerelVideo{cursor:pointer}
@@ -3869,13 +3909,9 @@ mark.arama-vurgu{
   /* panel — sohbet */
   .sohbet-ust{padding:9px 12px;gap:7px}
   .arama-btn{display:none}
-  #yerelVideo{width:88px;height:126px;right:12px}
-  .yuvarlak{width:56px;height:56px}
-  /* Beş yuvarlak düğme dar ekranda tek satıra sığmıyordu; küçülüyor ve
-     gerekirse alt satıra sarıyor. */
-  .arama-kontrol{gap:12px;flex-wrap:wrap;justify-content:center;max-width:100%}
-  .yuvarlak{width:54px;height:54px}
-  .yuvarlak svg{width:22px;height:22px}
+  /* Düğme ve kendi görüntünün ölçüleri artık tek bir yerde, clamp() ile
+     (bkz. .yuvarlak, #yerelVideo). Burada ayrıca tanımlanınca clamp hiç
+     devreye girmiyordu: aynı bilgi iki yerde duruyor ve biri ölü kalıyordu. */
   .panel-arama{padding:8px 12px}
   .akis{padding:16px 12px 6px;gap:11px}
   .msj{max-width:92%}
@@ -3908,17 +3944,12 @@ mark.arama-vurgu{
   .arac svg{width:18px;height:18px}
 }
 @media (max-width:400px){
-  .arama-kontrol{gap:10px}
-  .yuvarlak{width:50px;height:50px}
   .arama-ic{padding-left:12px;padding-right:12px}
 }
 @media (max-width:340px){
   .marka{font-size:.9rem;letter-spacing:.08em}
   .arac{width:32px;height:32px}
   .ust-araclar{gap:2px}
-  .yuvarlak{width:46px;height:46px}
-  .yuvarlak svg{width:20px;height:20px}
-  .arama-kontrol{gap:8px}
 }
 
 /* ============ TAM EKRAN GÜVENLİ ALANLARI ============ */
@@ -5550,6 +5581,14 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
   </div>
 
   <div class="arama-ic">
+    <!-- Pencere işlemleri (küçült / kayan ekrana al) çağrı eylemleri DEĞİL.
+         Alt sıraya altı yuvarlak düğme sığmıyordu: 6×60px + aralıklar 450px
+         eder, telefon ekranı 360-400px. Flex onları ezip ovale çeviriyordu —
+         "amatörce" görünen asıl şey buydu. Bu ikisi yukarı alındı. -->
+    <div class="arama-pencere" id="aramaPencere">
+      <button class="pencere-btn" id="aramaKucult" title="Küçült" aria-label="Küçült"><svg viewBox="0 0 24 24"><path d="M9 4v5H4M15 20v-5h5"/></svg></button>
+      <button class="pencere-btn" id="pipBtn" title="Kayan ekrana al" aria-label="Kayan ekrana al"><svg viewBox="0 0 24 24"><rect x="2.75" y="4.75" width="18.5" height="14.5" rx="2.5"/><rect x="12.5" y="11.5" width="7" height="5.5" rx="1.5"/><path d="M6 9.5h4"/></svg></button>
+    </div>
     <div class="arama-ust">
     <div class="arama-kimlik">
       <span class="avatar buyuk" id="aramaAvatar"></span>
@@ -5574,8 +5613,6 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
     <div class="arama-kontrol" id="aramaKontrol">
       <button class="yuvarlak" id="mikBtn" title="Mikrofon"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg></button>
       <button class="yuvarlak" id="kamBtn" title="Kamera"><svg viewBox="0 0 24 24"><path d="m23 7-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></button>
-      <button class="yuvarlak" id="pipBtn" title="Kayan ekrana al" aria-label="Kayan ekrana al"><svg viewBox="0 0 24 24"><rect x="2.75" y="4.75" width="18.5" height="14.5" rx="2.5"/><rect x="12.5" y="11.5" width="7" height="5.5" rx="1.5"/><path d="M6 9.5h4"/></svg></button>
-      <button class="yuvarlak" id="aramaKucult" title="Küçült"><svg viewBox="0 0 24 24"><path d="M9 3v6H3M21 15h-6v6"/><path d="M9 9 3 3M15 15l6 6"/></svg></button>
       <button class="yuvarlak" id="kameraCevir" title="Kamerayı çevir"><svg viewBox="0 0 24 24"><path d="M3 7h3l2-2h8l2 2h3v12H3z"/><path d="M9.5 13.5a3 3 0 0 0 5-1.5M14.5 12.5a3 3 0 0 0-5 1.5"/><path d="M9 12.5 7.5 14 6 12.5M15 13.5l1.5-1.5L18 13.5"/></svg></button>
       <button class="yuvarlak kapat" id="aramaKapatBtn" title="Kapat"><svg viewBox="0 0 24 24" style="transform:rotate(135deg)"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg></button>
     </div>
@@ -10245,6 +10282,12 @@ async function pcKur(){
   /* `pc` ancak BURADA var oluyor; kayan ekranın otomatik açılması buna
      bakıyor, o yüzden hemen bildiriyoruz. */
   kayanEkranBildir();
+  /* Kendi mikrofon/kamera durumumuzu ilk kez BURADA yazıyoruz. Arama ekranı
+     açılırken de yazılıyor ama ARANAN tarafta o an `yerelAkis` henüz yok
+     (medya çağrı kabul edilince alınıyor), yani ilk durum hiç yazılmıyordu
+     ve karşı taraf kamera kapalı/açık bilgisini ancak bir düğmeye
+     basıldığında öğreniyordu. */
+  durumumuYaz();
   if (aramaTur === 'goruntu') $('#aramaKatman').classList.add('kamera-acik');
 
   yerelAkis.getTracks().forEach(iz => pc.addTrack(iz, yerelAkis));
@@ -10492,33 +10535,59 @@ function kontrolleriGecikmeliGizle(){
 }
 
 /* ================= KARŞI GÖRÜNTÜ DURUMU =================
-   Karşı tarafın görüntüsünün olup olmadığına tek yerden karar verilir.
-   Üç kaynak var: gelen video izi, izin mute/unmute olayı ve veritabanındaki
-   `hal.kam` bayrağı. Hepsi buraya bağlanır ki ekran hiçbir durumda
-   "siyah ama kontrolsüz" kalmasın. */
-let karsiKamKapaliBayrak = false;
 
-function uzakGoruntuVarMi(){
-  if (aramaTur !== 'goruntu') return false;
-  if (karsiKamKapaliBayrak) return false;
-  if (!uzakAkis) return false;
+   ARIZA: "Kamerasını kapattı" ekranı bazen çıkmıyor, bazen de hiç kimse
+   kamerasını kapatmamışken çıkıyordu. İki ayrı hata vardı.
+
+   1) Eski kod GÖRÜNTÜ YOKSA KAPATMIŞTIR sayıyordu. Oysa görüntünün
+      olmamasının bambaşka bir sebebi daha var: henüz gelmemiş olması.
+      Bağlantı kurulur kurulmaz (`pc` var olur olmaz) not gösteriliyordu,
+      yani her görüntülü aramanın ilk saniyelerinde karşı taraf kamerasını
+      hiç kapatmamışken "kamerasını kapattı" yazıyordu.
+
+   2) Kapanmayı `iz.muted`'dan anlamaya çalışıyordu. Bu bayrak güvenilir
+      değil: karşı taraf `track.enabled = false` yaptığında WebRTC siyah kare
+      göndermeye devam ediyor ve alıcıdaki iz çoğu zaman HİÇ mute olmuyor —
+      "bazen çalışmıyor" bu. Tersi de oluyor: ağ birkaç saniye takılınca iz
+      mute'a düşüyor ve kimse kamerasını kapatmamışken not çıkıyor.
+
+   ÇÖZÜM: Üç durum artık birbirinden ayrı ve "kapalı" kararını YALNIZ karşı
+   tarafın kendi bildirimi (veritabanındaki hal.kam) veriyor. İz durumu
+   sadece "görüntü akıyor mu" sorusuna bakıyor.
+
+     'var'      — görüntü akıyor
+     'kapali'   — karşı taraf kamerasını kapattığını SÖYLEDİ
+     'bekliyor' — henüz gelmedi ya da akış duraksadı
+*/
+let karsiKamKapaliBayrak = false;   // hal.kam === false
+
+function uzakDurum(){
+  if (aramaTur !== 'goruntu') return 'yok';
+  if (karsiKamKapaliBayrak) return 'kapali';
+  if (!uzakAkis) return 'bekliyor';
   const izler = uzakAkis.getVideoTracks();
-  if (!izler.length) return false;
-  // iz "muted" ise karşı taraf göndermeyi durdurmuştur
-  return izler.some(i => i.readyState === 'live' && !i.muted);
+  if (!izler.length) return 'bekliyor';
+  return izler.some(i => i.readyState === 'live' && !i.muted) ? 'var' : 'bekliyor';
 }
+
+function uzakGoruntuVarMi(){ return uzakDurum() === 'var'; }
 
 function uzakGoruntuTazele(){
   const kat = $('#aramaKatman');
-  const varMi = uzakGoruntuVarMi();
+  const durum = uzakDurum();
+  const varMi = durum === 'var';
   kat.classList.toggle('uzak-var', varMi);
+  kat.classList.toggle('uzak-kapali', durum === 'kapali');
 
-  const kamKapali = aramaTur === 'goruntu' && !varMi && !!pc;
-  $('#kameraKapaliNot').classList.toggle('gor', kamKapali);
-  if (kamKapali) {
-    $('#kameraKapaliMetin').textContent =
-      ($('#aramaAd').textContent || 'Karşı taraf') + ' kamerasını kapattı';
+  /* Not YALNIZ gerçekten kapalıyken. "Bekliyor" durumunda hiçbir şey
+     yazmıyoruz: bağlantı kurulurken yanlış bilgi vermektense sessiz kalmak
+     doğru. Durum satırı zaten "bağlanıyor…" diyor. */
+  $('#kameraKapaliNot').classList.toggle('gor', durum === 'kapali');
+  if (durum === 'kapali') {
+    // Ad zaten hemen üstünde yazıyor; tekrar etmek gereksiz.
+    $('#kameraKapaliMetin').textContent = 'Kamerası kapalı';
   }
+
   if (!varMi) {
     kat.classList.remove('ters', 'gizli-kontrol');   // takas ve gizleme anlamsız
     clearTimeout(kontrolGizleTimer);
@@ -10940,7 +11009,7 @@ $('#mikBtn').addEventListener('click', () => {
   durumumuYaz();
 });
 $('#kamBtn').addEventListener('click', () => {
-  if (!yerelAkis) return;
+  if (!yerelAkis || aramaTur !== 'goruntu') return;
   const iz = yerelAkis.getVideoTracks()[0];
   if (!iz) return;
   iz.enabled = !iz.enabled;
@@ -11077,6 +11146,7 @@ async function kamerayiCevir(){
 
   aynalamaGuncelle();
   kayanEkranBildir();
+  durumumuYaz();     // kapalıyken çevrildiyse karşı taraf bunu bilmeli
   btn.disabled = false;
 }
 

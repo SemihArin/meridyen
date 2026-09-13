@@ -581,6 +581,85 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Arama ekranı: kamera durumu arızası ve yerleşim
+
+### Arıza: "kamera kapatma ekranı bazen çalışmıyor"
+
+Doğruydu, ve iki ayrı hata vardı. İkisi de aynı yerden geliyordu: eski kod
+**görüntü yoksa kapatmıştır** sayıyordu.
+
+**1) Bağlanırken yanlış bilgi.** Not, bağlantı nesnesi var olur olmaz
+gösteriliyordu. Yani her görüntülü aramanın ilk saniyelerinde, karşı taraf
+kamerasını hiç kapatmamışken "kamerasını kapattı" yazıyordu.
+
+**2) Güvenilmez bir bayrağa dayanmak.** Kapanmayı `track.muted`'dan anlamaya
+çalışıyordu. Oysa karşı taraf kamerasını kapattığında WebRTC siyah kare
+göndermeye devam ediyor ve alıcıdaki iz çoğu zaman **hiç mute olmuyor** —
+"bazen çalışmıyor" tam olarak bu. Tersi de oluyor: ağ birkaç saniye takılınca
+iz mute'a düşüyor ve kimse kamerasını kapatmamışken not çıkıyor.
+
+Artık üç durum birbirinden ayrı ve "kapalı" kararını **yalnız karşı tarafın
+kendi bildirimi** veriyor (veritabanındaki `hal.kam`); iz durumu sadece
+"görüntü akıyor mu" sorusuna bakıyor:
+
+| durum | ne demek | ekranda |
+|---|---|---|
+| `var` | görüntü akıyor | karşı tarafın görüntüsü |
+| `kapali` | karşı taraf kapattığını söyledi | avatar + "Kamerası kapalı" |
+| `bekliyor` | henüz gelmedi ya da duraksadı | avatar, **not yok** |
+
+"Bekliyor" durumunda bilerek hiçbir şey yazmıyoruz: bağlanırken yanlış bilgi
+vermektense sessiz kalmak doğru, durum satırı zaten "bağlanıyor…" diyor.
+
+Bir de yayın tarafı eksikti: **aranan** taraf kendi mikrofon/kamera durumunu
+ilk kez hiç yazmıyordu. Arama ekranı açılırken yazılmaya çalışılıyor ama o an
+aranan tarafta yerel akış henüz yok (medya çağrı kabul edilince alınıyor).
+Artık bağlantı kurulduğunda ve kamera çevrildiğinde de yazılıyor.
+
+### Yerleşim: ölçüm bir varsayımımı düzeltti
+
+Alt sırada altı yuvarlak düğme vardı ve ilk tahminim "dar ekranda taşıyor,
+daireler ovale dönüyor" idi. **Yanlıştı** — gerçek tarayıcıda ölçünce taşma da
+yok, oval de yok: dar ekranlar için zaten medya sorguları yazılmış.
+
+Ölçümün gösterdiği gerçek sorun başkaydı: 320px'lik bir ekranda altı düğme
+**46px'e** kadar küçülüyor ve satır alanı tam dolduruyordu (296px alanda 296px
+sıra) — yani nefes payı sıfır ve düğmeler Android'in 48dp dokunma hedefinin
+altında.
+
+Yapılan: **küçült** ve **kayan ekrana al** düğmeleri alt sıradan çıkarıldı.
+İkisi de çağrı eylemi değil, pencere işlemi — artık sol üstte küçük ve sessiz
+duruyorlar (sağ üst bilerek boş: kendi görüntün orada). Altta dört gerçek çağrı
+eylemi kaldı: mikrofon, kamera, kamera çevir, kapat.
+
+Bir de aynı bilgi iki yerde duruyordu: `clamp()` kuralı eklediğimde dar ekran
+medya sorguları onu eziyordu, yani yeni kural ölüydü. Medya sorgularındaki
+kopyalar kaldırıldı; ölçü artık tek yerde.
+
+Ölçülen sonuç (gerçek CSS, gerçek markup, gerçek tarayıcı):
+
+| ekran | eski | yeni |
+|---|---|---|
+| 320px | 6 düğme, 46px, boşluk **0px** | 4 düğme, **52px**, boşluk 45px |
+| 360px | 6 düğme, 50px | 4 düğme, **54px** |
+| 412px | 6 düğme, 54px | 4 düğme, **62px** |
+
+Ayrıca kendi görüntünün kutusu da ekrana göre ölçülüyor
+(`clamp(84px,25vw,112px)`, 3:4 oran) ve düğme basılınca küçülme geri
+bildirimi eklendi.
+
+### Doğrulama
+
+Karşı görüntü durumu için 24 senaryo — ikisi doğrudan bu arızayı kilitliyor:
+"bağlanırken kapalı notu çıkmıyor" ve "iz mute ise kapalı değil bekliyor".
+Ayrıca sesli aramada karşı tarafın yazdığı `kam:false`'un "kamerasını kapattı"
+diye yorumlanmadığı da sınanıyor.
+
+Yerleşim, **gerçek tarayıcıda** ölçüldü (Chromium, headless): beş ekran durumu
+× dört genişlik = 20 kombinasyon; hepsinde daireler daire, taşma yok, tek
+satır, pencere düğmeleri kendi görüntünle çakışmıyor. Aynı ölçüm eski sürümde
+de çalıştırılıp karşılaştırıldı — yukarıdaki tablo oradan.
+
 ## Gelen çağrı: uygulama öne çıkıyor, tam ekran çalıyor
 
 Gelen çağrıyı web tarafı zaten veritabanı dinleyicisinden öğreniyor ve çağrı
