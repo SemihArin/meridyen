@@ -48,8 +48,16 @@ jobs:
       - name: npm bağımlılıklarını kur
         run: npm ci
 
+      # `packages` BİLEREK yalnız platform-tools: eylemin varsayılanı
+      # "tools platform-tools" ve Google o eski `tools` paketini SDK
+      # deposundan kaldırdı. Varsayılanla çalışınca sdkmanager
+      # "Failed to find package 'tools'" deyip derlemeyi düşürüyor —
+      # depoda hiçbir şey değişmeden, bir gün aniden. Gerisini (platform,
+      # build-tools) Android Gradle eklentisi kendi indiriyor.
       - name: Android SDK kur
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       # android/ klasörü bilerek depoya eklenmiyor: Capacitor'un KENDİ resmi
       # şablonundan her derlemede TAZE üretiliyor, üstüne de aşağıdaki iki

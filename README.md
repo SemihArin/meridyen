@@ -650,6 +650,14 @@ küçültülmüşken gövde kilidinin olmaması.
 Yerleşim ölçümü (beş ekran durumu × dört genişlik) yeniden koşturuldu, hepsi
 temiz. Önceki 206 senaryo da geçiyor.
 
+> **CI notu (bir kez yaşandı):** `android-actions/setup-android@v3` varsayılan
+> olarak `tools platform-tools` paketlerini kuruyor. Google, eski `tools`
+> paketini SDK deposundan kaldırınca adım `Failed to find package 'tools'`
+> deyip derlemeyi düşürdü — depoda hiçbir şey değişmeden, bir gün aniden.
+> Artık yalnız `platform-tools` isteniyor; platform ve build-tools'u Android
+> Gradle eklentisi kendisi indiriyor (yerel SDK'da da `tools` yok ve derleme
+> aylardır sorunsuz).
+
 ## Arama ekranı: kamera durumu arızası ve yerleşim
 
 ### Arıza: "kamera kapatma ekranı bazen çalışmıyor"
