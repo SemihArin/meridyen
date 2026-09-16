@@ -179,6 +179,9 @@
 
   --r:14px;
   --gecis:.35s cubic-bezier(.2,.8,.2,1);
+  /* Taşınan pencereleri sınırlarken JS'in de bilmesi gerekiyor; env()
+     doğrudan JS'ten okunamadığı için değişkene alınıyor. */
+  --guvenli-ust:env(safe-area-inset-top,0px);
 }
 /* ---- KAMERA MENÜSÜ ---- */
 .kamera-arka{position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,.35)}
@@ -2480,6 +2483,15 @@ body.sepet-acik .bildirim{bottom:150px}
 .arama-katman.uzak-var .arama-kimlik{
   background:rgba(8,9,12,.55);backdrop-filter:blur(10px);
   padding:9px 18px;border-radius:100px;flex-direction:row;gap:12px;align-items:center;
+  max-width:100%;
+}
+/* Karşı görüntü varken kimlik balonu ÜSTTE ortalanıyordu ve sağdaki kendi
+   görüntünün kutusunun altına giriyordu: uzun adlarda süre kesiliyordu.
+   Üst şerit artık boş (yalnız pencere düğmeleri ve kendi görüntün), balon
+   kontrollerin hemen üstüne indi. */
+.arama-katman.uzak-var .arama-ic{justify-content:flex-end;gap:16px}
+.arama-katman.uzak-var .arama-kimlik h3{
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
 }
 .arama-katman.uzak-var .arama-kimlik .avatar{width:34px;height:34px;font-size:.9rem}
 .arama-kimlik h3{font-family:'Syne',sans-serif;font-size:1.5rem;font-weight:700;
@@ -2522,6 +2534,12 @@ body.sepet-acik .bildirim{bottom:150px}
 .yuvarlak:hover{transform:scale(1.07);background:rgba(255,255,255,.2)}
 .yuvarlak:active{transform:scale(.94)}
 .yuvarlak svg{width:clamp(21px,6vw,25px);height:clamp(21px,6vw,25px);fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+/* Mikrofon ve kamera düğmesi kapalıyken yalnız RENK değiştiriyordu; simge
+   aynı kalınca "açık mı kapalı mı" ancak renkten anlaşılıyordu. Artık iki
+   ayrı simge var ve kapalı olan üstü çizili. */
+.yuvarlak .simge-kapali{display:none}
+.yuvarlak.kapali .simge-acik{display:none}
+.yuvarlak.kapali .simge-kapali{display:block}
 /* Kapalı durum: beyaz dolgu, "üstü çizili" gibi okunsun diye. */
 .yuvarlak.kapali{background:#fff;color:#0c0d10;border-color:transparent}
 
@@ -3185,12 +3203,19 @@ mark.arama-vurgu{
 
 
 /* ---- arama: küçültülmüş pencere ---- */
+/* ---- KÜÇÜLTÜLMÜŞ ARAMA ----
+   Görüşme küçültülünce site kullanılabilir hâlde kalıyor (gövde kilidi
+   kalkıyor, bkz. kilitGerekliMi). Eksik olan karttı: yalnız bir isim
+   çubuğuydu, görüntülü aramada görüntü tamamen kayboluyordu. Artık
+   görüntülü aramada kart küçük bir video penceresi — ve parmakla
+   taşınabiliyor. */
 .mini-cubuk{display:none}
 .arama-katman.kucuk{
   inset:auto 12px auto auto;top:calc(12px + env(safe-area-inset-top));
   width:min(300px,calc(100vw - 24px));height:auto;border-radius:16px;
   background:var(--gece-2);border:1px solid var(--gece-3);
   box-shadow:0 24px 50px -22px rgba(0,0,0,.95);overflow:hidden;
+  touch-action:none;                     /* taşırken sayfa kaymasın */
 }
 .arama-katman.kucuk .arama-ic,.arama-katman.kucuk #uzakVideo,.arama-katman.kucuk #yerelVideo{display:none}
 .arama-katman.kucuk .mini-cubuk{display:flex;align-items:center;gap:10px;padding:10px 10px 10px 12px;min-width:0}
@@ -3200,6 +3225,48 @@ mark.arama-vurgu{
 .mini-bilgi span{font-family:'DM Mono',monospace;font-size:.66rem;color:#3ddc84}
 .mini-bitir{background:#e5484d;color:#fff}
 .mini-bitir:hover{background:#f0575c}
+
+/* Görüntülü arama + karşı görüntü varsa: kart bir video penceresi olur.
+   "Ekran içinde ekran"ın uygulama İÇİNDEKİ karşılığı bu; Android'in kendi
+   kayan ekranı uygulamadan ÇIKINCA devreye giriyor, bu ise uygulamanın
+   içinde gezerken. */
+.arama-katman.kucuk.goruntulu.uzak-var{width:min(150px,40vw);border-radius:18px}
+.arama-katman.kucuk.goruntulu.uzak-var #uzakVideo{
+  display:block;position:relative;inset:auto;width:100%;height:auto;
+  aspect-ratio:3/4;object-fit:cover;border-radius:0;
+}
+.arama-katman.kucuk.goruntulu.uzak-var .mini-cubuk{
+  position:absolute;left:0;right:0;bottom:0;padding:16px 7px 7px;gap:6px;
+  background:linear-gradient(transparent,rgba(6,7,9,.86));
+}
+.arama-katman.kucuk.goruntulu.uzak-var .mini-cubuk .avatar,
+.arama-katman.kucuk.goruntulu.uzak-var #miniBuyut{display:none}
+.arama-katman.kucuk.goruntulu.uzak-var .mini-bilgi b{font-size:.74rem}
+.arama-katman.kucuk.goruntulu.uzak-var .mini-bilgi span{font-size:.6rem}
+.arama-katman.kucuk.goruntulu.uzak-var .mini-bitir{width:30px;height:30px;border-radius:9px}
+.arama-katman.kucuk.goruntulu.uzak-var .mini-bitir svg{width:15px;height:15px}
+
+/* Taşındıysa köşeye yapışır; konum JS'ten geliyor. */
+.arama-katman.kucuk.kart-tasindi{
+  inset:auto auto auto 0;left:var(--kart-x);top:var(--kart-y);right:auto;
+}
+.arama-katman.kucuk.yapisiyor{transition:left .18s cubic-bezier(.2,.8,.2,1),top .18s cubic-bezier(.2,.8,.2,1)}
+
+/* ---- FULL EKRANDA KÜÇÜK KUTU TAŞIMA ----
+   Kendi görüntün (takas edilmişse karşı tarafınki) parmakla taşınabiliyor.
+   Konum tek bir değişken çiftinden geliyor ki hangi video küçük kutudaysa
+   o taşınsın. */
+.arama-katman.kutu-tasindi:not(.kucuk) #yerelVideo,
+.arama-katman.kutu-tasindi:not(.kucuk) .yerel-kapali,
+.arama-katman.ters.kutu-tasindi:not(.kucuk) #uzakVideo{
+  top:var(--kutu-y);left:var(--kutu-x);right:auto;
+}
+.arama-katman.kutu-yapisiyor:not(.kucuk) #yerelVideo,
+.arama-katman.kutu-yapisiyor:not(.kucuk) .yerel-kapali,
+.arama-katman.ters.kutu-yapisiyor:not(.kucuk) #uzakVideo{
+  transition:left .18s cubic-bezier(.2,.8,.2,1),top .18s cubic-bezier(.2,.8,.2,1);
+}
+#yerelVideo,.yerel-kapali,.arama-katman.ters #uzakVideo{touch-action:none}
 
 /* ---- konuşma ve çağrı halkaları ---- */
 /* Karsi tarafin sesiyle hareket eden spektrum. Cubuklar ortadan iki yana
@@ -5586,7 +5653,7 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
          eder, telefon ekranı 360-400px. Flex onları ezip ovale çeviriyordu —
          "amatörce" görünen asıl şey buydu. Bu ikisi yukarı alındı. -->
     <div class="arama-pencere" id="aramaPencere">
-      <button class="pencere-btn" id="aramaKucult" title="Küçült" aria-label="Küçült"><svg viewBox="0 0 24 24"><path d="M9 4v5H4M15 20v-5h5"/></svg></button>
+      <button class="pencere-btn" id="aramaKucult" title="Küçült" aria-label="Küçült"><svg viewBox="0 0 24 24"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m3 21 7-7M21 3l-7 7"/></svg></button>
       <button class="pencere-btn" id="pipBtn" title="Kayan ekrana al" aria-label="Kayan ekrana al"><svg viewBox="0 0 24 24"><rect x="2.75" y="4.75" width="18.5" height="14.5" rx="2.5"/><rect x="12.5" y="11.5" width="7" height="5.5" rx="1.5"/><path d="M6 9.5h4"/></svg></button>
     </div>
     <div class="arama-ust">
@@ -5611,9 +5678,9 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
       <span>Kameran<br>kapalı</span>
     </div>
     <div class="arama-kontrol" id="aramaKontrol">
-      <button class="yuvarlak" id="mikBtn" title="Mikrofon"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg></button>
-      <button class="yuvarlak" id="kamBtn" title="Kamera"><svg viewBox="0 0 24 24"><path d="m23 7-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></button>
-      <button class="yuvarlak" id="kameraCevir" title="Kamerayı çevir"><svg viewBox="0 0 24 24"><path d="M3 7h3l2-2h8l2 2h3v12H3z"/><path d="M9.5 13.5a3 3 0 0 0 5-1.5M14.5 12.5a3 3 0 0 0-5 1.5"/><path d="M9 12.5 7.5 14 6 12.5M15 13.5l1.5-1.5L18 13.5"/></svg></button>
+      <button class="yuvarlak" id="mikBtn" title="Mikrofon" aria-label="Mikrofon"><svg class="simge-acik" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5"/></svg><svg class="simge-kapali" viewBox="0 0 24 24"><path d="M15 9.5V5a3 3 0 0 0-5.8-1.1"/><path d="M9 8v3a3 3 0 0 0 4.9 2.3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 9.9 5.6M18.5 11.5a6.4 6.4 0 0 1-.5 2.5"/><path d="M12 18v3.5"/><path d="M3.6 3.6 20.4 20.4"/></svg></button>
+      <button class="yuvarlak" id="kamBtn" title="Kamera" aria-label="Kamera"><svg class="simge-acik" viewBox="0 0 24 24"><rect x="2" y="6.2" width="14.5" height="12.6" rx="2.6"/><path d="m16.5 11.4 5.5-3.3v8.8l-5.5-3.3z"/></svg><svg class="simge-kapali" viewBox="0 0 24 24"><path d="M16.5 16.6v.2a2.6 2.6 0 0 1-2.6 2.6H4.6A2.6 2.6 0 0 1 2 16.8V8.8a2.6 2.6 0 0 1 2.6-2.6h1.3"/><path d="M10.2 6.2h3.7a2.6 2.6 0 0 1 2.6 2.6v2.6l5.5-3.3v8.8l-3.2-1.9"/><path d="M2.6 3.4 21.4 20.6"/></svg></button>
+      <button class="yuvarlak" id="kameraCevir" title="Kamerayı çevir" aria-label="Kamerayı çevir"><svg viewBox="0 0 24 24"><path d="M9.2 6.2 10.4 4.3h3.2l1.2 1.9"/><rect x="2.6" y="6.2" width="18.8" height="13.2" rx="3"/><path d="M15.4 12.8a3.4 3.4 0 1 1-1.2-2.6"/><path d="m11.6 9.6 2.7.9-.9 2.6"/></svg></button>
       <button class="yuvarlak kapat" id="aramaKapatBtn" title="Kapat"><svg viewBox="0 0 24 24" style="transform:rotate(135deg)"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg></button>
     </div>
     <div class="arama-kontrol gizli" id="gelenKontrol">
@@ -10246,6 +10313,12 @@ function aramaEkraniAc(kip, uid){
 }
 
 function aramaEkraniKapat(){
+  const kat = $('#aramaKatman');
+  /* Taşınan konumlar bu aramaya aitti; bir sonraki arama varsayılan
+     köşesinden başlasın. */
+  kat.classList.remove('kart-tasindi', 'kutu-tasindi', 'yapisiyor', 'kutu-yapisiyor');
+  kat.style.removeProperty('--kart-x'); kat.style.removeProperty('--kart-y');
+  kat.style.removeProperty('--kutu-x'); kat.style.removeProperty('--kutu-y');
   $('#aramaKatman').classList.remove('acik', 'uzak-var', 'kamera-acik', 'kendi-kapali', 'goruntulu', 'gizli-kontrol', 'ters');
   $('#kameraKapaliNot').classList.remove('gor');
   karsiKamKapaliBayrak = false;
@@ -10517,7 +10590,19 @@ $('#uzakVideo').addEventListener('loadedmetadata', kayanEkranBildir);
 
 $('#aramaKucult').addEventListener('click', aramaKucult);
 $('#miniBuyut').addEventListener('click', aramaBuyut);
-$('#miniCubuk').addEventListener('click', (e) => { if (!e.target.closest('button')) aramaBuyut(); });
+$('#miniCubuk').addEventListener('click', (e) => {
+  if (suruklemeSonrasi($('#aramaKatman'))) return;   // kart taşındı, büyütme
+  if (!e.target.closest('button')) aramaBuyut();
+});
+/* Görüntülü kartta büyütme düğmesi gizli: kartın herhangi bir yerine
+   dokunmak büyütüyor. */
+$('#aramaKatman').addEventListener('click', (e) => {
+  const kat = $('#aramaKatman');
+  if (!kat.classList.contains('kucuk')) return;
+  if (suruklemeSonrasi(kat)) return;
+  if (e.target.closest('button')) return;
+  aramaBuyut();
+});
 $('#miniKapat').addEventListener('click', () => aramayiBitir(null));
 
 /* ---- kontrolleri otomatik gizle (yalnız görüntülü) ---- */
@@ -11152,9 +11237,151 @@ async function kamerayiCevir(){
 
 $('#kameraCevir').addEventListener('click', kamerayiCevir);
 
+
+/* ================= KÜÇÜK PENCERELERİ TAŞIMA =================
+
+   İki ayrı küçük pencere var ve ikisi de artık parmakla taşınabiliyor:
+     1. Tam ekran görüşmede kendi görüntünün kutusu (takas edilmişse karşı
+        tarafınki — hangisi küçükse o).
+     2. Görüşme küçültülünce ekranda kalan çağrı kartı.
+
+   ZOR OLAN KISIM dokunma ile sürüklemeyi ayırmak: küçük kutuya DOKUNMAK
+   görüntüleri takas ediyor, karta dokunmak aramayı büyütüyor. Altı pikselden
+   az hareket "dokunma" sayılıyor; sürükleme olduysa o dokunma yutuluyor.
+
+   Bırakınca en yakın köşeye yapışıyor: serbest bırakılan bir pencere ekranın
+   ortasında durursa hem içeriği kapatıyor hem de özensiz duruyor. */
+const KOSE_BOSLUK = 12;
+
+function surukleKur(tutamak, ayar){
+  let bas = null;
+  tutamak.addEventListener('pointerdown', (e) => {
+    if (e.button != null && e.button !== 0) return;
+    if (ayar.izin && !ayar.izin(e)) return;
+    const r = ayar.kutu();
+    if (!r || !r.width) return;
+    bas = { x:e.clientX, y:e.clientY, sol:r.left, ust:r.top, w:r.width, h:r.height,
+            id:e.pointerId, tasindi:false };
+    /* Yeni bir dokunma başlıyor: önceki sürüklemenin bayrağı burada
+       temizleniyor. Zamana bakmak yerine bayrak kullanmak kesin sonuç
+       veriyor — click her zaman pointerup'tan SONRA, bir sonraki
+       pointerdown'dan ÖNCE geliyor. */
+    tutamak.__yutClick = false;
+    ayar.baslarken && ayar.baslarken();
+    try { tutamak.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+
+  tutamak.addEventListener('pointermove', (e) => {
+    if (!bas || e.pointerId !== bas.id) return;
+    const dx = e.clientX - bas.x, dy = e.clientY - bas.y;
+    if (!bas.tasindi && Math.hypot(dx, dy) < 6) return;
+    bas.tasindi = true;
+    e.preventDefault();
+    ayar.uygula(...sinirla(bas.sol + dx, bas.ust + dy, bas.w, bas.h));
+  });
+
+  const birak = (e) => {
+    if (!bas || (e.pointerId != null && e.pointerId !== bas.id)) return;
+    const tasindi = bas.tasindi, k = bas;
+    bas = null;
+    try { tutamak.releasePointerCapture(e.pointerId); } catch (err) {}
+    if (!tasindi) { ayar.biterken && ayar.biterken(false); return; }
+    // Sürükleme olmuştu: hemen ardından gelecek dokunma yutulacak.
+    tutamak.__yutClick = true;
+    const r = ayar.kutu();
+    const [x, y] = koseyeYapis(r.left, r.top, k.w, k.h);
+    ayar.uygula(x, y, true);
+    ayar.biterken && ayar.biterken(true);
+  };
+  tutamak.addEventListener('pointerup', birak);
+  tutamak.addEventListener('pointercancel', birak);
+}
+
+/* Sürüklemenin hemen ardından gelen dokunma yutulmalı. Bayrağı BURADA
+   temizlemiyoruz: aynı dokunmaya birden çok dinleyici bakabiliyor
+   (örneğin kart ve içindeki şerit). Temizlik bir sonraki pointerdown'da. */
+function suruklemeSonrasi(el){
+  return !!(el && el.__yutClick);
+}
+
+function sinirla(x, y, w, h){
+  const ustBosluk = KOSE_BOSLUK + (parseFloat(getComputedStyle(document.documentElement)
+    .getPropertyValue('--guvenli-ust')) || 0);
+  return [
+    Math.max(KOSE_BOSLUK, Math.min(x, window.innerWidth - w - KOSE_BOSLUK)),
+    Math.max(ustBosluk, Math.min(y, window.innerHeight - h - KOSE_BOSLUK))
+  ];
+}
+
+function koseyeYapis(x, y, w, h){
+  const sag = window.innerWidth - w - KOSE_BOSLUK;
+  const alt = window.innerHeight - h - KOSE_BOSLUK;
+  const hedefX = (x + w / 2) < window.innerWidth / 2 ? KOSE_BOSLUK : sag;
+  const hedefY = (y + h / 2) < window.innerHeight / 2 ? KOSE_BOSLUK : alt;
+  return sinirla(hedefX, hedefY, w, h);
+}
+
+/* ---- 1) tam ekrandaki küçük video kutusu ---- */
+function kucukKutuOge(){
+  const kat = $('#aramaKatman');
+  if (kat.classList.contains('ters')) return $('#uzakVideo');
+  return kat.classList.contains('kendi-kapali') ? $('#yerelKapali') : $('#yerelVideo');
+}
+
+function kutuKonumUygula(x, y, yapis){
+  const kat = $('#aramaKatman');
+  kat.classList.add('kutu-tasindi');
+  kat.classList.toggle('kutu-yapisiyor', !!yapis);
+  kat.style.setProperty('--kutu-x', x + 'px');
+  kat.style.setProperty('--kutu-y', y + 'px');
+  if (yapis) setTimeout(() => kat.classList.remove('kutu-yapisiyor'), 220);
+}
+
+[$('#yerelVideo'), $('#yerelKapali'), $('#uzakVideo')].forEach(el => {
+  if (!el) return;
+  surukleKur(el, {
+    // Yalnız KÜÇÜK olan kutu taşınır; tam ekranı kaplayan video değil.
+    izin: () => !$('#aramaKatman').classList.contains('kucuk') && kucukKutuOge() === el,
+    kutu: () => kucukKutuOge().getBoundingClientRect(),
+    uygula: kutuKonumUygula
+  });
+});
+
+/* ---- 2) küçültülmüş çağrı kartı ---- */
+function kartKonumUygula(x, y, yapis){
+  const kat = $('#aramaKatman');
+  kat.classList.add('kart-tasindi');
+  kat.classList.toggle('yapisiyor', !!yapis);
+  kat.style.setProperty('--kart-x', x + 'px');
+  kat.style.setProperty('--kart-y', y + 'px');
+  if (yapis) setTimeout(() => kat.classList.remove('yapisiyor'), 220);
+}
+
+surukleKur($('#aramaKatman'), {
+  izin: (e) => $('#aramaKatman').classList.contains('kucuk') && !e.target.closest('button'),
+  kutu: () => $('#aramaKatman').getBoundingClientRect(),
+  uygula: kartKonumUygula
+});
+
+/* Ekran döndüğünde ya da klavye açıldığında pencereler dışarıda kalmasın. */
+window.addEventListener('resize', () => {
+  const kat = $('#aramaKatman');
+  if (!kat.classList.contains('acik')) return;
+  if (kat.classList.contains('kart-tasindi')) {
+    const r = kat.getBoundingClientRect();
+    kartKonumUygula(...sinirla(r.left, r.top, r.width, r.height), true);
+  }
+  if (kat.classList.contains('kutu-tasindi')) {
+    const r = kucukKutuOge().getBoundingClientRect();
+    kutuKonumUygula(...sinirla(r.left, r.top, r.width, r.height), true);
+  }
+});
+
 /* ---- küçük/büyük görüntüyü değiştir ---- */
 [$('#uzakVideo'), $('#yerelVideo')].forEach(v => {
   v.addEventListener('click', (e) => {
+    // Az önce sürüklendiyse bu bir "dokunma" değil; takas etme.
+    if (suruklemeSonrasi(v)) return;
     if (!$('#aramaKatman').classList.contains('uzak-var')) return;
     e.stopPropagation();
     $('#aramaKatman').classList.toggle('ters');

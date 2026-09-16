@@ -581,6 +581,75 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Küçültülmüş çağrı, taşınabilir pencereler ve yeni simgeler
+
+### "Görüşme sırasında neden sitede dolaşamayalım?"
+
+Önce ölçtüm: küçültünce gövde kilidi zaten kalkıyor ve sayfa kullanılabiliyor.
+Yani dolaşmak çalışıyordu — sorun **karttı**. Kart yalnız bir isim şeridiydi:
+görüntülü aramada görüntü tamamen kayboluyor, kart sağ üstte sabit duruyordu.
+Öyle olunca "küçült" bir işe yaramıyor gibi hissettiriyor.
+
+Artık görüntülü aramada küçültülmüş kart küçük bir **video penceresi**: karşı
+tarafın görüntüsü, altında isim ve süre, yanında kapatma düğmesi. Sesli
+aramada eski geniş şerit kalıyor — orada gösterilecek görüntü yok.
+
+Bu, uygulamanın **içinde** gezerken çalışan "ekran içinde ekran". Android'in
+kendi kayan ekranı uygulamadan **çıkınca** devreye giriyor; ikisi birbirinin
+yerine değil, ardışık iki durum.
+
+### Pencereler artık taşınabiliyor
+
+Hem tam ekrandaki küçük kutu (kendi görüntün — takas edilmişse karşı
+tarafınki) hem de küçültülmüş çağrı kartı parmakla taşınıyor ve bırakınca en
+yakın köşeye yapışıyor. Serbest bırakılan bir pencere ekranın ortasında
+kalırsa hem altındakini kapatıyor hem de özensiz duruyor.
+
+Zor olan kısım **dokunma ile sürüklemeyi ayırmaktı**: küçük kutuya dokunmak
+görüntüleri takas ediyor, karta dokunmak aramayı büyütüyor. Altı pikselden az
+hareket "dokunma" sayılıyor; sürükleme olduysa hemen ardından gelen dokunma
+yutuluyor.
+
+> İlk yazdığımda bunu zaman ölçerek yapıyordum (350 ms içinde gelen tıklamayı
+> yut). Sınama bunu yakaladı: gerçek bir dokunma o pencereye denk gelince
+> yutuluyordu. Artık bayrakla: `click` her zaman `pointerup`'tan sonra ve bir
+> sonraki `pointerdown`'dan önce gelir, bayrak orada temizlenir. Zamana
+> bakmıyor, kesin.
+
+Ekran dönünce ya da klavye açılınca pencereler yeniden sınırlanıyor, dışarıda
+kalmıyor.
+
+### Simgeler
+
+Eski "kamera çevir" simgesi gerçekten okunmuyordu: bir kamera gövdesi ve
+üstüne serpiştirilmiş iki küçük yay + ok parçası, 24 pikselde bir lekeye
+dönüşüyordu. Bunu tahmin ederek değil, **adayları çizip bakarak** seçtim
+(headless tarayıcıda render edip görselleri inceledim). Kazanan: kamera
+gövdesi + lensin üstünde tek bir dönme oku.
+
+Bir de mikrofon ve kamera düğmeleri kapalıyken **yalnız renk** değiştiriyordu;
+simge aynı kalınca "açık mı kapalı mı" ancak renkten anlaşılıyordu. Artık
+kapalı olanların simgesi üstü çizili.
+
+### Ekran görüntüsü bir hatayı daha gösterdi
+
+Durumları render edip bakınca, karşı görüntü varken üstte ortalanan isim
+balonunun sağdaki kendi görüntünün kutusunun **altına girdiğini** gördüm —
+uzun adlarda süre kesiliyordu. Balon kontrollerin hemen üstüne indi; üst şerit
+artık yalnız pencere düğmeleri ve kendi görüntün için.
+
+### Doğrulama
+
+Taşıma ve kart için 20 senaryo, **gerçek tarayıcıda gerçek fare olaylarıyla**:
+kutunun sürüklenmesi, köşeye yapışması, ekran içinde kalması, sürüklerken
+takasın tetiklenmemesi, dokununca takasın çalışması, takas sonrası karşı
+görüntünün de taşınabilmesi, kamera kapalı yer tutucusunun taşınabilmesi,
+kartın video göstermesi ve taşınması, sesli aramada eski şeridin korunması,
+küçültülmüşken gövde kilidinin olmaması.
+
+Yerleşim ölçümü (beş ekran durumu × dört genişlik) yeniden koşturuldu, hepsi
+temiz. Önceki 206 senaryo da geçiyor.
+
 ## Arama ekranı: kamera durumu arızası ve yerleşim
 
 ### Arıza: "kamera kapatma ekranı bazen çalışmıyor"
