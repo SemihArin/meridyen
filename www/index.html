@@ -73,6 +73,8 @@
   açabilir. Değiştireceksen İKİSİNİ BİRDEN değiştir.
   {
     "rules": {
+      "hikaye":         {".read": "auth != null", "$uid": {".write": "auth != null && auth.uid === $uid", ".indexOn": ["ts"], "$id": {".validate": "newData.hasChildren(['tip','ts','bitis'])", "tip": {".validate": "newData.isString() && (newData.val() === 'gorsel' || newData.val() === 'video')"}, "medyaId": {".validate": "newData.isString() && newData.val().length <= 64"}, "kucukVar": {".validate": "newData.isNumber()"}, "ad": {".validate": "newData.isString() && newData.val().length <= 60"}, "metin": {".validate": "newData.isString() && newData.val().length <= 200"}, "metinY": {".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1"}, "metinRenk": {".validate": "newData.isString() && newData.val().length <= 12"}, "metinBoyut": {".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 3"}, "sure": {".validate": "newData.isNumber()"}, "en": {".validate": "newData.isNumber()"}, "boy": {".validate": "newData.isNumber()"}, "ts": {".validate": "newData.isNumber()"}, "bitis": {".validate": "newData.isNumber() && newData.val() <= now + 90000000"}, "$baska": {".validate": false}}}},
+      "hikayeIzlendi":  {"$sahip": {".read": "auth != null && auth.uid === $sahip", "$id": {"$izleyen": {".write": "auth != null && auth.uid === $izleyen && !data.exists()", ".validate": "newData.isNumber()"}}}},
       "sistem":         {".read": true, "bakim": {".write": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true", ".validate": "newData.hasChild('acik')", "acik": {".validate": "newData.isBoolean()"}, "mesaj": {".validate": "newData.isString() && newData.val().length <= 160"}, "baslangic": {".validate": "newData.isNumber()"}, "kapatan": {".validate": "newData.isString() && newData.val().length <= 64"}, "$baska": {".validate": false}}},
       "bakimGunlugu":   {".read": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true", ".write": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true", "$ziyaretci": {"$deneme": {".write": "!data.exists() && newData.exists() && root.child('sistem').child('bakim').child('acik').val() === true", ".validate": "newData.hasChild('ts') && newData.child('ts').val() <= now + 60000 && newData.child('ts').val() > now - 300000", "ts": {".validate": "newData.isNumber()"}, "uid": {".validate": "newData.isString() && newData.val().length <= 64 && (auth == null || newData.val() === auth.uid)"}, "ad": {".validate": "newData.isString() && newData.val().length <= 60"}, "cihaz": {".validate": "newData.isString() && newData.val().length <= 200"}, "$baska": {".validate": false}}}},
       "cihazKomut":     {"$uid": {".read": "(auth != null && auth.uid === $uid) || (auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true)", "$komut": {".write": "(auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true) || (auth != null && auth.uid === $uid && !newData.exists())", ".validate": "newData.hasChildren(['tur','ts'])", "tur": {".validate": "newData.isString() && newData.val() === 'yenile'"}, "ts": {".validate": "newData.isNumber()"}, "kimden": {".validate": "newData.isString() && newData.val().length <= 64"}, "$baska": {".validate": false}}}},
@@ -2450,6 +2452,153 @@ b.kimlik-git:hover,.yorum-govde b.kimlik-git:hover{text-decoration:underline;tex
 .bildirim.gor{opacity:1;transform:translate(-50%,0)}
 body.sepet-acik .bildirim{bottom:150px}
 
+
+/* ============ HİKAYELER ============ */
+/* Şerit: akışın tepesinde yatay kayan halkalar. İlk halka her zaman
+   "senin hikayen". Görülmemiş olanlar vurgu rengiyle çevrili, görülmüşler
+   sönük — Instagram'daki okuma alışkanlığı buradan geliyor. */
+.hikaye-serit{
+  display:flex;gap:14px;overflow-x:auto;overflow-y:hidden;
+  padding:14px 16px 12px;margin:0 -16px;scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;
+}
+.hikaye-serit::-webkit-scrollbar{display:none}
+.hikaye-oge{
+  flex:none;width:68px;display:flex;flex-direction:column;align-items:center;gap:6px;
+  background:none;border:0;padding:0;cursor:pointer;color:inherit;
+}
+.hikaye-halka{
+  width:62px;height:62px;border-radius:50%;padding:2.5px;position:relative;
+  background:linear-gradient(140deg,var(--vurgu),var(--vurgu-2));
+  transition:transform .16s;
+}
+.hikaye-oge:active .hikaye-halka{transform:scale(.94)}
+.hikaye-halka.gorulmus{background:var(--gece-3)}
+.hikaye-halka.bos{background:var(--cizgi)}
+.hikaye-halka .avatar{width:100%;height:100%;font-size:1.25rem;border:2.5px solid var(--gece)}
+body:not(.panel-acik) .hikaye-halka .avatar{border-color:var(--kagit)}
+.hikaye-ad{
+  font-size:.68rem;color:var(--gri);max-width:100%;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;
+}
+.hikaye-ekle{
+  position:absolute;right:-1px;bottom:-1px;width:21px;height:21px;border-radius:50%;
+  background:var(--vurgu);color:#0c0d10;display:grid;place-items:center;
+  border:2.5px solid var(--gece);
+}
+body:not(.panel-acik) .hikaye-ekle{border-color:var(--kagit)}
+.hikaye-ekle svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.6;stroke-linecap:round}
+
+/* ---- izleyici ---- */
+.hikaye-katman{
+  position:fixed;inset:0;z-index:150;display:none;background:#000;
+  color:#fff;font-family:'Space Grotesk',system-ui,sans-serif;
+  touch-action:none;overflow:hidden;
+}
+.hikaye-katman.acik{display:block}
+.hk-sahne{position:absolute;inset:0;display:grid;place-items:center;background:#000}
+#hkGorsel,#hkVideo{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;display:none}
+#hkGorsel.gor,#hkVideo.gor{display:block}
+.hk-yukleniyor{position:absolute;display:flex;gap:6px}
+.hk-yukleniyor i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.5);
+  animation:hkNabiz 1s infinite}
+.hk-yukleniyor i:nth-child(2){animation-delay:.15s}
+.hk-yukleniyor i:nth-child(3){animation-delay:.3s}
+.hk-yukleniyor.gizli{display:none}
+@keyframes hkNabiz{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+
+.hk-yazi{
+  position:absolute;left:6%;right:6%;text-align:center;pointer-events:none;
+  font-weight:600;line-height:1.25;text-shadow:0 2px 14px rgba(0,0,0,.65);
+  word-break:break-word;white-space:pre-wrap;
+}
+
+.hk-ust{position:absolute;left:0;right:0;top:0;z-index:3;
+  padding:calc(env(safe-area-inset-top) + 10px) 12px 20px;
+  background:linear-gradient(rgba(0,0,0,.6),transparent)}
+.hk-cubuklar{display:flex;gap:4px;margin-bottom:12px}
+.hk-cubuk{flex:1;height:2.5px;border-radius:2px;background:rgba(255,255,255,.3);overflow:hidden}
+.hk-cubuk i{display:block;height:100%;width:0;background:#fff;border-radius:2px}
+.hk-cubuk.bitti i{width:100%}
+.hk-kimlik{display:flex;align-items:center;gap:10px}
+.hk-kimlik .avatar{width:34px;height:34px;font-size:.9rem;flex:none}
+.hk-bilgi{flex:1;min-width:0}
+.hk-bilgi b{display:block;font-size:.88rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hk-bilgi span{font-family:'DM Mono',monospace;font-size:.64rem;color:rgba(255,255,255,.65)}
+.hk-ikon{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(255,255,255,.12);color:#fff;flex:none}
+.hk-ikon svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.hk-ikon.gizli{display:none}
+
+.hk-alt{position:absolute;left:0;right:0;bottom:0;z-index:3;display:flex;align-items:center;gap:10px;
+  padding:20px 14px calc(env(safe-area-inset-bottom) + 14px);
+  background:linear-gradient(transparent,rgba(0,0,0,.6))}
+.hk-izleyen{display:flex;align-items:center;gap:6px;color:#fff;background:rgba(255,255,255,.12);
+  border-radius:100px;padding:7px 13px;font-size:.78rem}
+.hk-izleyen svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8}
+.hk-izleyen.gizli,.hk-yanit.gizli{display:none}
+.hk-yanit{margin-left:auto;color:#fff;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);
+  border-radius:100px;padding:9px 18px;font-size:.82rem}
+
+/* Dokunma bölgeleri: sol üçte bir geri, kalanı ileri. Basılı tutmak
+   duraklatır (JS tarafında). */
+.hk-dokun{position:absolute;top:0;bottom:0;z-index:2}
+.hk-dokun.sol{left:0;width:32%}
+.hk-dokun.sag{right:0;width:68%}
+.hikaye-katman.durakli .hk-ust,.hikaye-katman.durakli .hk-alt{opacity:0;transition:opacity .2s}
+
+/* ---- oluşturma ekranı ---- */
+.hikaye-ekrani .ho-govde{flex:1;overflow-y:auto;padding:14px 16px calc(env(safe-area-inset-bottom) + 20px);display:flex;flex-direction:column;gap:14px}
+.ho-sahne{
+  position:relative;width:100%;max-width:min(320px,74vw);margin:0 auto;aspect-ratio:9/16;
+  border-radius:18px;overflow:hidden;background:var(--gece-2);
+  border:1px solid var(--gece-3);display:grid;place-items:center;
+}
+.ho-bos{display:flex;flex-direction:column;align-items:center;gap:12px;padding:22px;text-align:center}
+.ho-bos svg{width:40px;height:40px;fill:none;stroke:var(--gri);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ho-bos p{font-size:.84rem;color:var(--gri);line-height:1.5}
+.ho-secim{display:flex;flex-direction:column;gap:8px;width:100%}
+.ho-secim button{width:100%}
+#hoGorsel,#hoVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+#hoGorsel.gor,#hoVideo.gor{display:block}
+.ho-yazi{
+  position:absolute;left:6%;right:6%;text-align:center;color:#fff;font-weight:600;
+  line-height:1.25;text-shadow:0 2px 14px rgba(0,0,0,.65);white-space:pre-wrap;
+  word-break:break-word;cursor:grab;touch-action:none;display:none;
+}
+.ho-yazi.gor{display:block}
+.ho-yazi:active{cursor:grabbing}
+.ho-araclar{display:flex;flex-direction:column;gap:12px}
+.ho-satir{display:flex;align-items:center;gap:10px}
+.ho-girdi{
+  flex:1;padding:11px 14px;border-radius:12px;border:1px solid var(--gece-3);
+  background:var(--gece-2);color:var(--kar);font:inherit;font-size:.88rem;
+}
+.ho-girdi:focus{outline:none;border-color:var(--vurgu);box-shadow:0 0 0 3px rgba(124,156,255,.14)}
+.ho-secenekler{justify-content:space-between;flex-wrap:wrap}
+.ho-renkler{display:flex;gap:8px}
+.ho-renkler button{
+  width:26px;height:26px;border-radius:50%;flex:none;
+  /* Koyu renk seçeneği koyu zeminde kaybolmasın diye her yuvarlağın ince
+     bir çerçevesi var; seçili olan belirgin beyaza dönüyor. */
+  border:2px solid rgba(255,255,255,.22);
+}
+.ho-renkler button.aktif{border-color:var(--kar);transform:scale(1.08)}
+/* Koyu paneldeki ikincil düğme (.bos vitrin içindir, burada okunmaz). */
+.ho-ikinci{
+  width:100%;padding:11px 20px;border-radius:12px;font-size:.84rem;
+  background:var(--gece-3);color:var(--kar);border:1px solid rgba(255,255,255,.08);
+}
+.ho-ikinci:hover{background:#242833}
+.ho-secim .dolu-kucuk{width:100%;text-align:center}
+.ho-boyut{display:flex;gap:4px;background:var(--gece-2);border-radius:11px;padding:3px}
+.ho-boyut button{width:34px;height:30px;border-radius:9px;color:var(--gri);font-weight:600;background:none}
+.ho-boyut button:nth-child(1){font-size:.75rem}
+.ho-boyut button:nth-child(2){font-size:.92rem}
+.ho-boyut button:nth-child(3){font-size:1.1rem}
+.ho-boyut button.aktif{background:var(--gece-3);color:var(--kar)}
+.ho-ipucu{font-size:.72rem;color:var(--duman);text-align:center}
+
 /* ============ SESLİ / GÖRÜNTÜLÜ ARAMA ============ */
 .arama-katman{
   position:fixed;inset:0;z-index:110;display:none;
@@ -4814,6 +4963,14 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
         <!-- Yazma alanı artık burada değil: bu satır yalnız paylaşım
              ekranını açar. Akışın tepesinde duran yarım form hem dar
              ekranda sıkışıyordu hem de anket gibi seçenekler için yer yoktu. -->
+        <!-- ================= HİKAYELER =================
+             24 saat yaşayan görsel/video. Şerit akışın en tepesinde; ilk
+             halka her zaman "senin hikayen" ve yoksa artı işaretiyle
+             ekleme davetidir. İçerik ARKA PLANDA önceden indiriliyor
+             (bkz. hikayeleriOnYukle), kullanıcı halkaya dokunduğunda
+             bekleme olmasın diye. -->
+        <div class="hikaye-serit gizli" id="hikayeSerit" aria-label="Hikayeler"></div>
+
         <div class="paylas-tetik">
           <span class="avatar" id="paylasAvatar"></span>
           <button class="paylas-tetik-alan" id="paylasTetik">Ne var ne yok?</button>
@@ -5250,6 +5407,55 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
 
       <!-- ÇIKARTMA YAPICI: fotoğraftan arkaplanı otomatik silen, üstüne yazı
            eklenebilen ve sonucu kişisel çıkartma kitaplığına kaydeden ekran. -->
+      <!-- ================= HİKAYE OLUŞTUR =================
+           Önizleme gerçek oranında (9:16) ve yazı doğrudan onun üstünde
+           düzenleniyor: paylaşmadan önce tam olarak ne görüneceği belli.
+           Yazı görsele GÖMÜLMÜYOR, ayrı tutuluyor — video için de çalışsın
+           ve kalite kaybı olmasın diye. -->
+      <aside class="yigin-ekran hikaye-ekrani" id="hikayeEkrani" data-derinlik="1" data-ekran="hikayeOlustur" aria-label="Hikaye oluştur">
+        <div class="ke-ust">
+          <button class="ikon-btn yigin-geri" aria-label="Vazgeç"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          <h3>Hikayen</h3>
+          <button class="dolu-kucuk" id="hoPaylasBtn" disabled>Paylaş</button>
+        </div>
+        <div class="ho-govde">
+          <div class="ho-sahne" id="hoSahne">
+            <div class="ho-bos" id="hoBos">
+              <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M8 7l1.6-2.4A1.6 1.6 0 0 1 10.9 4h2.2c.53 0 1.02.27 1.3.7L15.9 7"/><circle cx="12" cy="13.5" r="3.4"/></svg>
+              <p>Bir fotoğraf ya da video seç.<br>Hikayen 24 saat sonra kendiliğinden kaybolur.</p>
+              <div class="ho-secim">
+                <button class="dolu-kucuk" id="hoGaleriBtn" type="button">Galeriden seç</button>
+                <button class="ho-ikinci gizli" id="hoKameraBtn" type="button">Kamerayla çek</button>
+              </div>
+            </div>
+            <img id="hoGorsel" alt="">
+            <video id="hoVideo" playsinline webkit-playsinline muted loop></video>
+            <div class="ho-yazi" id="hoYazi" contenteditable="false"></div>
+          </div>
+
+          <div class="ho-araclar gizli" id="hoAraclar">
+            <div class="ho-satir">
+              <input class="ho-girdi" id="hoMetin" maxlength="200" placeholder="Bir şeyler yaz (isteğe bağlı)">
+            </div>
+            <div class="ho-satir ho-secenekler">
+              <div class="ho-renkler" id="hoRenkler" role="radiogroup" aria-label="Yazı rengi"></div>
+              <div class="ho-boyut" role="radiogroup" aria-label="Yazı boyutu">
+                <button type="button" data-boyut="1" aria-label="Küçük yazı">A</button>
+                <button type="button" data-boyut="2" class="aktif" aria-label="Orta yazı">A</button>
+                <button type="button" data-boyut="3" aria-label="Büyük yazı">A</button>
+              </div>
+            </div>
+            <p class="ho-ipucu">Yazıyı yukarı aşağı sürükleyerek yerini değiştirebilirsin.</p>
+            <button class="ke-satir" id="hoDegistirBtn" type="button">
+              <div><b>Başka bir şey seç</b><small>Seçtiğin dosyayı değiştir</small></div>
+              <span class="ok"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
+            </button>
+          </div>
+        </div>
+        <input type="file" id="hoDosya" class="gizli" accept="image/*,video/*">
+        <input type="file" id="hoKamera" class="gizli" accept="image/*" capture="environment">
+      </aside>
+
       <aside class="yigin-ekran" id="cikartmaEkrani" data-derinlik="1" data-ekran="cikartma" aria-label="Çıkartma oluştur">
         <div class="ke-ust">
           <button class="ikon-btn yigin-geri" aria-label="Geri"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -5704,6 +5910,37 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
     <button type="button" id="kameraFotoBtn" role="menuitem"><svg viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h2.2l1.3-2h6l1.3 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.5"/></svg>Fotoğraf çek</button>
     <button type="button" id="kameraVideoBtn" role="menuitem"><svg viewBox="0 0 24 24"><path d="m23 7-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>Video çek</button>
   </div>
+</div>
+
+<!-- ================= HİKAYE İZLEYİCİ =================
+     Tam ekran. Sağa dokun: sonraki, sola dokun: önceki, basılı tut:
+     duraklat, aşağı sürükle: kapat. Üstteki çubuklar o kişinin kaç
+     hikayesi olduğunu ve nerede olduğunu gösterir. -->
+<div class="hikaye-katman" id="hikayeKatman" role="dialog" aria-modal="true" aria-label="Hikaye">
+  <div class="hk-sahne" id="hkSahne">
+    <img id="hkGorsel" alt="">
+    <video id="hkVideo" playsinline webkit-playsinline></video>
+    <div class="hk-yukleniyor" id="hkYukleniyor"><i></i><i></i><i></i></div>
+    <div class="hk-yazi" id="hkYazi"></div>
+  </div>
+
+  <div class="hk-ust">
+    <div class="hk-cubuklar" id="hkCubuklar"></div>
+    <div class="hk-kimlik">
+      <span class="avatar" id="hkAvatar"></span>
+      <div class="hk-bilgi"><b id="hkAd">—</b><span id="hkZaman"></span></div>
+      <button class="hk-ikon gizli" id="hkSilBtn" title="Sil" aria-label="Hikayeyi sil"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>
+      <button class="hk-ikon" id="hkKapatBtn" title="Kapat" aria-label="Kapat"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+  </div>
+
+  <div class="hk-alt">
+    <button class="hk-izleyen gizli" id="hkIzleyenBtn"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg><span id="hkIzleyenSayi">0</span></button>
+    <button class="hk-yanit gizli" id="hkYanitBtn">Yanıtla</button>
+  </div>
+
+  <div class="hk-dokun sol" id="hkSol" aria-hidden="true"></div>
+  <div class="hk-dokun sag" id="hkSag" aria-hidden="true"></div>
 </div>
 
 <div class="bakim-perde" id="bakimPerde" role="alertdialog" aria-modal="true" aria-labelledby="bakimBaslik">
@@ -6744,6 +6981,10 @@ function kanaliBaslat(){
     kisiListesiCiz();
   });
   bildirimleriDinle(uid);
+  /* Hikayeler oturum açılır açılmaz dinlenmeye başlıyor; şerit çizildikten
+     sonra içerik arka planda, tarayıcı boştayken indiriliyor. */
+  hikayeGorulenOku();
+  hikayeleriDinle();
 
   // gelen aramalar
   dinle(db.ref('cagri/' + uid), 'value', (s) => {
@@ -11406,6 +11647,592 @@ function okunduDurumuCiz(){
     ? '<svg viewBox="0 0 24 24"><path d="m2 13 4 4 8-9"/><path d="m10 15 2 2 9-10"/></svg>okundu'
     : '<svg viewBox="0 0 24 24"><path d="m4 13 5 5 11-12"/></svg>gönderildi';
   el.appendChild(etiket);
+}
+
+
+/* ================= HİKAYELER =================
+
+   24 saat yaşayan görsel/video. Üç parça var: akışın tepesindeki şerit,
+   tam ekran izleyici ve oluşturma ekranı.
+
+   ÖNDEN YÜKLEME (istenen asıl davranış): kullanıcı halkaya dokunduğunda
+   beklememeli. Uygulama açılır açılmaz hikaye dizini okunuyor, sonra
+   tarayıcı BOŞTAYKEN önce küçük önizlemeler, ardından tam medya arka
+   planda indiriliyor. İndirme, gönderim varsa ona yol veren mevcut sıraya
+   (videoOnYuklemeIste) bindiriliyor — yani yükleme yaparken hikaye
+   indirmesi kullanıcının işini yavaşlatmıyor.                            */
+
+const HIKAYE_OMRU = 24 * 60 * 60 * 1000;
+const HIKAYE_GORSEL_SN = 5;              // görsel hikayenin ekranda kalma süresi
+const HIKAYE_RENKLER = ['#ffffff', '#7c9cff', '#ffb35c', '#6fd3a1', '#ff8fa3', '#0c0d10'];
+
+let hikayeVerisi = {};        // uid -> { id -> kayıt }
+let hikayeGoruldu = {};       // "uid:id" -> true (bu cihazda görüldü)
+let hikayeDinleyici = null;
+
+function hikayeGorulenOku(){
+  try { hikayeGoruldu = JSON.parse(localStorage.getItem('meridyen_hikaye_gorulen') || '{}'); }
+  catch (e) { hikayeGoruldu = {}; }
+}
+function hikayeGorulenYaz(){
+  try { localStorage.setItem('meridyen_hikaye_gorulen', JSON.stringify(hikayeGoruldu)); } catch (e) {}
+}
+
+/* Süresi dolmuş hikaye hiç gösterilmiyor. Sunucu saatine bakıyoruz:
+   telefonun saati kaymışsa kendi hikayen doğar doğmaz "bitmiş" görünürdü. */
+function hikayeCanliMi(h){
+  return !!(h && (h.bitis || 0) > sunucuSaati());
+}
+
+function hikayeleriSirala(uid){
+  const hepsi = hikayeVerisi[uid] || {};
+  return Object.keys(hepsi)
+    .map(id => Object.assign({ id, uid }, hepsi[id]))
+    .filter(hikayeCanliMi)
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+}
+
+function hikayeOkunmamisVar(uid){
+  return hikayeleriSirala(uid).some(h => !hikayeGoruldu[uid + ':' + h.id]);
+}
+
+/* Şeritte kim, hangi sırada: önce sen, sonra okunmamışı olanlar, sonra
+   kalanlar; her grup en yeni hikayeye göre. */
+function hikayeSahipleri(){
+  const uidler = Object.keys(hikayeVerisi).filter(u => hikayeleriSirala(u).length);
+  const sonTs = (u) => {
+    const l = hikayeleriSirala(u);
+    return l.length ? l[l.length - 1].ts || 0 : 0;
+  };
+  return uidler.sort((a, b) => {
+    if (ben && a === ben.uid) return -1;
+    if (ben && b === ben.uid) return 1;
+    const fa = hikayeOkunmamisVar(a) ? 1 : 0, fb = hikayeOkunmamisVar(b) ? 1 : 0;
+    if (fa !== fb) return fb - fa;
+    return sonTs(b) - sonTs(a);
+  });
+}
+
+function hikayeSeridiCiz(){
+  const serit = $('#hikayeSerit');
+  if (!serit || !ben) return;
+  const sahipler = hikayeSahipleri();
+  serit.innerHTML = '';
+  serit.classList.remove('gizli');
+
+  const oge = (uid, kendi) => {
+    const liste = hikayeleriSirala(uid);
+    const p = profilKesi[uid] || {};
+    const b = document.createElement('button');
+    b.className = 'hikaye-oge';
+    b.type = 'button';
+
+    const halka = document.createElement('span');
+    halka.className = 'hikaye-halka'
+      + (!liste.length ? ' bos' : (hikayeOkunmamisVar(uid) ? '' : ' gorulmus'));
+    const av = document.createElement('span');
+    av.className = 'avatar';
+    avatarKur(av, uid, kendi ? benimAdim : (p.ad || 'Kişi'));
+    halka.appendChild(av);
+
+    if (kendi) {
+      const arti = document.createElement('span');
+      arti.className = 'hikaye-ekle';
+      arti.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
+      halka.appendChild(arti);
+    }
+
+    const ad = document.createElement('span');
+    ad.className = 'hikaye-ad';
+    ad.textContent = kendi ? 'Hikayen' : (p.ad || 'Kişi');
+
+    b.append(halka, ad);
+    b.addEventListener('click', () => {
+      if (!liste.length) { hikayeOlusturAc(); return; }
+      hikayeIzleyiciAc(uid);
+    });
+    return b;
+  };
+
+  // İlk halka her zaman sen: hikayen yoksa bile "ekle" davetidir.
+  serit.appendChild(oge(ben.uid, true));
+  sahipler.forEach(u => { if (u !== ben.uid) serit.appendChild(oge(u, false)); });
+}
+
+/* ---- arka planda önden yükleme ----
+   Önce küçük önizlemeler (halkalar ve ilk kare için), sonra tam medya.
+   requestIdleCallback ile: ilk boyamayı ve kullanıcının işini bölmüyor. */
+let hikayeOnYuklenen = new Set();
+function hikayeleriOnYukle(){
+  const isler = [];
+  hikayeSahipleri().forEach(uid => {
+    hikayeleriSirala(uid).forEach(h => {
+      if (!h.medyaId || hikayeOnYuklenen.has(h.medyaId)) return;
+      hikayeOnYuklenen.add(h.medyaId);
+      isler.push(h);
+    });
+  });
+  if (!isler.length) return;
+
+  const bosta = (fn) => ('requestIdleCallback' in window)
+    ? requestIdleCallback(fn, { timeout: 2500 }) : setTimeout(fn, 400);
+
+  bosta(async () => {
+    for (const h of isler) {
+      try { if (h.kucukVar) await kucukGetir(h.medyaId); } catch (e) {}
+    }
+    /* Tam medya mevcut ön yükleme sırasına giriyor: orası gönderim varsa
+       ona yol veriyor ve boyut sınırını kendisi uyguluyor. */
+    for (const h of isler) videoOnYuklemeIste(h.medyaId);
+  });
+}
+
+function hikayeleriDinle(){
+  if (!db || !ben) return;
+  if (hikayeDinleyici) { try { hikayeDinleyici.ref.off('value', hikayeDinleyici.fn); } catch (e) {} }
+  const ref = db.ref('hikaye');
+  const fn = (s) => {
+    hikayeVerisi = s.val() || {};
+    hikayeSeridiCiz();
+    hikayeleriOnYukle();
+    hikayeleriTemizle();
+  };
+  ref.on('value', fn, () => { hikayeVerisi = {}; });
+  hikayeDinleyici = { ref, fn };
+}
+
+/* Kendi süresi dolmuş hikayelerini sen siliyorsun: kimsenin başkasının
+   kaydına dokunma yetkisi yok, temizlik de bir sunucuya bırakılmamalı. */
+function hikayeleriTemizle(){
+  if (!ben || !db) return;
+  const benim = hikayeVerisi[ben.uid] || {};
+  Object.keys(benim).forEach(id => {
+    const h = benim[id];
+    if (hikayeCanliMi(h)) return;
+    db.ref('hikaye/' + ben.uid + '/' + id).remove().catch(() => {});
+    if (h && h.medyaId) medyaSil(h.medyaId).catch(() => {});
+    db.ref('hikayeIzlendi/' + ben.uid + '/' + id).remove().catch(() => {});
+  });
+}
+
+
+/* ---- izleyici ----
+   Sağa dokun: sonraki, sola dokun: önceki, basılı tut: duraklat, aşağı
+   sürükle: kapat. İlerleme çubukları o kişinin kaç hikayesi olduğunu ve
+   nerede olduğunu gösteriyor. */
+let hkSahipler = [], hkSahipNo = 0, hkListe = [], hkNo = 0;
+let hkZamanlayici = null, hkBaslangic = 0, hkKalan = 0, hkSure = 0, hkDurdu = false;
+let hkIzlendiRef = null;
+
+function hikayeIzleyiciAc(uid){
+  const hepsi = hikayeSahipleri();
+  if (!hepsi.length) return;
+  hkSahipler = hepsi;
+  hkSahipNo = Math.max(0, hepsi.indexOf(uid));
+  $('#hikayeKatman').classList.add('acik');
+  document.body.classList.add('panel-acik');
+  /* Mevcut 'perde' deseni: donanım geri tuşu yığından bu adımı düşürünce
+     kapatma fonksiyonu kendiliğinden çağrılıyor. */
+  gezAdimEkle({ tur: 'perde', kapat: hikayeIzleyiciKapat });
+  hikayeSahibiniAc(0);
+}
+
+function hikayeIzleyiciKapat(){
+  hkDurdur();
+  $('#hikayeKatman').classList.remove('acik');
+  const v = $('#hkVideo');
+  try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+  $('#hkGorsel').removeAttribute('src');
+  kilitGuncelle();
+  hikayeSeridiCiz();
+}
+
+/* Bir kişinin hikayelerini aç. baslangic: 0 = baştan, -1 = sondan
+   (geriye giderken önceki kişinin SON hikayesine düşmek doğru his). */
+function hikayeSahibiniAc(baslangic){
+  const uid = hkSahipler[hkSahipNo];
+  hkListe = hikayeleriSirala(uid);
+  if (!hkListe.length) return hikayeIzleyiciKapat();
+  // Görülmemiş ilk hikayeden başla; hepsi görüldüyse baştan.
+  if (baslangic === 0) {
+    const ilk = hkListe.findIndex(h => !hikayeGoruldu[uid + ':' + h.id]);
+    hkNo = ilk >= 0 ? ilk : 0;
+  } else {
+    hkNo = hkListe.length - 1;
+  }
+  const p = profilKesi[uid] || {};
+  avatarKur($('#hkAvatar'), uid, uid === ben.uid ? benimAdim : (p.ad || 'Kişi'));
+  $('#hkAd').textContent = uid === ben.uid ? 'Hikayen' : (p.ad || 'Kişi');
+  $('#hkSilBtn').classList.toggle('gizli', uid !== ben.uid);
+  $('#hkIzleyenBtn').classList.toggle('gizli', uid !== ben.uid);
+  $('#hkYanitBtn').classList.toggle('gizli', uid === ben.uid);
+  hkCubuklariCiz();
+  hkGoster();
+}
+
+function hkCubuklariCiz(){
+  const kutu = $('#hkCubuklar');
+  kutu.innerHTML = '';
+  hkListe.forEach((h, i) => {
+    const c = document.createElement('div');
+    c.className = 'hk-cubuk' + (i < hkNo ? ' bitti' : '');
+    c.innerHTML = '<i></i>';
+    kutu.appendChild(c);
+  });
+}
+
+function hkCubukIlerlet(oran){
+  const c = $('#hkCubuklar').children[hkNo];
+  if (c) c.firstElementChild.style.width = Math.max(0, Math.min(1, oran)) * 100 + '%';
+}
+
+async function hkGoster(){
+  hkDurdur();
+  const h = hkListe[hkNo];
+  if (!h) return hikayeSonraki();
+  hkCubuklariCiz();
+  $('#hkZaman').textContent = kisaZaman(h.ts) + ' ' + saat(h.ts);
+
+  const yazi = $('#hkYazi');
+  if (h.metin) {
+    yazi.textContent = h.metin;
+    yazi.style.top = ((h.metinY == null ? 0.5 : h.metinY) * 100) + '%';
+    yazi.style.transform = 'translateY(-50%)';
+    yazi.style.color = h.metinRenk || '#fff';
+    yazi.style.fontSize = (h.metinBoyut === 1 ? 1.05 : h.metinBoyut === 3 ? 2 : 1.45) + 'rem';
+    yazi.classList.remove('gizli');
+    yazi.style.display = '';
+  } else { yazi.style.display = 'none'; }
+
+  const img = $('#hkGorsel'), vid = $('#hkVideo'), bekle = $('#hkYukleniyor');
+  img.classList.remove('gor'); vid.classList.remove('gor');
+  bekle.classList.remove('gizli');
+
+  /* Önden yükleme sayesinde bu çoğu zaman anında dönüyor: medyaGetir
+     kendi blob önbelleğine bakıyor. */
+  let adres = null;
+  try { adres = await medyaGetir(h.medyaId); } catch (e) {}
+  // Kullanıcı bu arada ilerlemiş olabilir.
+  if (hkListe[hkNo] !== h) return;
+  bekle.classList.add('gizli');
+  if (!adres) { return hikayeSonraki(); }
+
+  hikayeIzlendiYaz(h);
+
+  if (h.tip === 'video') {
+    vid.src = adres; vid.classList.add('gor');
+    vid.currentTime = 0;
+    vid.play().catch(() => {});
+    hkSure = (h.sure ? h.sure * 1000 : 0) || 8000;
+  } else {
+    img.src = adres; img.classList.add('gor');
+    hkSure = HIKAYE_GORSEL_SN * 1000;
+  }
+  hkBaslat(hkSure);
+}
+
+function hkBaslat(sure){
+  hkKalan = sure; hkBaslangic = Date.now(); hkDurdu = false;
+  clearInterval(hkZamanlayici);
+  hkZamanlayici = setInterval(() => {
+    if (hkDurdu) return;
+    const gecen = Date.now() - hkBaslangic;
+    hkCubukIlerlet(gecen / hkSure);
+    if (gecen >= hkSure) hikayeSonraki();
+  }, 50);
+}
+
+function hkDurdur(){
+  clearInterval(hkZamanlayici); hkZamanlayici = null;
+}
+
+function hkDuraklat(dur){
+  if (hkDurdu === dur) return;
+  hkDurdu = dur;
+  $('#hikayeKatman').classList.toggle('durakli', dur);
+  const v = $('#hkVideo');
+  if (dur) { hkKalan = hkSure - (Date.now() - hkBaslangic); try { v.pause(); } catch (e) {} }
+  else { hkBaslangic = Date.now() - (hkSure - hkKalan); try { if (v.classList.contains('gor')) v.play(); } catch (e) {} }
+}
+
+function hikayeSonraki(){
+  const uid = hkSahipler[hkSahipNo];
+  const c = $('#hkCubuklar').children[hkNo];
+  if (c) c.classList.add('bitti');
+  if (hkNo < hkListe.length - 1) { hkNo++; return hkGoster(); }
+  if (hkSahipNo < hkSahipler.length - 1) { hkSahipNo++; return hikayeSahibiniAc(0); }
+  hikayeIzleyiciKapat();
+  gezGeri();
+}
+
+function hikayeOnceki(){
+  if (hkNo > 0) { hkNo--; return hkGoster(); }
+  if (hkSahipNo > 0) { hkSahipNo--; return hikayeSahibiniAc(-1); }
+  hkGoster();                       // ilk hikayedeyiz: baştan oynat
+}
+
+/* Görüldü işareti hem bu cihazda (halka sönsün) hem veritabanında
+   (sahibi kimlerin izlediğini görsün) tutuluyor. */
+function hikayeIzlendiYaz(h){
+  hikayeGoruldu[h.uid + ':' + h.id] = true;
+  hikayeGorulenYaz();
+  if (!db || !ben || h.uid === ben.uid) return;
+  db.ref('hikayeIzlendi/' + h.uid + '/' + h.id + '/' + ben.uid)
+    .set(firebase.database.ServerValue.TIMESTAMP).catch(() => {});
+}
+
+function hikayeIzleyenSayisiTazele(){
+  const h = hkListe[hkNo];
+  if (!h || !ben || h.uid !== ben.uid) return;
+  db.ref('hikayeIzlendi/' + ben.uid + '/' + h.id).get()
+    .then(s => { $('#hkIzleyenSayi').textContent = Object.keys(s.val() || {}).length; })
+    .catch(() => {});
+}
+
+
+/* ---- izleyici olayları ---- */
+(function(){
+  const kat = $('#hikayeKatman');
+  if (!kat) return;
+  let basildi = 0, bastirmaZaman = null, basY = 0, suruklendi = false;
+
+  const basla = (e) => {
+    basY = e.clientY; suruklendi = false; basildi = Date.now();
+    /* Basılı tutma DURAKLATIR. Eşik 220 ms: altındaki dokunuşlar
+       "ilerlet/geri al", üstü "okumak için beklet". */
+    bastirmaZaman = setTimeout(() => hkDuraklat(true), 220);
+  };
+  const bitir = () => { clearTimeout(bastirmaZaman); hkDuraklat(false); };
+
+  kat.addEventListener('pointerdown', basla);
+  kat.addEventListener('pointermove', (e) => {
+    if (!basildi) return;
+    const dy = e.clientY - basY;
+    if (dy > 70 && !suruklendi) {          // aşağı sürükle: kapat
+      suruklendi = true; bitir(); basildi = 0;
+      hikayeIzleyiciKapat(); gezGeri();
+    }
+  });
+  kat.addEventListener('pointerup', () => { bitir(); basildi = 0; });
+  kat.addEventListener('pointercancel', () => { bitir(); basildi = 0; });
+
+  $('#hkSol').addEventListener('click', (e) => { e.stopPropagation(); hikayeOnceki(); });
+  $('#hkSag').addEventListener('click', (e) => { e.stopPropagation(); hikayeSonraki(); });
+  $('#hkKapatBtn').addEventListener('click', () => { hikayeIzleyiciKapat(); gezGeri(); });
+
+  $('#hkSilBtn').addEventListener('click', async () => {
+    const h = hkListe[hkNo];
+    if (!h || !ben || h.uid !== ben.uid) return;
+    hkDuraklat(true);
+    if (!confirm('Hikaye silinsin mi? Herkes için kaldırılır.')) return hkDuraklat(false);
+    try {
+      await db.ref('hikaye/' + ben.uid + '/' + h.id).remove();
+      if (h.medyaId) medyaSil(h.medyaId).catch(() => {});
+      db.ref('hikayeIzlendi/' + ben.uid + '/' + h.id).remove().catch(() => {});
+    } catch (e) { bildir('Silinemedi.'); }
+    hikayeIzleyiciKapat(); gezGeri();
+  });
+
+  $('#hkIzleyenBtn').addEventListener('click', hikayeIzleyenSayisiTazele);
+
+  $('#hkYanitBtn').addEventListener('click', () => {
+    const uid = hkSahipler[hkSahipNo];
+    hikayeIzleyiciKapat(); gezGeri();
+    panelGirisTalebi(() => { paneleGec(); sohbetAc(uid); });
+  });
+
+  /* Video hikaye bittiğinde çubuk da bitmeli: süre bilgisi yanlış olsa
+     bile oynatıcının kendi sonu geçerli. */
+  $('#hkVideo').addEventListener('ended', hikayeSonraki);
+  $('#hkVideo').addEventListener('loadedmetadata', function(){
+    if (this.duration && isFinite(this.duration)) { hkSure = this.duration * 1000; hkBaslat(hkSure); }
+  });
+})();
+
+/* ---- oluşturma ekranı ---- */
+let hikayeEk = null;                 // { dosya|tam, kucuk, video, sure, en, boy }
+let hoMetinY = 0.5, hoRenk = '#ffffff', hoBoyut = 2;
+
+function hikayeOlusturAc(){
+  hikayeFormuTemizle();
+  /* Kamera düğmesi yalnız kameraya doğrudan erişebilen cihazlarda.
+     KAMERA_VAR dosyanın ilerisinde tanımlı olduğu için BURADA okunuyor:
+     ekran açıldığında betiğin tamamı çalışmış oluyor. */
+  $('#hoKameraBtn').classList.toggle('gizli', !KAMERA_VAR);
+  yiginAc('hikayeOlustur');
+}
+
+function hikayeFormuTemizle(){
+  hikayeEk = null; hoMetinY = 0.5; hoRenk = '#ffffff'; hoBoyut = 2;
+  $('#hoBos').style.display = '';
+  $('#hoGorsel').classList.remove('gor'); $('#hoGorsel').removeAttribute('src');
+  const v = $('#hoVideo');
+  v.classList.remove('gor');
+  try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+  $('#hoAraclar').classList.add('gizli');
+  $('#hoMetin').value = '';
+  $('#hoYazi').textContent = '';
+  $('#hoYazi').classList.remove('gor');
+  $('#hoPaylasBtn').disabled = true;
+  hoYaziCiz();
+}
+
+function hoYaziCiz(){
+  const y = $('#hoYazi');
+  const metin = $('#hoMetin').value;
+  y.textContent = metin;
+  y.classList.toggle('gor', !!metin && !!hikayeEk);
+  y.style.top = (hoMetinY * 100) + '%';
+  y.style.transform = 'translateY(-50%)';
+  y.style.color = hoRenk;
+  y.style.fontSize = (hoBoyut === 1 ? .9 : hoBoyut === 3 ? 1.7 : 1.25) + 'rem';
+}
+
+function hoRenkleriCiz(){
+  const k = $('#hoRenkler');
+  if (!k || k.children.length) return;
+  HIKAYE_RENKLER.forEach((r, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.style.background = r;
+    b.className = i === 0 ? 'aktif' : '';
+    b.setAttribute('aria-label', 'Yazı rengi');
+    b.addEventListener('click', () => {
+      hoRenk = r;
+      [...k.children].forEach(c => c.classList.toggle('aktif', c === b));
+      hoYaziCiz();
+    });
+    k.appendChild(b);
+  });
+}
+
+async function hikayeDosyaSec(dosya){
+  if (!dosya) return;
+  yuklemeGoster(true);
+  try {
+    if (dosya.type.startsWith('video/') || /\.(mov|m4v|3gp|mkv|avi|webm)$/i.test(dosya.name)) {
+      if (!boyutSinirTamam(dosya) || !buyukDosyaOnayi(dosya)) return;
+      const hazir = await videoHazirla(dosya);
+      if (!hazir) return;
+      hikayeEk = { dosya: hazir.dosya, kucuk: hazir.kucuk, video: true, sure: hazir.sure,
+                   en: hazir.en, boy: hazir.boy };
+      const v = $('#hoVideo');
+      v.src = URL.createObjectURL(hazir.dosya);
+      v.classList.add('gor'); v.play().catch(() => {});
+      $('#hoGorsel').classList.remove('gor');
+    } else if (dosya.type.startsWith('image/')) {
+      /* Hikaye tam ekran görünüyor: gönderiden biraz daha büyük sınır. */
+      const tam = await gorselSikistir(dosya, 1600, 900 * 1024);
+      const kucuk = await gorselSikistir(dosya, 600, 90 * 1024);
+      hikayeEk = { tam, kucuk };
+      $('#hoGorsel').src = tam;
+      $('#hoGorsel').classList.add('gor');
+      $('#hoVideo').classList.remove('gor');
+    } else {
+      return bildir('Yalnız görsel ve video paylaşabilirsin.');
+    }
+    $('#hoBos').style.display = 'none';
+    $('#hoAraclar').classList.remove('gizli');
+    $('#hoPaylasBtn').disabled = false;
+    hoRenkleriCiz();
+    hoYaziCiz();
+  } catch (e) {
+    bildir('Dosya okunamadı.');
+  } finally { yuklemeBitir(); }
+}
+
+(function(){
+  const bosta = $('#hoBos');
+  if (!bosta) return;
+  $('#hoGaleriBtn').addEventListener('click', () => $('#hoDosya').click());
+  $('#hoKameraBtn').addEventListener('click', () => $('#hoKamera').click());
+  ['#hoDosya', '#hoKamera'].forEach(id => {
+    $(id).addEventListener('change', (e) => {
+      const d = e.target.files && e.target.files[0];
+      e.target.value = '';
+      hikayeDosyaSec(d);
+    });
+  });
+  $('#hoDegistirBtn').addEventListener('click', () => $('#hoDosya').click());
+  $('#hoMetin').addEventListener('input', hoYaziCiz);
+
+  // Yazıyı dikeyde sürükle
+  let suruk = null;
+  $('#hoYazi').addEventListener('pointerdown', (e) => {
+    const r = $('#hoSahne').getBoundingClientRect();
+    suruk = { r, id: e.pointerId };
+    try { $('#hoYazi').setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  $('#hoYazi').addEventListener('pointermove', (e) => {
+    if (!suruk || e.pointerId !== suruk.id) return;
+    e.preventDefault();
+    hoMetinY = Math.max(0.08, Math.min(0.92, (e.clientY - suruk.r.top) / suruk.r.height));
+    hoYaziCiz();
+  });
+  const birak = () => { suruk = null; };
+  $('#hoYazi').addEventListener('pointerup', birak);
+  $('#hoYazi').addEventListener('pointercancel', birak);
+
+  $('#hoAraclar').querySelectorAll('.ho-boyut button').forEach(b => {
+    b.addEventListener('click', () => {
+      hoBoyut = Number(b.dataset.boyut) || 2;
+      $('#hoAraclar').querySelectorAll('.ho-boyut button')
+        .forEach(x => x.classList.toggle('aktif', x === b));
+      hoYaziCiz();
+    });
+  });
+
+  $('#hoPaylasBtn').addEventListener('click', hikayePaylas);
+})();
+
+let hikayePaylasiliyor = false;
+async function hikayePaylas(){
+  if (hikayePaylasiliyor || !hikayeEk || !ben || !db) return;
+  hikayePaylasiliyor = true;
+  const btn = $('#hoPaylasBtn');
+  btn.disabled = true;
+  yuklemeGoster(true);
+  try {
+    const medyaId = db.ref('medya').push().key;
+    if (hikayeEk.dosya) {
+      await medyaYazDosya(medyaId, hikayeEk.dosya, (o) => yuklemeYuzde(o), null,
+                          { sure: hikayeEk.sure, en: hikayeEk.en, boy: hikayeEk.boy });
+    } else {
+      await medyaYaz(medyaId, hikayeEk.tam, (o) => yuklemeYuzde(o));
+    }
+    if (hikayeEk.kucuk) {
+      await parcaDene(() => db.ref('medya/' + medyaId + '/kucuk').set(hikayeEk.kucuk)).catch(() => {});
+    }
+    const metin = $('#hoMetin').value.trim().slice(0, 200);
+    /* Bitiş SUNUCU saatinden: telefonun saati kaymışsa hikaye ya hemen
+       kaybolur ya da günlerce kalırdı. */
+    const simdi = sunucuSaati();
+    const kayit = {
+      ad: benimAdim || '',
+      tip: hikayeEk.video ? 'video' : 'gorsel',
+      medyaId,
+      kucukVar: hikayeEk.kucuk ? 1 : null,
+      metin: metin || null,
+      metinY: metin ? Number(hoMetinY.toFixed(3)) : null,
+      metinRenk: metin ? hoRenk : null,
+      metinBoyut: metin ? hoBoyut : null,
+      sure: hikayeEk.sure || null,
+      en: hikayeEk.en || null, boy: hikayeEk.boy || null,
+      ts: simdi,
+      bitis: simdi + HIKAYE_OMRU
+    };
+    Object.keys(kayit).forEach(k => { if (kayit[k] == null) delete kayit[k]; });
+    await db.ref('hikaye/' + ben.uid).push(kayit);
+    bildir('Hikayen paylaşıldı.');
+    hikayeFormuTemizle();
+    if (ekranYigini[ekranYigini.length - 1] === 'hikayeOlustur') gezGeri();
+  } catch (e) {
+    bildir(e && e.code === 'PERMISSION_DENIED'
+      ? 'Kurallar eksik: hikaye düğümü yok.' : 'Hikaye paylaşılamadı.');
+  } finally {
+    hikayePaylasiliyor = false;
+    btn.disabled = !hikayeEk;
+    yuklemeBitir();
+  }
 }
 
 /* ================= SİSTEM BİLDİRİMİ ================= */

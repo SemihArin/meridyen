@@ -296,6 +296,71 @@
           }
         }
       }
+    },
+    "hikaye": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".indexOn": [
+          "ts"
+        ],
+        "$id": {
+          ".validate": "newData.hasChildren(['tip','ts','bitis'])",
+          "tip": {
+            ".validate": "newData.isString() && (newData.val() === 'gorsel' || newData.val() === 'video')"
+          },
+          "medyaId": {
+            ".validate": "newData.isString() && newData.val().length <= 64"
+          },
+          "kucukVar": {
+            ".validate": "newData.isNumber()"
+          },
+          "ad": {
+            ".validate": "newData.isString() && newData.val().length <= 60"
+          },
+          "metin": {
+            ".validate": "newData.isString() && newData.val().length <= 200"
+          },
+          "metinY": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1"
+          },
+          "metinRenk": {
+            ".validate": "newData.isString() && newData.val().length <= 12"
+          },
+          "metinBoyut": {
+            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 3"
+          },
+          "sure": {
+            ".validate": "newData.isNumber()"
+          },
+          "en": {
+            ".validate": "newData.isNumber()"
+          },
+          "boy": {
+            ".validate": "newData.isNumber()"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "bitis": {
+            ".validate": "newData.isNumber() && newData.val() <= now + 90000000"
+          },
+          "$baska": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "hikayeIzlendi": {
+      "$sahip": {
+        ".read": "auth != null && auth.uid === $sahip",
+        "$id": {
+          "$izleyen": {
+            ".write": "auth != null && auth.uid === $izleyen && !data.exists()",
+            ".validate": "newData.isNumber()"
+          }
+        }
+      }
     }
   }
 }

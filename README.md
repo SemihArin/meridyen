@@ -581,6 +581,105 @@ Doğrulama: APK yeniden derlendi, eklenti sınıfının ve `setProgress`
 sınandı (belirsiz başlangıç, kısma, %100'ün hemen yazılması, metinde yüzde
 bulunmaması, eklenti yokken sessizce geçme).
 
+## Hikayeler
+
+Akışın tepesinde 24 saat yaşayan görsel/video hikayeler. Üç parça: şerit,
+tam ekran izleyici ve oluşturma ekranı.
+
+### Önden yükleme — istenen asıl davranış
+
+Kullanıcı halkaya dokunduğunda beklememeli. Uygulama açılır açılmaz hikaye
+dizini okunuyor, sonra tarayıcı **boştayken** (`requestIdleCallback`) önce
+küçük önizlemeler, ardından tam medya arka planda indiriliyor.
+
+İki şeye dikkat edildi:
+
+- İndirme, **var olan** ön yükleme sırasına bindirildi (`videoOnYuklemeIste`).
+  O sıra dosya gönderimi varsa ona yol veriyor ve boyut sınırını kendisi
+  uyguluyor — yani hikaye indirmesi kullanıcının gönderdiği dosyayı
+  yavaşlatmıyor.
+- Süresi dolmuş hikayelerin medyası hiç indirilmiyor.
+
+İzleyici açıldığında `medyaGetir` çoğu zaman kendi blob önbelleğinden anında
+dönüyor; bekleme göstergesi yalnız önden yüklenememiş bir şey varsa görünüyor.
+
+### Veri ve ömür
+
+`hikaye/<uid>/<id>` altında; medya diğer her şey gibi `medya/<id>` içinde
+(RTDB, parçalı). Bitiş zamanı **sunucu saatinden** hesaplanıyor: telefonun
+saati kaymışsa hikaye ya doğar doğmaz kaybolur ya da günlerce kalırdı.
+Kurallar bitişi en fazla ~25 saat ileriye izin veriyor, yani kimse kalıcı
+"hikaye" bırakamıyor.
+
+Süresi dolanları **sahibi** siliyor (kayıt + medya + izlenme kaydı): kimsenin
+başkasının kaydına yetkisi yok ve temizliği bir sunucuya bırakmak istemedik.
+
+Kimin izlediği `hikayeIzlendi/<sahip>/<id>/<izleyen>` altında. Yalnız sahibi
+okuyabiliyor; izleyen kendi kaydını yazabiliyor ama **değiştiremiyor ve
+silemiyor** (`!data.exists()`).
+
+### Şerit
+
+İlk halka her zaman sen — hikayen yoksa artı işaretiyle davet. Sonra
+okunmamışı olanlar, sonra kalanlar; her grup en yeniden eskiye. Okunmamış
+halkalar vurgu renginde, okunmuşlar sönük. "Görüldü" hem bu cihazda
+(`localStorage`, halka sönsün diye) hem veritabanında tutuluyor.
+
+### İzleyici
+
+Sağa dokun sonraki, sola dokun önceki, **basılı tut duraklat**, aşağı sürükle
+kapat. Üstteki çubuklar kaç hikaye olduğunu ve nerede olduğunu gösteriyor.
+Basılı tutma eşiği 220 ms: altı "ilerlet", üstü "okumak için beklet".
+
+Kendi hikayende sil düğmesi ve izlenme sayacı, başkasınınkinde "Yanıtla"
+(sohbeti açar). Video hikayede süre oynatıcının kendi `ended` olayından da
+kapanıyor: kayıttaki süre yanlış olsa bile çubuk gerçeğe uyuyor.
+
+### Oluşturma ekranı
+
+Önizleme gerçek oranında (9:16) ve yazı doğrudan onun üstünde düzenleniyor —
+paylaşmadan önce ne görüneceği tam olarak belli. Yazı **görsele gömülmüyor**,
+ayrı alanlarda tutuluyor: video için de çalışsın ve kalite kaybı olmasın diye.
+Yazının dikey yeri parmakla sürüklenerek ayarlanıyor; altı renk ve üç boyut
+var.
+
+### Tasarım: ekran görüntüsü iki hatayı gösterdi
+
+Ekranları çizip **bakınca** iki şey çıktı:
+
+1. `.dolu` bir **vitrin** düğmesi (koyu mürekkep, açık kâğıt üstüne). Koyu
+   panelde koyu üstüne koyu düşüyor ve "Galeriden seç" düz yazı gibi
+   görünüyordu. Panelin kendi birincil düğmesine (`.dolu-kucuk`) geçildi ve
+   ikincil düğme için panele uygun bir stil yazıldı. *(Aynı sorun çıkartma
+   ekranında da var; oraya bu turda dokunmadım.)*
+2. Renk seçeneklerinin koyu olanı koyu zeminde kayboluyordu — her yuvarlağa
+   ince bir çerçeve eklendi.
+
+Ayrıca "Senin hikayen" 68 pikselik halkanın altında kesiliyordu; "Hikayen"
+oldu.
+
+### Bir hata: betiği baştan kıran başlatma sırası
+
+Oluşturma ekranı kamera düğmesini gösterip göstermeyeceğine `KAMERA_VAR`'a
+bakarak karar veriyordu. O sabit dosyanın **ilerisinde** `const` ile tanımlı;
+orada okumak geçici ölü bölgeye düşüyor ve — sezgiye aykırı biçimde —
+`typeof` bile hata fırlatıyor. Sonuç: sayfa betiği o noktada tamamen
+duruyordu. Sınama bunu ilk koşuda yakaladı; karar artık ekran açıldığı anda
+veriliyor.
+
+### Doğrulama
+
+24 senaryo, gerçek tarayıcıda gerçek sayfayla: süresi dolanın elenmesi,
+sıralama, şeridin çizimi, okunmuş/okunmamış halkalar, **önden yüklemenin
+dokunmadan çalışması**, süresi dolanın indirilmemesi, izleyicinin açılması,
+çubuk sayısı, kendi/başkasının hikayesinde farklı düğmeler, ileri-geri,
+görüldü işareti, duraklatma. Önceki 226 senaryo da geçiyor.
+
+### Senin yapman gereken
+
+`database.rules.json`'ı Firebase konsoluna yeniden yapıştır — **iki yeni
+düğüm** var (`hikaye`, `hikayeIzlendi`), onlarsız hikaye paylaşılamaz.
+
 ## Küçültülmüş çağrı, taşınabilir pencereler ve yeni simgeler
 
 ### "Görüşme sırasında neden sitede dolaşamayalım?"
