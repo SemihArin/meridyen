@@ -16798,8 +16798,17 @@ async function mp4MoovBasaAl(dosya){
 
    Bellek: dosyanın tamamı belleğe alınmıyor; örnek baytları ParcaOkuyucu ile
    pencereli okunuyor ve her parça üretilir üretilmez dışarı veriliyor. */
-const PARCA_HEDEF_SN = 2;                 // parça başına hedeflenen süre
-const PARCA_ENAZ_BAYT = 128 * 1024;       // bundan küçükse parçayı büyütmeye devam et
+/* İLK parçalar küçük, sonrakiler büyük.
+   Küçük parça = izleyici erken başlar; büyük parça = gönderirken daha az
+   gidiş-dönüş. İkisini birden almak için sadece baştaki iki parçayı küçük
+   tutuyoruz: oynatma yine ~2 saniyede başlıyor, ama 10 MB'lık bir video 30
+   yazma yerine ~15 yazmaya iniyor (eşzamanlı havuzla birlikte belirgin
+   hızlanma). */
+const PARCA_HEDEF_SN = 2;                 // ilk parçalarda hedeflenen süre
+const PARCA_ENAZ_BAYT = 128 * 1024;       // ilk parçalarda en az bayt
+const PARCA_BUYUK_SN = 5;                 // sonraki parçalarda hedeflenen süre
+const PARCA_BUYUK_BAYT = 512 * 1024;      // sonraki parçalarda en az bayt
+const PARCA_KUCUK_ADET = 2;               // kaç parça küçük kalsın
 
 /* trun için örnek bayrakları. sample_depends_on: 2 = başkasına bağlı DEĞİL
    (anahtar kare), 1 = bağlı. is_non_sync biti anahtar olmayanlarda 1. */
@@ -16930,11 +16939,14 @@ async function mp4ParcaliYap(dosya, ilerleme){
   while (i < video.ornekler.length) {
     /* Parça sınırı ANAHTAR KAREDE olmalı: her parça kendi başına
        çözülebilmeli, yoksa oynatıcı ortadaki bir parçayla başlayamaz. */
+    const kucukMu = parcalar.length < PARCA_KUCUK_ADET;
+    const hedefSn = kucukMu ? PARCA_HEDEF_SN : PARCA_BUYUK_SN;
+    const enazBayt = kucukMu ? PARCA_ENAZ_BAYT : PARCA_BUYUK_BAYT;
     let j = i + 1, bayt = video.ornekler[i].boyut;
     const basDts = video.ornekler[i].dts;
     while (j < video.ornekler.length) {
       const gecen = (video.ornekler[j].dts - basDts) / video.zamanOlcek;
-      if (video.ornekler[j].anahtar && gecen >= PARCA_HEDEF_SN && bayt >= PARCA_ENAZ_BAYT) break;
+      if (video.ornekler[j].anahtar && gecen >= hedefSn && bayt >= enazBayt) break;
       bayt += video.ornekler[j].boyut;
       j++;
     }
@@ -18998,6 +19010,39 @@ function dilimiBase64Yap(dilim){
   });
 }
 
+/* NOT: base64'ü elle (String.fromCharCode + btoa) üretmeyi de denedik;
+   ölçümde FileReader'ın yerli yolundan ~%25 YAVAŞ çıktı (512 KB için 3,5 ms
+   karşılık 2,8 ms). Bu yüzden tek bir dönüştürücü var. Zaten darboğaz CPU
+   değil, yazma başına ~120 ms'lik ağ gidiş-dönüşü. */
+
+/* ---- dilimleri EŞZAMANLI yazma ----
+   Dilimler birbirinden bağımsız düğümlere gidiyor ve sıraları önemli değil:
+   okuyucu indisle okuyor, başlık en sonda yazılıyor. Tek tek yazdığımızda her
+   dilim için bir gidiş-dönüş bekleniyor, hat ne kadar geniş olursa olsun hız
+   gecikmeye (RTT) takılıyordu — 10 MB'lık video 30 turluk bir kuyruğa
+   dönüşüyordu. Aynı WebSocket üstünden birkaç dilimi ardı ardına yollamak
+   mobil ağda kat kat fark ediyor. */
+const ESZAMANLI_YAZMA = 4;
+async function dilimleriYaz(kok, adet, dilimAl, ilerleme, iptalMi){
+  let sonraki = 0, biten = 0, hata = null;
+  const isci = async () => {
+    while (!hata) {
+      const i = sonraki++;
+      if (i >= adet) return;
+      if (await iptalMi()) { hata = hata || yuklemeIptalHatasi(); return; }
+      try {
+        const b64 = await dilimAl(i);
+        await parcaDene(() => kok.child('parca/' + i).set(b64));
+      } catch (e) { hata = hata || e; return; }
+      biten++;
+      if (ilerleme) ilerleme(biten / adet);
+    }
+  };
+  const isciSayisi = Math.max(1, Math.min(ESZAMANLI_YAZMA, adet));
+  await Promise.all(Array.from({ length: isciSayisi }, isci));
+  if (hata) throw hata;
+}
+
 /* Bir Blob/File'ı RTDB'ye dilim dilim yazar; ilerlemeyi 0..1 bildirir.
    Dosyanın tamamı belleğe ALINMIYOR: her adımda yalnız tek bir dilim
    okunuyor — 700 MB'lık bir video tek seferde base64'e çevrilseydi ~930 MB
@@ -19015,13 +19060,10 @@ async function rtdbMedyaYaz(medyaId, blob, mime, ilerleme, iptalRef, ekBilgi){
     return true;
   };
 
-  for (let i = 0; i < adet; i++) {
-    if (await iptalMi()) throw yuklemeIptalHatasi();
-    const dilim = blob.slice(i * DILIM_BAYT, Math.min((i + 1) * DILIM_BAYT, blob.size));
-    const b64 = await dilimiBase64Yap(dilim);
-    await parcaDene(() => kok.child('parca/' + i).set(b64));
-    if (ilerleme) ilerleme((i + 1) / adet);
-  }
+  await dilimleriYaz(kok, adet,
+    (i) => dilimiBase64Yap(blob.slice(i * DILIM_BAYT,
+                                      Math.min((i + 1) * DILIM_BAYT, blob.size))),
+    ilerleme, iptalMi);
   if (await iptalMi()) throw yuklemeIptalHatasi();
 
   /* BAŞLIK ("ilk dosya"): oynatıcının medyanın tek bir baytını bile
@@ -19099,12 +19141,9 @@ async function rtdbParcaliYaz(medyaId, fm, mime, ilerleme, iptalRef, ekBilgi){
     return true;
   };
 
-  for (let i = 0; i < bolumler.length; i++) {
-    if (await iptalMi()) throw yuklemeIptalHatasi();
-    const b64 = await dilimiBase64Yap(new Blob([bolumler[i]]));
-    await parcaDene(() => kok.child('parca/' + i).set(b64));
-    if (ilerleme) ilerleme((i + 1) / bolumler.length);
-  }
+  await dilimleriYaz(kok, bolumler.length,
+    (i) => dilimiBase64Yap(new Blob([bolumler[i]])),
+    ilerleme, iptalMi);
   if (await iptalMi()) throw yuklemeIptalHatasi();
 
   await parcaDene(() => kok.child('bilgi').set(Object.assign({
@@ -19492,9 +19531,20 @@ function mseOynat(video, kok, bilgi, o){
         o.onHazir();
         if (o.otoOynat) video.play().catch(() => {});
 
+        /* BİR PARÇA İLERİDEN GETİR: eskiden "getir → ekle → getir" sırayla
+           gidiyordu, yani her parçada ağ bir gidiş-dönüş boyunca boş
+           bekliyordu. Sıradaki parçayı, elimizdekini SourceBuffer'a eklerken
+           istiyoruz; indirme oynatmanın önünde kalıyor. */
+        /* İstek başlatılırken boş bir catch takılıyor: parça gelmeden döngüden
+           çıkarsak (iptal ya da ekleme hatası) o söz sahipsiz kalıp
+           "unhandledrejection" üretmesin. await yine hatayı fırlatır. */
+        const iste = (i) => { const sz = parcaAl(i); sz.catch(() => {}); return sz; };
+        let bekleyen = bilgi.parca > 2 ? iste(2) : null;
         for (let i = 2; i < bilgi.parca; i++) {
           if (o.iptal()) return bitir(true);
-          await ekle(await parcaAl(i));
+          const veri = await bekleyen;
+          bekleyen = (i + 1 < bilgi.parca) ? iste(i + 1) : null;
+          await ekle(veri);
           o.onIndirme((i) / medyaAdedi, false);
         }
         try { if (ms.readyState === 'open') ms.endOfStream(); } catch (e) {}
