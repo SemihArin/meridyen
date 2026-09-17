@@ -16088,24 +16088,17 @@ async function ekleriAl(liste){
 /* Bir video dosyasını göndermeye hazırlar: gerekiyorsa MP4'e çevirir,
    kapak karesini üretir, sınırları denetler. Sohbet ve akış aynı yolu
    kullanır ki davranış her yerde aynı olsun. */
-/* Dosya MP4 ise ve `moov` sonda duruyorsa, kabı yeniden düzenleyip moov'u
-   başa alır (yeniden kodlama YOK, kalite kaybı YOK, birkaç yüz KB bellek).
-   Beceremezse özgün dosyayı olduğu gibi döndürür — çağıran taraf için bu
-   adım her zaman güvenli. */
-async function videoHizliBaslangicHazirla(dosya){
-  const tur = (dosya.type || '').toLowerCase(), ad = (dosya.name || '').toLowerCase();
-  if (!/mp4/.test(tur) && !/\.mp4$/.test(ad)) return dosya;
+/* Kaynağı PARÇALI MP4'e çevirebilir miyiz? Kutu başlıkları ve moov
+   okunuyor (birkaç yüz KB; dosyanın tamamı belleğe alınmıyor), örnek
+   tablosu çıkarılıyor. Çıkaramıyorsak null. */
+async function parcalanabilirCoz(dosya){
   try {
-    if (await mp4HizliBaslangicMi(dosya)) { videoGunluk.push('moov zaten başta'); return dosya; }
-    const yeni = await mp4MoovBasaAl(dosya);
-    if (!yeni || yeni === dosya) { videoGunluk.push('moov başa alınamadı — eski yola düşülüyor'); return dosya; }
-    videoGunluk.push('moov başa alındı (yeniden kodlama yok)');
-    /* Ad korunsun: çağıran taraf kullanilan.name okuyor. */
-    try { return new File([yeni], dosya.name || 'video.mp4', { type: 'video/mp4' }); }
-    catch (e) { return yeni; }
+    const c = await mp4Coz(dosya);
+    if (!c || !c.video || !c.video.ornekler || !c.video.ornekler.length) return null;
+    return c;
   } catch (e) {
-    videoGunluk.push('moov düzenlemesi hata verdi: ' + ((e && e.message) || e));
-    return dosya;
+    videoGunluk.push('çözümlenemedi: ' + ((e && e.message) || e));
+    return null;
   }
 }
 
@@ -16119,47 +16112,50 @@ async function videoHazirla(dosya){
            '(sınır ' + Math.round(VIDEO_KAYNAK_MAKS / 1048576) + ' MB).');
     return null;
   }
-  /* ÖNDEN HAZIRLIK — moov'u başa al.
-     Telefon kameraları `moov` kutusunu (süre + örnek tablosu) dosyanın SONUNA
-     yazar. Eskiden bu durumda `donusumGerekli` "evet" diyor ve dosya BÜTÜNÜYLE
-     YENİDEN KODLANIYORDU; dakikalar süren, kaliteyi düşüren bir iş — oysa
-     gereken tek şey bir kutuyu başa taşımak. Artık önce onu deniyoruz: tek bir
-     kare bile yeniden kodlanmıyor, başarısız olursa eski yola düşülüyor. */
-  let kullanilan = await videoHizliBaslangicHazirla(dosya);
-  let gerek = await donusumGerekli(kullanilan);
-  videoGunluk.push('dönüşüm gerekli mi: ' + (gerek ? 'evet' : 'hayır'));
-  /* Çok büyük dosyada tarayıcıda yeniden kodlama dakikalar sürer; kap
-     zaten uyumluysa (mp4) olduğu gibi gönderiyoruz. */
-  if (gerek && dosya.size > VIDEO_DONUSUM_MAKS && /mp4|quicktime/i.test(dosya.type || '')) {
-    videoGunluk.push('dosya ' + Math.round(dosya.size / 1048576) + ' MB — dönüşüm atlandı');
-    bildir('Video büyük olduğu için olduğu gibi gönderiliyor (' +
-           Math.round(dosya.size / 1048576) + ' MB).', 5000);
-    gerek = false;
-  }
-  if (gerek) {
-    yuklemeYuzde(0, 'Video MP4’e çevriliyor…');
-    const yeni = await videoyuMp4Yap(dosya, (o) => yuklemeYuzde(o, 'Video MP4’e çevriliyor…'));
+  /* TEK ÖLÇÜT: PARÇALANABİLİRLİK.
+     Yükleme aşaması videoyu parçalı MP4'e (fragmented) çevirip dilim dilim
+     yazıyor; karşı taraf da ilk dilimlerden izlemeye başlıyor. Yani kaynağı
+     kendi çözümleyicimiz okuyabiliyorsa HİÇBİR ön dönüşüme gerek yok:
+     ne yeniden kodlama, ne kap değişimi, ne moov'u başa taşıma. Parçalı
+     çıktıda moov'un yeri anlamsız (init parçasını kendimiz yazıyoruz) ve
+     kap da anlamsız (çıktı her hâlükârda mp4 oluyor) — iPhone'un .mov'u
+     dahil. Eskiden burada dosya kopyalanıyor, gerekirse bütünüyle yeniden
+     kodlanıyordu: dakikalar, kalite kaybı ve iOS'ta hiç çalışmayan yollar. */
+  let kullanilan = dosya;
+  let coz = await parcalanabilirCoz(dosya);
+  if (coz) {
+    videoGunluk.push('kaynak okunabiliyor: ' + coz.video.tur + ' ' +
+                     coz.video.en + 'x' + coz.video.boy + ' / ' +
+                     coz.video.ornekler.length + ' kare — dönüşüm YOK, doğrudan parçalı yüklenecek');
+    if (!/^avc/.test(coz.video.tur)) {
+      videoGunluk.push('kodek H.264 değil (' + coz.video.tur +
+                       '); çok eski cihazlar oynatmayabilir');
+    }
+  } else {
+    /* Kabı okuyamadık (webm/avi/mkv/3gp ya da zaten parçalı bir kaynak):
+       parçalı yükleme yapılamaz, tek yol gerçek bir dönüşüm. */
+    videoGunluk.push('kaynak çözümlenemedi — dönüşüm gerekiyor');
+    yuklemeYuzde(0, 'Video hazırlanıyor…');
+    const yeni = await videoyuMp4Yap(dosya, (o) => yuklemeYuzde(o, 'Video hazırlanıyor…'));
     if (yeni) {
       kullanilan = yeni;
+      coz = await parcalanabilirCoz(kullanilan);
     } else if (videoSonHata === 'vazgeçildi') {
       yuklemeBitir();
       donusumEkraniKapat();
       bildir('Video dönüşümünden vazgeçildi.');
       return null;
-    } else {
-      /* ARTIK VAZGEÇMİYORUZ. Eskiden kap mp4 değilse (iPhone'un .mov'u!)
-         burada null dönülüyordu: iOS'ta üç dönüşüm yolunun üçü de
-         düştüğü için video HİÇ gönderilemiyordu ve kullanıcı yalnız
-         kaybolan bir uyarı görüyordu. Özgün dosya gönderilebilir bir
-         dosyadır: Apple cihazlar arasında sorunsuz oynar, karşı taraf
-         Android ise açamayabilir — bunu açıkça yazıyoruz. */
-      videoGunluk.push('çevrilemedi, özgün dosya gönderiliyor (' + (dosya.type || 'tür yok') + ')');
-      bildir('Video çevrilemedi (' + (videoSonHata || 'sebep bilinmiyor') +
-             '), özgün hâliyle gönderiliyor — karşı tarafta açılmayabilir.', 6000);
     }
-    if (videoKodekUyarisi) {
-      videoGunluk.push('kodek ' + videoKodekUyarisi + ' korundu (yeniden kodlanmadı)');
-      bildir('Video mp4 yapıldı ama kodeği HEVC kaldı; eski Android telefonlarda açılmayabilir.', 6000);
+    /* ARTIK VAZGEÇMİYORUZ: dönüşüm olmasa bile video gönderilir. Ama parçalı
+       olamayacağını SÖYLÜYORUZ — izlerken tamamının inmesi gerekecek. */
+    if (!coz) {
+      videoGunluk.push('parçalı hazırlanamadı, düz gönderilecek (' +
+                       (kullanilan.type || 'tür yok') + ')');
+      bildir('Bu video parçalı hazırlanamadı' +
+             (videoSonHata ? ' (' + videoSonHata + ')' : '') +
+             '; izlemek için tamamının inmesi gerekecek.', 7000);
+    } else {
+      videoGunluk.push('dönüşüm sonrası okunabiliyor: ' + coz.video.tur);
     }
   }
   if (kullanilan.size > VIDEO_SONUC_MAKS) {
@@ -16172,6 +16168,12 @@ async function videoHazirla(dosya){
   yuklemeYuzde(null, 'Kapak karesi alınıyor…');
   const bilgi = await videoBilgisi(kullanilan);
   videoGunluk.push('kapak: ' + (bilgi.kapak ? 'alındı' : 'ALINAMADI') + ' / süre ' + bilgi.sure + ' sn');
+  /* Süre ve en/boy için ÇÖZÜMLEYİCİ yedek: kapak karesi alınamasa da
+     (iOS'ta olabiliyor) bu değerler moov'dan zaten biliniyor. Başlıkta
+     doğru süre/oran olması oynatıcının ilk anını düzeltiyor. */
+  const sure = bilgi.sure || (coz ? Math.round(coz.sure) : 0);
+  const en = bilgi.en || (coz ? coz.video.en : 0);
+  const boy = bilgi.boy || (coz ? coz.video.boy : 0);
   /* BAŞARILI yolda göstergeyi KAPATMIYORUZ: çağıran (ekleriAl / paylaşım
      ekranı) kendi işi bitince kapatıyor. Eskiden burada kapatılıyordu ve
      aynı partideki sonraki dosyalar göstergesiz işleniyordu — uygulama
@@ -16181,8 +16183,8 @@ async function videoHazirla(dosya){
      çevriliyordu; 700 MB'lık bir videoda bu tek başına ~1,9 GB demek. */
   /* en/boy da taşınıyor: medya kaydının başlığına yazılacak, böylece
      oynatıcı daha ilk anda doğru en-boy oranını bilir ve yerleşim zıplamaz. */
-  return { video: true, dosya: kullanilan, kucuk: bilgi.kapak, sure: bilgi.sure,
-           en: bilgi.en, boy: bilgi.boy,
+  return { video: true, dosya: kullanilan, kucuk: bilgi.kapak, sure: sure,
+           en: en, boy: boy, parcali: !!coz,
            ad: kullanilan.name || dosya.name, boyut: kullanilan.size };
 }
 
@@ -16306,69 +16308,10 @@ function appleCihaz(){
               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   return iOS || /Macintosh/.test(ua);
 }
-/* Dosyanın GERÇEK video kodeğini bulur: 'avc1' (H.264, her yerde oynar),
-   'hvc1'/'hev1' (HEVC, Apple dışı oynatmaz) ya da '' (bilinmiyor).
-   Kodek bilgisi `moov` kutusundadır; iPhone kamera kayıtlarında bu kutu
-   genelde dosyanın SONUNDA olur. Bu yüzden yalnız baştan ve sondan birer
-   MB okuyoruz — 200 MB'lık dosyayı belleğe almadan karar verilir. */
-async function videoKodegiBul(dosya){
-  const oku = async (bas, bit) => {
-    try {
-      const b = new Uint8Array(await dosya.slice(bas, bit).arrayBuffer());
-      let m = '';
-      for (let i = 0; i < b.length; i += 8192) {
-        m += String.fromCharCode.apply(null, b.subarray(i, i + 8192));
-      }
-      return m;
-    } catch (e) { return ''; }
-  };
-  const MB = 1024 * 1024;
-  const metin = (await oku(0, Math.min(dosya.size, MB))) +
-                (dosya.size > MB ? await oku(Math.max(0, dosya.size - MB), dosya.size) : '');
-  if (/hvc1|hev1|dvh1/.test(metin)) return 'hvc1';
-  if (/avc1|avcC/.test(metin)) return 'avc1';
-  return '';
-}
-
-/* Dönüştürmeye gerek var mı?
-   - mp4 dışı kap (mov/mkv/webm/avi…) → evet
-   - içi HEVC → evet (Apple dışı hiçbir yerde oynamaz)
-   - içi H.264 mp4 → HAYIR; boşuna yeniden kodlayıp kalite kaybetmeyiz
-   - karar verilemedi + Apple cihaz → evet (varsayılanı HEVC'dir) */
-async function donusumGerekli(dosya){
-  const tur = (dosya.type || '').toLowerCase();
-  const ad = (dosya.name || '').toLowerCase();
-  const mp4Kap = /mp4/.test(tur) || /\.mp4$/.test(ad);
-  /* Kap zaten MP4 ise kesin karar için dosyayı gerçekten çözümlüyoruz:
-     tahmine dayalı bayt taraması bazen yanılıyordu. */
-  if (mp4Kap) {
-    try {
-      const c = await mp4Coz(dosya);
-      const t = c.video.tur;
-      videoGunluk.push('kap mp4, iz ' + t);
-      if (t === 'avc1' || t === 'avc3') {
-        /* Kodek zaten uyumlu — ama kap "hızlı başlangıç" değilse (moov
-           mdat'tan SONRAYSA) medyaParcaliOynatBaslat aşamalı oynatmayı
-           hiç denemez, karşı taraf videonun TAMAMI inene kadar bekler.
-           Bu, gerçek telefon kayıtlarında (moov'u ancak kayıt biterken
-           yazan kamera uygulamaları) hiç de nadir değil. Yeniden kodlama
-           GEREKMİYOR — yalnız kap değiştirilip (kapDegistir, saniyeler
-           sürer, kalite kaybı yok) moov başa alınıyor. */
-        const hizli = await mp4HizliBaslangicMi(dosya);
-        videoGunluk.push('moov konumu: ' + (hizli ? 'başta (hızlı başlangıç)' : 'sonda — kap yeniden düzenlenecek'));
-        return !hizli;
-      }
-      return true;
-    } catch (e) { videoGunluk.push('çözümlenemedi: ' + ((e && e.message) || e)); }
-  }
-  if (/quicktime|x-m4v|3gpp|x-matroska|webm|avi|mpeg/.test(tur)) return true;
-  if (/\.(mov|m4v|3gp|mkv|avi|webm|hevc)$/.test(ad)) return true;
-  if (!tur.startsWith('video/')) return true;
-  const kodek = await videoKodegiBul(dosya);
-  if (kodek === 'hvc1') return true;
-  if (kodek === 'avc1') return false;
-  return appleCihaz();                      // bilinmiyorsa Apple'da temkinli ol
-}
+/* videoKodegiBul / donusumGerekli BURADAN KALDIRILDI. Artık tek soru
+   "bu dosyayı parçalı MP4'e çevirebiliyor muyuz?" (parcalanabilirCoz);
+   kap, kodek ve moov konumuna göre dönüşüm kararı vermek gereksizdi —
+   parçalı çıktıda üçü de yeniden yazılıyor. */
 
 /* ================= VİDEO DÖNÜŞÜM MOTORU =================
    iOS'ta en sık görülen arıza: dönüşüm "başlıyor" ama yüzde hiç ilerlemiyor.
@@ -16742,10 +16685,11 @@ async function mp4HizliBaslangicMi(dosya){
    ancak kayıt bitince bilinir. Böyle bir dosyada oynatıcı, tek bir kareyi
    bile çizebilmek için önce dosyanın SONUNU okumak zorunda.
 
-   ESKİ ÇÖZÜM PAHALIYDI: `donusumGerekli` bu durumda "dönüşüm gerekli" diyor
-   ve dosya bütünüyle YENİDEN KODLANIYORDU (libx264, 1280'e küçültme) —
-   dakikalar süren, görüntü kalitesini düşüren bir iş. Oysa yapılması gereken
-   tek şey bir kutuyu dosyanın başına taşımak.
+   Bugün bu neredeyse hiç gerekmiyor: video parçalı mp4 olarak saklandığı
+   için init parçasını kendimiz yazıyoruz ve moov'un kaynaktaki yeri
+   önemsiz. Bu fonksiyon yalnız parçalı yol hiç kurulamadığında (yabancı
+   kap) devreye giriyor: düz yolda ilk karenin beklenmeden görünmesini
+   sağlıyor.
 
    BU FONKSİYON tam olarak onu yapıyor: tek bir kare bile yeniden
    kodlanmıyor, hiçbir bayt kaybolmuyor. `moov` başa alınıyor ve içindeki
@@ -17789,18 +17733,23 @@ async function videoyuMp4Yap(dosya, ilerleme, notEt){
   donusumEkraniAc();
   donusumBaslik('Video MP4’e çevriliyor');
 
+  /* BURAYA ARTIK YALNIZ kendi çözümleyicimizin OKUYAMADIĞI dosyalar geliyor
+     (videoHazirla önce parcalanabilirCoz ile sınıyor): webm, avi, mkv, flv,
+     3gp ya da zaten parçalı bir kaynak. Bu yüzden sıra ffmpeg ile başlıyor —
+     kendi yollarımız tanım gereği burada zaten düşecek. Yine de listede
+     kalıyorlar: çözümleme geçici bir okuma hatasından düşmüş olabilir. */
   const stratejiler = [];
-  /* 1) Kod içi yol: dosyayı kendimiz çözüp örnek örnek işliyoruz. Tuval,
+  /* 1) ffmpeg.wasm: yabancı kapları çeviren tek yol. Yavaş ve ~32 MB
+     indiriyor, ama sıra buraya düştüyse başka seçenek yok. */
+  stratejiler.push({ ad: 'ffmpeg', calis: () => nobetli(
+    ffmpegDonustur(dosya, ilerleme, not), 'ffmpeg', not) });
+  /* 2) Kod içi yol: dosyayı kendimiz çözüp örnek örnek işliyoruz. Tuval,
      oynatma ya da MediaRecorder gerekmez — iOS'ta takılan parçaların hiçbiri
      yok. H.264 kaynakta zaten sadece kap değişir (saniyeler sürer). */
   stratejiler.push({ ad: 'kod içi', calis: () => nobetli(
     kodIciDonustur(dosya, ilerleme, not), 'kod içi', not) });
-  /* 2) SAF KAP DEĞİŞİMİ. Kodeği H.264'e çevirmeye çalışmaz; örnekleri
-     olduğu gibi kopyalayıp kabı mp4 yapar (saniyeler sürer, kalite kaybı
-     yok). iPhone'un HEVC .mov dosyası için can simidi: yukarıdaki yol
-     WebCodecs yokluğundan ya da takıldığı için düşse bile gönderilebilir
-     bir mp4 elde ediyoruz. ffmpeg'in 32 MB'ını indirmeden önce burası
-     denenmeli. */
+  /* 3) SAF KAP DEĞİŞİMİ: kodeğe dokunmaz, örnekleri kopyalayıp kabı mp4
+     yapar (saniyeler, kalite kaybı yok). */
   stratejiler.push({ ad: 'kap değiştir', calis: () => nobetli((async () => {
     const coz = await mp4Coz(dosya);
     not('kap mp4 yapılıyor, iz ' + coz.video.tur);
@@ -17808,11 +17757,6 @@ async function videoyuMp4Yap(dosya, ilerleme, notEt){
     videoKodekUyarisi = /avc1|avc3/.test(coz.video.tur) ? '' : coz.video.tur;
     return blob;
   })(), 'kap değiştir', not) });
-  /* 3) ffmpeg.wasm: kendi çözümleyicimizin okuyamadığı kaplar (avi, mkv, flv,
-     wmv, eski 3gp…) ve bozuk üstverili dosyalar için. Yavaş ama her şeyi
-     çevirir — büyük siteler de tarayıcı tarafında bunu kullanıyor. */
-  stratejiler.push({ ad: 'ffmpeg', calis: () => nobetli(
-    ffmpegDonustur(dosya, ilerleme, not), 'ffmpeg', not) });
   /* 4) Son çare: oynatma + kaydetme (tuval yok). */
   stratejiler.push({ ad: 'oynatarak', calis: async () => {
     const kodek = await mp4KayitDestegi();
@@ -19198,33 +19142,24 @@ async function medyaYaz(medyaId, veri, ilerleme, iptalRef){
 async function medyaYazDosya(medyaId, dosya, ilerleme, iptalRef, ustveri){
   if (iptalRef && iptalRef.iptal) throw yuklemeIptalHatasi();
   const mime = dosya.type || 'application/octet-stream';
-  /* Video ise "hızlı başlangıç" durumunu tespit edip kayda not düşüyoruz.
-     Storage zaten Range istekleriyle her yerden atlayabildiği için bu artık
-     oynatmanın ÇALIŞMASI için şart değil (eskiden şarttı) — yalnız İLK
-     karenin bir tık daha hızlı görünmesini sağlıyor. videoHazirla zaten
-     göndermeden ÖNCE moov'u başa alıyor (bkz. donusumGerekli), o yüzden
-     pratikte neredeyse her zaman true çıkar. */
-  let hizliBaslangic = false;
-  if (mime.startsWith('video/')) {
-    try { hizliBaslangic = await mp4HizliBaslangicMi(dosya); } catch (e) {}
-  }
-  /* Videoda süre ve en/boy da başlığa yazılıyor (gönderen taraf bunları
-     kapak karesini alırken zaten ölçmüştü); oynatıcı böylece daha ilk anda
-     doğru süreyi ve en-boy oranını biliyor. */
+  const videoMu = mime.startsWith('video/');
+  /* Videoda süre ve en/boy başlığa yazılıyor (gönderen taraf bunları zaten
+     ölçtü); oynatıcı böylece daha ilk anda doğru süreyi ve en-boy oranını
+     biliyor. */
   const ek = {};
-  if (mime.startsWith('video/')) {
-    ek.hizliBaslangic = hizliBaslangic;
+  if (videoMu) {
     if (ustveri && ustveri.sure) ek.sure = ustveri.sure;
     if (ustveri && ustveri.en)   ek.en   = ustveri.en;
     if (ustveri && ustveri.boy)  ek.boy  = ustveri.boy;
   }
-  /* AŞAMALI OYNATMA İÇİN PARÇALI MP4.
-     MediaSource düz MP4 kabul etmiyor; video parçalı biçimde saklanırsa
-     karşı taraf dosyanın tamamını beklemeden izlemeye başlayabiliyor.
-     Yeniden kodlama yok: yalnız kaplama yeniden yazılıyor. Beceremezsek
-     (desteklenmeyen kodek, parçalı kaynak, bozuk kutu) eski yola düşüyoruz —
-     davranış hiçbir zaman eskisinden kötü olmuyor. */
-  if (mime.startsWith('video/')) {
+  /* PARÇALI MP4 — VİDEODA ASIL YOL.
+     MediaSource düz MP4 kabul etmiyor; parçalı saklanan video karşı tarafta
+     dosyanın tamamı beklenmeden açılıyor. Yeniden kodlama yok: yalnız
+     kaplama yeniden yazılıyor — kaynağın kabı ve kodeği ne olursa olsun
+     (iPhone'un HEVC .mov'u dahil), çıktı her zaman parçalı mp4.
+     Gönderen taraf videoHazirla'da bunu ZATEN sınadığı için burada
+     başarısızlık beklenmiyor; olursa düz yola düşerken sessiz kalmıyoruz. */
+  if (videoMu) {
     try {
       const fm = await mp4ParcaliYap(dosya, ilerleme ? (o) => ilerleme(o * 0.35) : null);
       if (fm && fm.parcalar.length) {
@@ -19234,10 +19169,23 @@ async function medyaYazDosya(medyaId, dosya, ilerleme, iptalRef, ustveri){
         if (ilerleme) ilerleme(1);
         return;
       }
+      videoGunluk.push('parçalı biçim boş döndü — düz yola düşülüyor');
     } catch (e) {
       if (e && e.iptalEdildi) throw e;
       videoGunluk.push('parçalı biçime çevrilemedi, düz yola düşülüyor: ' + ((e && e.message) || e));
     }
+    /* Buraya düşmek istisna: söyle ve düz yolu elden geldiğince iyileştir —
+       moov başa alınırsa ilk kare dosyanın tamamı inmeden görünür. */
+    bildir('Bu video parçalı kaydedilemedi; izlerken tamamının inmesi gerekecek.', 6000);
+    let hizliBaslangic = false;
+    try { hizliBaslangic = await mp4HizliBaslangicMi(dosya); } catch (e) {}
+    if (!hizliBaslangic) {
+      try {
+        const yeni = await mp4MoovBasaAl(dosya);
+        if (yeni) { dosya = yeni; hizliBaslangic = true; videoGunluk.push('düz yol: moov başa alındı'); }
+      } catch (e) { videoGunluk.push('düz yol: moov başa alınamadı'); }
+    }
+    ek.hizliBaslangic = hizliBaslangic;
   }
 
   await rtdbMedyaYaz(medyaId, dosya, mime, ilerleme, iptalRef,
@@ -19467,15 +19415,28 @@ function kucukUygula(el, m, secenek){
 
    Herhangi bir adımda sorun çıkarsa false dönüyor ve çağıran eski tam
    indirme yoluna düşüyor; yani MSE bir iyileştirme, bağımlılık değil. */
+/* Aşamalı oynatma için deneyeceğimiz MIME dizeleri, en bilgiliden en
+   yalına. Bazı tarayıcılar AYRINTILI kodek dizesini (profil/seviye ekli)
+   reddederken yalın adı kabul ediyor; tek dizeye bağlı kalmak yüzünden
+   aşamalı yol boşuna atlanıp video baştan sona indiriliyordu. */
+function mseTipleri(bilgi){
+  const ham = (bilgi.kodekler || 'avc1.42E01E,mp4a.40.2');
+  const liste = [ham];
+  const yalin = String(ham).split(',').map(k => k.trim().split('.')[0]).join(',');
+  if (yalin && yalin !== ham) liste.push(yalin);
+  return liste.map(k => 'video/mp4; codecs="' + k + '"');
+}
+/* Desteklenen ilk dizeyi döndürür; hiçbiri desteklenmiyorsa ''. */
 function mseTipi(bilgi){
-  return 'video/mp4; codecs="' + (bilgi.kodekler || 'avc1.42E01E,mp4a.40.2') + '"';
+  try {
+    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported) return '';
+    for (const t of mseTipleri(bilgi)) if (MediaSource.isTypeSupported(t)) return t;
+  } catch (e) {}
+  return '';
 }
 
 function mseUygunMu(bilgi){
-  try {
-    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported) return false;
-    return MediaSource.isTypeSupported(mseTipi(bilgi));
-  } catch (e) { return false; }
+  return !!mseTipi(bilgi);
 }
 
 function mseOynat(video, kok, bilgi, o){
@@ -19497,7 +19458,9 @@ function mseOynat(video, kok, bilgi, o){
       let sb;
       try {
         if (o.iptal()) return bitir(true);
-        sb = ms.addSourceBuffer(mseTipi(bilgi));
+        const tip = mseTipi(bilgi);
+        if (!tip) return bitir(false);
+        sb = ms.addSourceBuffer(tip);
         sb.mode = 'segments';
         /* Süreyi KESİN değerle veriyoruz: yuvarlanmış süre videoyu erken
            bitirir ya da sonda boş bekleme bırakır. */
