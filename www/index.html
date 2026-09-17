@@ -16035,9 +16035,13 @@ function buyukDosyaOnayi(dosya){
   if (!dosya || dosya.size <= BUYUK_UYARI_BAYT) return true;
   const mb = Math.round(dosya.size / 1048576);
   const kota = Math.round(dosya.size * 1.37 / 1048576);
-  return confirm((dosya.name || 'Dosya') + ' — ' + mb + ' MB.\n\n' +
+  const tamam = confirm((dosya.name || 'Dosya') + ' — ' + mb + ' MB.\n\n' +
     'Yüklenmesi birkaç dakika sürebilir ve veritabanında yaklaşık ' + kota + ' MB yer kaplar.\n' +
     'Devam edilsin mi?');
+  /* Vazgeçildiyse SESSİZ kalmıyoruz: dosya listeden düşüyor ve kullanıcı
+     "seçtim ama hiçbir şey olmadı" diye kalıyordu. */
+  if (!tamam) bildir((dosya.name || 'Dosya') + ' eklenmedi.');
+  return tamam;
 }
 function boyutSinirTamam(dosya){
   if (dosya.size <= PAYLASIM_MAKS) return true;
@@ -16139,23 +16143,28 @@ async function videoHazirla(dosya){
       kullanilan = yeni;
     } else if (videoSonHata === 'vazgeçildi') {
       yuklemeBitir();
+      donusumEkraniKapat();
       bildir('Video dönüşümünden vazgeçildi.');
       return null;
-    } else if (!(dosya.type || '').includes('mp4')) {
-      // Çeviremedik ve kap zaten uyumsuz: karşı taraf açamaz, göndermeyelim.
-      yuklemeBitir();
-      // Sessizce vazgeçmiyoruz: GERÇEK sebebi yazıyoruz.
-      bildir('Video çevrilemedi — ' + (videoSonHata || 'bilinmeyen sebep') +
-             '. Ayarlar > Video tanılama’ya bak.', 7000);
-      return null;
     } else {
-      videoGunluk.push('çevrilemedi ama kap zaten mp4, özgün dosya gönderiliyor');
+      /* ARTIK VAZGEÇMİYORUZ. Eskiden kap mp4 değilse (iPhone'un .mov'u!)
+         burada null dönülüyordu: iOS'ta üç dönüşüm yolunun üçü de
+         düştüğü için video HİÇ gönderilemiyordu ve kullanıcı yalnız
+         kaybolan bir uyarı görüyordu. Özgün dosya gönderilebilir bir
+         dosyadır: Apple cihazlar arasında sorunsuz oynar, karşı taraf
+         Android ise açamayabilir — bunu açıkça yazıyoruz. */
+      videoGunluk.push('çevrilemedi, özgün dosya gönderiliyor (' + (dosya.type || 'tür yok') + ')');
       bildir('Video çevrilemedi (' + (videoSonHata || 'sebep bilinmiyor') +
              '), özgün hâliyle gönderiliyor — karşı tarafta açılmayabilir.', 6000);
+    }
+    if (videoKodekUyarisi) {
+      videoGunluk.push('kodek ' + videoKodekUyarisi + ' korundu (yeniden kodlanmadı)');
+      bildir('Video mp4 yapıldı ama kodeği HEVC kaldı; eski Android telefonlarda açılmayabilir.', 6000);
     }
   }
   if (kullanilan.size > VIDEO_SONUC_MAKS) {
     yuklemeBitir();
+    donusumEkraniKapat();
     bildir('Video çevrildikten sonra bile çok büyük (' +
            Math.round(kullanilan.size / 1048576) + ' MB). Daha kısa bir bölüm gönder.');
     return null;
@@ -16382,6 +16391,9 @@ async function donusumGerekli(dosya){
    ========================================================= */
 
 let videoGunluk = [], videoSonHata = '', donusumIptal = false, videoSonKipirti = 0;
+/* Sonuç mp4 ama kodek H.264 değilse (HEVC korundu) burada kodek adı durur;
+   videoHazirla kullanıcıyı buna göre uyarıyor. */
+let videoKodekUyarisi = '';
 
 /* Yukarıdaki videoGunluk yalnız YÜKLEME/DÖNÜŞÜM adımlarını tutuyor —
    OYNATMA sırasında olanlar (takılma, arabelleğe alma, anormal sıçrama vb.)
@@ -17351,6 +17363,11 @@ function mp4Yaz(izler, filmSureSn){
 
 /* ---------- kademe A: yalnız kap değişimi ---------- */
 async function kapDegistir(dosya, coz, ilerleme, not){
+  /* Kap değişimi örnekleri belleğe alıp tek Blob'a diziyor; telefonda çok
+     büyük dosyada sekme düşer. Sınırın üstünde özgün dosya gönderilir. */
+  if (dosya.size > VIDEO_DONUSUM_MAKS) {
+    throw new Error('kap değişimi için çok büyük (' + Math.round(dosya.size / 1048576) + ' MB)');
+  }
   not('kap değiştiriliyor (yeniden kodlama yok)');
   const okuyucu = new ParcaOkuyucu(dosya);
   const izler = [];
@@ -17572,11 +17589,27 @@ async function kodIciDonustur(dosya, ilerleme, not){
   if (coz.video.tur === 'avc1' || coz.video.tur === 'avc3') {
     return await kapDegistir(dosya, coz, ilerleme, not);
   }
-  if (dosya.size > VIDEO_DONUSUM_MAKS) {
-    not('dosya çok büyük (' + Math.round(dosya.size / 1048576) + ' MB), yeniden kodlanmıyor');
-    throw new Error('bu boyutta yeniden kodlama yapılmıyor');
+  /* H.264 DEĞİL (iPhone'un "Yüksek verim" kaydı HEVC'dir). Yeniden kodlama
+     en iyisi ama tarayıcıda her zaman mümkün değil — iOS Safari'de sık sık
+     hiç olmuyor. Eskiden burada hata fırlatılıyor, sonraki yollar da (ffmpeg,
+     oynatarak) iOS'ta düştüğü için video HİÇ GÖNDERİLEMİYORDU.
+     Artık son çare olarak KABI mp4 yapıyoruz: örnekler olduğu gibi
+     kopyalanıyor, kodek HEVC kalıyor. Apple cihazlar ve donanım HEVC'si olan
+     modern Android/Chrome bunu oynatıyor; hiç gönderememekten iyisi bu. */
+  const buyuk = dosya.size > VIDEO_DONUSUM_MAKS;
+  if (buyuk) not('dosya çok büyük (' + Math.round(dosya.size / 1048576) + ' MB), yeniden kodlanmıyor');
+  if (!buyuk) {
+    try {
+      return await yenidenKodla(dosya, coz, ilerleme, not);
+    } catch (e) {
+      not('yeniden kodlama olmadı (' + ((e && e.message) || e) + ')');
+      if (e && e.message === 'vazgeçildi') throw e;
+    }
   }
-  return await yenidenKodla(dosya, coz, ilerleme, not);
+  not('kap mp4 yapılıyor, kodek ' + coz.video.tur + ' korunuyor');
+  const blob = await kapDegistir(dosya, coz, ilerleme, not);
+  videoKodekUyarisi = coz.video.tur;
+  return blob;
 }
 
 /* ================= ffmpeg.wasm YOLU =================
@@ -17752,6 +17785,7 @@ function nobetli(sozu, ad, not){
 async function videoyuMp4Yap(dosya, ilerleme, notEt){
   const not = (m) => { try { videoGunluk.push(m); donusumNot(m); videoSonKipirti = Date.now(); if (notEt) notEt(m); } catch (e) {} };
   donusumIptal = false;
+  videoKodekUyarisi = '';
   donusumEkraniAc();
   donusumBaslik('Video MP4’e çevriliyor');
 
@@ -17761,12 +17795,25 @@ async function videoyuMp4Yap(dosya, ilerleme, notEt){
      yok. H.264 kaynakta zaten sadece kap değişir (saniyeler sürer). */
   stratejiler.push({ ad: 'kod içi', calis: () => nobetli(
     kodIciDonustur(dosya, ilerleme, not), 'kod içi', not) });
-  /* 2) ffmpeg.wasm: kendi çözümleyicimizin okuyamadığı kaplar (avi, mkv, flv,
+  /* 2) SAF KAP DEĞİŞİMİ. Kodeği H.264'e çevirmeye çalışmaz; örnekleri
+     olduğu gibi kopyalayıp kabı mp4 yapar (saniyeler sürer, kalite kaybı
+     yok). iPhone'un HEVC .mov dosyası için can simidi: yukarıdaki yol
+     WebCodecs yokluğundan ya da takıldığı için düşse bile gönderilebilir
+     bir mp4 elde ediyoruz. ffmpeg'in 32 MB'ını indirmeden önce burası
+     denenmeli. */
+  stratejiler.push({ ad: 'kap değiştir', calis: () => nobetli((async () => {
+    const coz = await mp4Coz(dosya);
+    not('kap mp4 yapılıyor, iz ' + coz.video.tur);
+    const blob = await kapDegistir(dosya, coz, ilerleme, not);
+    videoKodekUyarisi = /avc1|avc3/.test(coz.video.tur) ? '' : coz.video.tur;
+    return blob;
+  })(), 'kap değiştir', not) });
+  /* 3) ffmpeg.wasm: kendi çözümleyicimizin okuyamadığı kaplar (avi, mkv, flv,
      wmv, eski 3gp…) ve bozuk üstverili dosyalar için. Yavaş ama her şeyi
      çevirir — büyük siteler de tarayıcı tarafında bunu kullanıyor. */
   stratejiler.push({ ad: 'ffmpeg', calis: () => nobetli(
     ffmpegDonustur(dosya, ilerleme, not), 'ffmpeg', not) });
-  /* 3) Son çare: oynatma + kaydetme (tuval yok). */
+  /* 4) Son çare: oynatma + kaydetme (tuval yok). */
   stratejiler.push({ ad: 'oynatarak', calis: async () => {
     const kodek = await mp4KayitDestegi();
     if (!kodek) throw new Error('bu tarayıcı MP4/H.264 kaydedemiyor');
@@ -17775,6 +17822,11 @@ async function videoyuMp4Yap(dosya, ilerleme, notEt){
   } });
 
   let sonHata = 'bilinmeyen sebep';
+  /* Boyut hedefini tutmayan ama ÇALIŞAN sonucu elde tutuyoruz. Eskiden
+     60 MB'ı geçen sonuç doğrudan çöpe atılıp bir sonraki yola geçiliyordu;
+     o yollar da düşerse (iOS'ta hepsi düşüyor) elimizde hiçbir şey kalmıyor
+     ve video gönderilemiyordu — oysa paylaşım sınırı 700 MB. */
+  let yedek = null, yedekKodek = '';
   try {
     for (let i = 0; i < stratejiler.length; i++) {
       const s = stratejiler[i];
@@ -17784,6 +17836,7 @@ async function videoyuMp4Yap(dosya, ilerleme, notEt){
       donusumCubuk(0);
       let blob = null;
       videoSonKipirti = Date.now();
+      videoKodekUyarisi = '';        // bayrak yola özel; devretmesin
       try { blob = await s.calis(); }
       catch (e) {
         sonHata = (e && e.message) || String(e);
@@ -17792,9 +17845,11 @@ async function videoyuMp4Yap(dosya, ilerleme, notEt){
         continue;
       }
       not(s.ad + ' → ' + Math.round(blob.size / 1024) + ' KB');
-      if (blob.size > VIDEO_HEDEF_BOYUT && i < stratejiler.length - 1) {
+      if (blob.size > VIDEO_HEDEF_BOYUT && blob.size <= VIDEO_SONUC_MAKS &&
+          i < stratejiler.length - 1) {
+        if (!yedek || blob.size < yedek.size) { yedek = blob; yedekKodek = videoKodekUyarisi; }
         sonHata = 'sonuç çok büyük (' + Math.round(blob.size / 1048576) + ' MB)';
-        not(sonHata + ', başka yol deneniyor');
+        not(sonHata + ', daha küçüğü için başka yol deneniyor (bu sonuç yedekte)');
         continue;
       }
       if (ilerleme) ilerleme(1);
@@ -17805,6 +17860,13 @@ async function videoyuMp4Yap(dosya, ilerleme, notEt){
     }
   } finally { donusumEkraniKapat(); }
 
+  /* Hiçbir yol hedef boyutu tutmadıysa elimizdeki çalışan sonucu gönderiyoruz. */
+  if (yedek && sonHata !== 'vazgeçildi') {
+    not('daha küçüğü bulunamadı, yedekteki sonuç kullanılıyor');
+    videoKodekUyarisi = yedekKodek;
+    return new File([yedek], (dosya.name || 'video').replace(/\.[^.]+$/, '') + '.mp4',
+                    { type: 'video/mp4' });
+  }
   videoSonHata = sonHata;
   not('HATA: ' + sonHata);
   console.warn('Video dönüştürülemedi:', sonHata);
