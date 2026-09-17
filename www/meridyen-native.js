@@ -748,8 +748,18 @@
   };
 
   K.pilIzniIste = function () {
-    if (!yerli || typeof IP.pilIzniIste !== 'function') return Promise.resolve();
-    try { return IP.pilIzniIste().catch(function () {}); } catch (e) { return Promise.resolve(); }
+    if (!yerli || typeof IP.pilIzniIste !== 'function') return Promise.resolve({ muaf: true });
+    try {
+      return IP.pilIzniIste().catch(function () { return { muaf: false }; });
+    } catch (e) { return Promise.resolve({ muaf: false }); }
+  };
+  /* Yan etkisiz durum sorgusu: ayar satırı "muaf mıyız" diye buna bakıyor,
+     pencereyi boşuna açmadan. */
+  K.pilDurumu = function () {
+    if (!yerli || typeof IP.pilDurumu !== 'function') return Promise.resolve({ muaf: true });
+    try {
+      return IP.pilDurumu().catch(function () { return { muaf: false }; });
+    } catch (e) { return Promise.resolve({ muaf: false }); }
   };
 })();
 

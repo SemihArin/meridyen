@@ -6134,22 +6134,100 @@ function baglantiyiZorla(sebep){
   } catch (e) {}
 }
 
-window.addEventListener('online', () => baglantiyiZorla('ağ döndü'));
+/* ---- bağlantı sağlığı ----
+   Arka plandaki asıl zayıflık şuydu: uygulama uyutulduğunda sistem soketi
+   sessizce kapatıyor, ama Firebase bunu ancak kendi yoklaması düşünce fark
+   ediyor. O ana kadar SDK "bağlıyım" sanıyor; biz de yalnız uyarı şeridi
+   görünürse yeniden bağlanıyorduk — yani hiç. Öne dönüldüğünde mesajlar
+   gelmiyor, "daha eski mesajlar" dönüp duruyordu.
+   Artık üç şey var: (1) .info/connected'i tek yerden izleyen bir durum,
+   (2) kopukken KENDİ artan beklememiz (Firebase'inki dakikayı bulabiliyor),
+   (3) öne dönüşte soketin gerçekten yaşadığını sunucuya yazarak sınama. */
+let baglantiCanli = false;      // .info/connected son değeri
+let kopukTs = 0;                // ne zamandır kopuk
+let sonDeneme = 0;              // en son ne zaman zorladık
+let kopukDeneme = 0;            // artan bekleme sayacı
+let gizlendiTs = 0;             // en son ne zaman arka plana düştük
+let baglantiBekleyenler = [];   // bağlantı dönünce çalışacak işler
+
+/* Bağlantı dönünce bir kez çalışacak iş; zaten bağlıysak hemen çalışır. */
+function baglantiyiBekle(is){
+  if (baglantiCanli) { try { is(); } catch (e) {} return; }
+  if (baglantiBekleyenler.length < 40) baglantiBekleyenler.push(is);
+}
+/* .info/connected dinleyicisi (kanaliBaslat) buraya haber veriyor. */
+function baglantiDurumu(canli){
+  baglantiCanli = !!canli;
+  if (!canli) { if (!kopukTs) kopukTs = Date.now(); return; }
+  kopukTs = 0; sonDeneme = 0; kopukDeneme = 0;
+  const isler = baglantiBekleyenler;
+  baglantiBekleyenler = [];
+  isler.forEach(f => { try { f(); } catch (e) {} });
+}
+/* Soket yaşıyor mu? Yerel okumalar bunu söylemez (önbellekten dönerler),
+   bu yüzden sunucuya bir YAZMA yapıyoruz: sözü ancak sunucu onaylayınca
+   çözülür. Zaten varlık damgasını da tazelemiş oluyoruz. */
+let sinamaSuruyor = false;
+function baglantiyiSina(){
+  if (sinamaSuruyor || !oturumVar || !ben || !firebaseHazir) return;
+  sinamaSuruyor = true;
+  let yanit = false;
+  const zaman = setTimeout(() => {
+    if (yanit) return;
+    yanit = true; sinamaSuruyor = false;
+    baglantiyiZorla('yoklama yanıtsız');
+  }, 4000);
+  db.ref('varlik/' + ben.uid).set({ ad: benimAdim, ts: Date.now() })
+    .then(() => { if (!yanit) { yanit = true; clearTimeout(zaman); sinamaSuruyor = false; } })
+    .catch(() => {
+      if (yanit) return;
+      yanit = true; clearTimeout(zaman); sinamaSuruyor = false;
+      baglantiyiZorla('yoklama hatası');
+    });
+}
+
+window.addEventListener('online', () => { kopukDeneme = 0; baglantiyiZorla('ağ döndü'); });
 window.addEventListener('offline', () => {
   if (firebaseHazir) $('#baglantiUyari').classList.add('gor');
 });
+function oneGelindi(){
+  const gecen = gizlendiTs ? Date.now() - gizlendiTs : 0;
+  gizlendiTs = 0;
+  kopukDeneme = 0;                       // öne dönüşte beklemeyi sıfırla
+  if (!firebaseHazir) return baglantiyiZorla('öne geldi');
+  if (!baglantiCanli) return baglantiyiZorla('öne geldi, kopuk');
+  /* Kısa bir geçişte (bildirime dokunma, kamera) soketi boşuna çevirmeyelim;
+     ama birkaç saniyeden fazla arka planda kaldıysak mutlaka sına. */
+  if (gecen > 6000) baglantiyiSina();
+}
 document.addEventListener('visibilitychange', () => {
-  // Sekme öne alındı: kopuksa hemen toparla (arka planda kopmuş olabilir).
-  if (document.hidden) return;
-  if (!firebaseHazir) return baglantiyiZorla('sekme öne geldi');
-  if ($('#baglantiUyari').classList.contains('gor')) baglantiyiZorla('sekme öne geldi');
+  if (document.hidden) { gizlendiTs = Date.now(); return; }
+  oneGelindi();
 });
-/* Emniyet ağı: kopuk kaldığı sürece 15 saniyede bir dene. Bağlanınca durur. */
-setInterval(() => {
-  if (!oturumVar) return;
-  if (navigator.onLine === false) return;
-  if (!firebaseHazir || $('#baglantiUyari').classList.contains('gor')) baglantiyiZorla('nöbet');
-}, 15000);
+window.addEventListener('pageshow', (e) => { if (e.persisted) oneGelindi(); });
+/* Sayfa Yaşam Döngüsü: WebView uzun süre arka planda kalınca sayfayı
+   dondurabiliyor (zamanlayıcılar dahil her şey durur). Çözülme anını
+   yakalayıp bağlantıyı orada da sınıyoruz. */
+document.addEventListener('freeze', () => { gizlendiTs = Date.now(); });
+document.addEventListener('resume', () => oneGelindi());
+window.addEventListener('focus', () => { if (!document.hidden && gizlendiTs) oneGelindi(); });
+
+/* Emniyet ağı. Arka planda da çalışıyor: ön plan servisi (nöbet) açıkken
+   süreç dondurulmadığı için bu zamanlayıcı — sistem onu seyreltse bile —
+   ara ara tetikleniyor ve bağlantıyı ayakta tutuyor. Beklemeyi kendimiz
+   artırıyoruz: 3s, 6s, 12s, 24s, en çok 30s. */
+function baglantiNobeti(){
+  if (!oturumVar) return false;
+  if (navigator.onLine === false) return false;
+  if (!firebaseHazir) { baglantiyiZorla('nöbet'); return true; }
+  if (baglantiCanli) return false;
+  const bekle = Math.min(3000 * Math.pow(2, kopukDeneme), 30000);
+  if (Date.now() - Math.max(kopukTs, sonDeneme) < bekle) return false;
+  kopukDeneme++; sonDeneme = Date.now();
+  baglantiyiZorla('kopuk');
+  return true;
+}
+setInterval(baglantiNobeti, 3000);
 
 /* Kullanıcı şeride dokunarak da elle deneyebilsin. */
 $('#baglantiUyari').addEventListener('click', () => {
@@ -6889,10 +6967,15 @@ function avatarKur(el, uid, ad){
 async function profilGetir(uid){
   if (profilKesi[uid]) return profilKesi[uid];
   try {
-    const s = await db.ref('profil/' + uid).get();
+    /* Süre sınırı ŞART: sohbet açılışı bu okumayı bekliyor ve ağ askıdayken
+       get() dakikalarca dönmeyebiliyor — sohbet hiç açılmıyordu. */
+    const s = await sureliSoz(db.ref('profil/' + uid).get(), 6000);
     profilKesi[uid] = s.exists() ? s.val() : { ad: 'Bilinmeyen' };
   } catch (e) {
-    profilKesi[uid] = { ad: 'Bilinmeyen' };
+    /* Başarısız okumayı önbelleğe YAZMIYORUZ: eskiden bir kerelik ağ
+       arızası o kişiyi sayfa yenilenene kadar "Bilinmeyen" bırakıyordu.
+       Geçici cevap dönüyoruz, bir dahaki sefere yeniden denenir. */
+    return { ad: 'Bilinmeyen', gecici: true };
   }
   return profilKesi[uid];
 }
@@ -6914,6 +6997,7 @@ function kanaliBaslat(){
   // varlık
   const varlikRef = db.ref('varlik/' + uid);
   dinle(db.ref('.info/connected'), 'value', (s) => {
+    baglantiDurumu(!!s.val());          // yeniden bağlanma mantığına haber ver
     if (s.val()) {
       varlikRef.onDisconnect().remove();
       varlikRef.set({ ad: benimAdim, ts: Date.now() });
@@ -7689,17 +7773,38 @@ function arkaPlanSatirlariniCiz(){
   if (s1) s1.classList.toggle('gizli', !yerli);
   if (s2) s2.classList.toggle('gizli', !yerli);
   anahtarCiz('#ayarArkaPlan', tercihler.arkaPlanBagli);
+  pilSatiriTazele();
 }
-anahtarKur('#ayarArkaPlan', 'arkaPlanBagli', () => {
+/* Ön plan servisi tek başına YETMİYOR: pil kısıtı kaldırılmadıkça Android
+   uyku kipinde ağı da kesiyor, soket sessizce ölüyor ve "arka planda
+   bağlantı kopuyor" hali buradan çıkıyor. Durumu okuyup satırda
+   gösteriyoruz; kullanıcı izni verdiyse satır kendini pasife çekiyor. */
+async function pilSatiriTazele(){
+  const btn = $('#ayarPilBtn'), satir = $('#satirPilIzni');
+  if (!btn || !window.MeridyenKopru || !window.MeridyenKopru.pilDurumu) return;
+  let muaf = false;
+  try { const d = await window.MeridyenKopru.pilDurumu(); muaf = !!(d && d.muaf); }
+  catch (e) { return; }
+  btn.textContent = muaf ? 'Kaldırıldı' : 'İzin ver';
+  if (satir) satir.classList.toggle('pasif', muaf);
+}
+anahtarKur('#ayarArkaPlan', 'arkaPlanBagli', async () => {
   nobetiTazele();
   bildir(tercihler.arkaPlanBagli
     ? 'Arka planda bağlı kalınacak.'
     : 'Kapatıldı — uygulama arka planda bir süre sonra bildirim almayabilir.');
   bildirimTanisiCiz();
+  /* Açarken pil iznini de sor: iki ayar birlikte anlamlı, ayrı ayrı yarım
+     çalışıyor. Zaten muafsak yerli taraf hiçbir pencere açmıyor. */
+  if (!tercihler.arkaPlanBagli) return;
+  if (!window.MeridyenKopru || !window.MeridyenKopru.pilIzniIste) return;
+  await window.MeridyenKopru.pilIzniIste();
+  pilSatiriTazele();
 });
 $('#ayarPilBtn').addEventListener('click', async () => {
   if (window.MeridyenKopru && window.MeridyenKopru.pilIzniIste) {
     await window.MeridyenKopru.pilIzniIste();
+    pilSatiriTazele();
   }
 });
 
@@ -11830,7 +11935,9 @@ function hikayeIzleyiciAc(uid){
   hkSahipler = hepsi;
   hkSahipNo = Math.max(0, hepsi.indexOf(uid));
   $('#hikayeKatman').classList.add('acik');
-  document.body.classList.add('panel-acik');
+  /* Gövde kilidini elle eklemiyoruz: kilitGuncelle tek karar yeri, yoksa
+     izleyici kapandığında kilit üstte kalıp sayfayı donmuş gösterebiliyor. */
+  kilitGuncelle();
   /* Mevcut 'perde' deseni: donanım geri tuşu yığından bu adımı düşürünce
      kapatma fonksiyonu kendiliğinden çağrılıyor. */
   gezAdimEkle({ tur: 'perde', kapat: hikayeIzleyiciKapat });
@@ -11839,6 +11946,12 @@ function hikayeIzleyiciAc(uid){
 
 function hikayeIzleyiciKapat(){
   hkDurdur();
+  /* Yığındaki kendi adımını da düşür (mercek ile aynı desen). Eskiden bunu
+     yapan yalnız kapatma düğmesiydi ve o da history.back() ile yapıyordu:
+     gelen popstate ASENKRON olduğu için "hikayeyi kapat, sohbeti aç"
+     dizisinde sohbet açıldıktan SONRA düşüyor ve az önce açılan sohbeti
+     kapatıyordu. Hikaye yanıtının çalışmama sebebi buydu. */
+  gezPerdeDus(hikayeIzleyiciKapat);
   $('#hikayeKatman').classList.remove('acik');
   const v = $('#hkVideo');
   try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
@@ -11962,7 +12075,6 @@ function hikayeSonraki(){
   if (hkNo < hkListe.length - 1) { hkNo++; return hkGoster(); }
   if (hkSahipNo < hkSahipler.length - 1) { hkSahipNo++; return hikayeSahibiniAc(0); }
   hikayeIzleyiciKapat();
-  gezGeri();
 }
 
 function hikayeOnceki(){
@@ -12010,7 +12122,7 @@ function hikayeIzleyenSayisiTazele(){
     const dy = e.clientY - basY;
     if (dy > 70 && !suruklendi) {          // aşağı sürükle: kapat
       suruklendi = true; bitir(); basildi = 0;
-      hikayeIzleyiciKapat(); gezGeri();
+      hikayeIzleyiciKapat();
     }
   });
   kat.addEventListener('pointerup', () => { bitir(); basildi = 0; });
@@ -12018,7 +12130,7 @@ function hikayeIzleyenSayisiTazele(){
 
   $('#hkSol').addEventListener('click', (e) => { e.stopPropagation(); hikayeOnceki(); });
   $('#hkSag').addEventListener('click', (e) => { e.stopPropagation(); hikayeSonraki(); });
-  $('#hkKapatBtn').addEventListener('click', () => { hikayeIzleyiciKapat(); gezGeri(); });
+  $('#hkKapatBtn').addEventListener('click', hikayeIzleyiciKapat);
 
   $('#hkSilBtn').addEventListener('click', async () => {
     const h = hkListe[hkNo];
@@ -12030,15 +12142,22 @@ function hikayeIzleyenSayisiTazele(){
       if (h.medyaId) medyaSil(h.medyaId).catch(() => {});
       db.ref('hikayeIzlendi/' + ben.uid + '/' + h.id).remove().catch(() => {});
     } catch (e) { bildir('Silinemedi.'); }
-    hikayeIzleyiciKapat(); gezGeri();
+    hikayeIzleyiciKapat();
   });
 
   $('#hkIzleyenBtn').addEventListener('click', hikayeIzleyenSayisiTazele);
 
   $('#hkYanitBtn').addEventListener('click', () => {
     const uid = hkSahipler[hkSahipNo];
-    hikayeIzleyiciKapat(); gezGeri();
-    panelGirisTalebi(() => { paneleGec(); sohbetAc(uid); });
+    if (!uid) return;
+    /* SENKRON kapat: history.back() burada olmaz, popstate sohbet
+       açıldıktan sonra gelip onu kapatıyordu. */
+    hikayeIzleyiciKapat();
+    panelGirisTalebi(async () => {
+      paneleGec();
+      await sohbetAc(uid);
+      metinAlaninaOdaklan();
+    });
   });
 
   /* Video hikaye bittiğinde çubuk da bitmeli: süre bilgisi yanlış olsa
@@ -13282,7 +13401,16 @@ function profilAc(uid){
   keMedyaCiz(uid);
   yiginAc('kisi');
 }
-function profilKapat(){ yiginSifirla(); }
+/* Kişi ekranını kapatır. Eskiden yiginSifirla() idi: telefonda kişi
+   bilgisinden çıkınca sohbet de kapanıyor, kişi listesine düşülüyordu. */
+function profilKapat(){
+  if (gezKaydiSil('ekran', 'kisi')) {
+    if (history.state && history.state.mrd) gezFazla++;
+    ekranlariTuret(); yiginCiz();
+    return;
+  }
+  gezGeri();
+}
 
 /* Kişi ekranındaki medya şeridi: galeri gibi tüm geçmişi tarar. */
 async function keMedyaCiz(uid){
@@ -13338,15 +13466,15 @@ function keIsimGit(e){
   el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') keIsimGit(e); });
 });
 $('#keMesaj').addEventListener('click', () => {
-  gezSifirla();
+  gezSohbeteDon();
   sohbetKatmaniAc();
   setTimeout(() => metinAlani.focus(), 160);
 });
-$('#keSesli').addEventListener('click', () => { yiginSifirla(); aramaBaslat('ses'); });
-$('#keGoruntulu').addEventListener('click', () => { yiginSifirla(); aramaBaslat('goruntu'); });
+$('#keSesli').addEventListener('click', () => { gezSohbeteDon(); aramaBaslat('ses'); });
+$('#keGoruntulu').addEventListener('click', () => { gezSohbeteDon(); aramaBaslat('goruntu'); });
 $('#keMedyaGit').addEventListener('click', () => yiginAc('galeri'));
 $('#keDosyaGit').addEventListener('click', () => yiginAc('dosyalar'));
-$('#keMesajAra').addEventListener('click', () => { yiginSifirla(); setTimeout(() => $('#aramaAc').click(), 200); });
+$('#keMesajAra').addEventListener('click', () => { gezSohbeteDon(); mesajAramaAc(); });
 
 $('#keKaldir').addEventListener('click', async () => {
   if (!profilHedefi) return;
@@ -14109,8 +14237,11 @@ async function sohbetAc(uid){
   db.ref('yaziyor/' + aktifSohbet.sid + '/' + ben.uid).onDisconnect().remove();
   if (aktifSayfa === 'izle') izleAkisiniYenile();
 
-  q.once('value')
-    .then((s) => {
+  /* İlk sayfa. Ağ kopukken once() hiç dönmediği için süre sınırlı okuyoruz;
+     zaman aşımında iskeleti kaldırıp bağlantı dönünce kendiliğinden yeniden
+     deniyoruz. Eskiden burada iskelet sonsuza dek ekranda kalabiliyordu. */
+  const ilkSayfayiCoz = (deneme) => {
+    sureliOku(q, 9000).then((s) => {
       /* Geç dönen bu okuma başka bir sohbete aitse dokunma: yoksa 5 mesajlık
          sohbetin sonucu 500 mesajlık sohbete "geçmiş bitti" damgası vurup
          eski mesaj yüklemeyi tamamen kilitliyordu. */
@@ -14119,12 +14250,18 @@ async function sohbetAc(uid){
       // Gelen ilk sayfa tam değilse geçmişin tamamı zaten yüklendi demektir.
       if (s.numChildren() < MESAJ_SAYFA) mesajGecmisBitti = true;
       mesajTepeTazele();
-    })
-    .catch(() => {
+    }).catch((e) => {
       if (!aktifSohbet || aktifSohbet.sid !== sid) return;
       mesajIskeletiKaldir();
-      bildir('Mesajlar okunamadı. Veritabanı kurallarını kontrol et.');
+      if (!e || !e.zamanAsimi) return bildir('Mesajlar okunamadı. Veritabanı kurallarını kontrol et.');
+      mesajTepeTazele();
+      if (!deneme) bildir('Bağlantı bekleniyor…');
+      baglantiyiBekle(() => {
+        if (aktifSohbet && aktifSohbet.sid === sid) ilkSayfayiCoz((deneme || 0) + 1);
+      });
     });
+  };
+  ilkSayfayiCoz(0);
   okunduIsaretle();
 }
 
@@ -14866,6 +15003,26 @@ function mesajTepeTazele(){
   else if (mesajSayfaYukleniyor) metin.textContent = 'Yükleniyor…';
 }
 
+/* Firebase'in once() sözü ağ kopukken HİÇ çözülmez — ne olur ne biter.
+   Süre sınırı koymazsak `mesajSayfaYukleniyor` sonsuza dek true kalıyor ve
+   bağlantı geri gelse bile "daha eski mesajlar" bir daha çalışmıyordu; aynı
+   şekilde sohbet açılışındaki iskelet ekranda asılı kalıyordu. */
+function sureliSoz(soz, ms){
+  return new Promise((coz, red) => {
+    let bitti = false;
+    const zaman = setTimeout(() => {
+      if (bitti) return;
+      bitti = true;
+      const h = new Error('zaman aşımı'); h.zamanAsimi = true; red(h);
+    }, ms || 12000);
+    soz.then(
+      (s) => { if (!bitti) { bitti = true; clearTimeout(zaman); coz(s); } },
+      (e) => { if (!bitti) { bitti = true; clearTimeout(zaman); red(e); } }
+    );
+  });
+}
+function sureliOku(sorgu, ms){ return sureliSoz(sorgu.once('value'), ms); }
+
 /* Bir sayfa daha eski mesaj çeker. Anahtarlar push kimliği olduğu için
    kronolojik sıradadır; en eski yüklü anahtardan geriye doğru okunur. */
 async function eskileriYukle(){
@@ -14882,7 +15039,7 @@ async function eskileriYukle(){
   try {
     let sorgu = db.ref('sohbetler/' + sid + '/mesajlar').orderByKey();
     if (enEski) sorgu = sorgu.endAt(enEski);
-    const s = await sorgu.limitToLast(MESAJ_SAYFA + 1).once('value');
+    const s = await sureliOku(sorgu.limitToLast(MESAJ_SAYFA + 1), 12000);
     if (!aktifSohbet || aktifSohbet.sid !== sid) return;  // arada sohbet değişmiş
     const kayitlar = [];
     s.forEach(c => { if (c.key !== enEski) kayitlar.push(Object.assign({ id: c.key }, c.val())); });
@@ -14908,7 +15065,9 @@ async function eskileriYukle(){
 
     if (kayitlar.length < MESAJ_SAYFA) mesajGecmisBitti = true;
   } catch (e) {
-    bildir('Eski mesajlar okunamadı.');
+    bildir(e && e.zamanAsimi
+      ? 'Bağlantı yok; eski mesajlar alınamadı. Yeniden dene.'
+      : 'Eski mesajlar okunamadı.');
   } finally {
     mesajSayfaYukleniyor = false;
     akisTepesi().classList.remove('yukleniyor');
@@ -14976,6 +15135,9 @@ function akisiDibeAl(){
 /* Alıntılanan mesaj henüz yüklenmemiş olabilir; bulunana kadar geçmiş
    sayfa sayfa çekilir. */
 async function mesajaGit(id){
+  /* Arama süzgeci açıkken eşleşmeyen mesajlar display:none; kaydırma hiçbir
+     şey yapmaz ve mesaj "bulunamadı" sanılır. Önce süzgeci kaldır. */
+  if (aramaAcikMi()) aramaKapat();
   let el = document.getElementById('m-' + id);
   if (!el) {
     bildir('Mesaj aranıyor…');
@@ -15208,7 +15370,7 @@ async function yildizlariCiz(){
     ic.innerHTML = '<b>' + kacir(m.uid === ben.uid ? 'Sen' : (m.ad || '')) + '</b>' +
                    '<p>' + kacir(ozetle(m)) + '</p>' +
                    '<time>' + gunEtiketi(m.ts || 0) + ' ' + saat(m.ts || 0) + '</time>';
-    ic.addEventListener('click', () => { yiginSifirla(); setTimeout(() => mesajaGit(mid), 320); });
+    ic.addEventListener('click', () => { gezSohbeteDon(); mesajaGit(mid); });
     const kaldir = document.createElement('button');
     kaldir.className = 'kaldir'; kaldir.title = 'Yıldızı kaldır'; kaldir.textContent = '★';
     kaldir.addEventListener('click', (e) => { e.stopPropagation(); yildizDegistir(mid); });
@@ -15356,14 +15518,23 @@ function sesCal(){
 
 /* ================= ARAMA ================= */
 function aramaAcikMi(){ return $('#panelArama').classList.contains('acik'); }
-$('#aramaAc').addEventListener('click', () => {
-  const acik = $('#panelArama').classList.toggle('acik');
-  gorunumSec('sohbet');
-  if (acik) $('#aramaGirdi').focus(); else aramaKapat();
-});
+/* Arama şeridi sohbetin ÜSTÜNÜ temizleyerek açılır, sohbetin kendisini
+   kapatmadan. Eskiden burada gorunumSec('sohbet') vardı; o da yığındaki
+   'sohbet' kaydını düşürdüğü için telefonda arama düğmesine basınca sohbet
+   katmanı kapanıyor, arama şeridi kişi listesinin üstünde asılı kalıyordu. */
+function mesajAramaAc(){
+  if (aramaAcikMi()) return;
+  gezSohbeteDon();
+  $('#panelArama').classList.add('acik');
+  /* Geri tuşu önce aramayı kapatsın, sohbetten çıkmasın. */
+  gezAdimEkle({ tur: 'perde', kapat: aramaKapat });
+  $('#aramaGirdi').focus();
+}
+$('#aramaAc').addEventListener('click', () => { aramaAcikMi() ? aramaKapat() : mesajAramaAc(); });
 $('#aramaKapat').addEventListener('click', aramaKapat);
 $('#aramaGirdi').addEventListener('input', aramaUygula);
 function aramaKapat(){
+  if (aramaAcikMi()) gezPerdeDus(aramaKapat);
   $('#panelArama').classList.remove('acik');
   $('#aramaGirdi').value = '';
   aramaUygula();
@@ -19838,6 +20009,10 @@ async function buyutecGoster(){
 
   buyutecVideoBirak();
   buyutecYakinlastirmaSifirla();
+  /* Büyüteç gezinme yığınında yoktu: Android'in geri tuşu onu değil,
+     ALTINDAKİ sohbeti/ekranı kapatıyordu — görsel açık kalıyor, arkasındaki
+     sayfa değişiyordu. Artık perde olarak kayıtlı. */
+  if (!kap.classList.contains('acik')) gezAdimEkle({ tur: 'perde', kapat: buyutecKapat });
   kap.classList.add('acik');
   kap.classList.remove('sade');
   kilitGuncelle();
@@ -19963,6 +20138,7 @@ function buyutecKaydir(yon){
 }
 function buyutecKapat(){
   const kap = $('#buyutec');
+  if (kap.classList.contains('acik')) gezPerdeDus(buyutecKapat);
   kap.classList.remove('acik', 'sade', 'yukleniyor', 'video-kip', 'gorsel-kip');
   buyutecVideoBirak();
   buyutecYakinlastirmaSifirla();
@@ -19979,8 +20155,8 @@ $('#buyutecMesaj').addEventListener('click', () => {
   const m = buyutecSira[buyutecIndeks];
   if (!m || !m.id) return;
   buyutecKapat();
-  yiginSifirla();
-  setTimeout(() => mesajaGit(m.id), 300);
+  gezSohbeteDon();
+  mesajaGit(m.id);
 });
 document.addEventListener('keydown', (e) => {
   if (!$('#buyutec').classList.contains('acik')) return;
@@ -20346,6 +20522,31 @@ function gezSifirla(){
   while (gezYigin.length) gezKaydiKapat(gezYigin.pop());
   gezIsleniyor = false;
   if (history.state && history.state.mrd) gezFazla += adet;
+}
+/* Sohbetin ÜSTÜNDEKİ katmanları kapatır; sohbetin kendisine DOKUNMAZ.
+   Buralarda gezSifirla() yanlış araçtı: yığındaki 'sohbet' kaydını da
+   düşürdüğü için telefonda sohbet katmanı kapanıyordu. Yıldızlı mesaja,
+   büyüteçten mesaja ya da sohbet içi aramaya giderken önce sohbet kapanıyor,
+   hemen ardından çalışan mesajaGit()/arama kapalı bir akışta iş yapmaya
+   çalışıyordu — "sayfa geçişleri hatalı" şikayetinin kaynağı buydu.
+   history'ye burada da dokunmuyoruz (gezSifirla ile aynı gerekçe: gelen
+   popstate asenkron olur ve hemen sonra açılan şeyi kapatır); geride kalan
+   adımlar gezFazla ile yutuluyor. */
+function gezUstuKapat(durMu){
+  let adet = 0;
+  gezIsleniyor = true;
+  while (gezYigin.length) {
+    if (durMu(gezYigin[gezYigin.length - 1])) break;
+    gezKaydiKapat(gezYigin.pop());
+    adet++;
+  }
+  gezIsleniyor = false;
+  if (adet && history.state && history.state.mrd) gezFazla += adet;
+  return adet;
+}
+/* Sohbet katmanı ve alt bar sekmesi kalsın, üstteki ekranlar/perdeler kapansın. */
+function gezSohbeteDon(){
+  return gezUstuKapat(k => k.tur === 'sohbet' || k.tur === 'sayfa');
 }
 window.addEventListener('popstate', () => {
   if (gezYigin.length) {
@@ -21432,6 +21633,7 @@ function kilitGerekliMi(){
          $('#urunPerde').classList.contains('acik') ||
          $('#sepetCekmece').classList.contains('acik') ||
          $('#buyutec').classList.contains('acik') ||
+         $('#hikayeKatman').classList.contains('acik') ||
          $('#bedenPerde').classList.contains('acik');
 }
 function kilitGuncelle(){

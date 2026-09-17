@@ -416,24 +416,43 @@ public class MeridyenIlerleme extends Plugin {
     /** Pil iyileştirmesinden muafiyet penceresi. Muafiyet olmadan üretici
      *  katmanları (Xiaomi, Huawei, Samsung...) uygulamayı arka planda
      *  uyutup bildirimleri geciktirebiliyor. */
+    /** Şu anda muaf mıyız? Yan etkisi yok: ayar satırını çizerken ve
+     *  "bir daha sorma" kararında kullanılıyor. */
+    private boolean pilMuafMi() {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
+            PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            if (pm == null) return false;
+            return pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @PluginMethod
+    public void pilDurumu(PluginCall call) {
+        JSObject s = new JSObject();
+        s.put("muaf", pilMuafMi());
+        call.resolve(s);
+    }
+
     @PluginMethod
     public void pilIzniIste(PluginCall call) {
+        boolean muaf = pilMuafMi();
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
-                String paket = getContext().getPackageName();
-                if (pm != null && !pm.isIgnoringBatteryOptimizations(paket)) {
-                    Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                    i.setData(Uri.parse("package:" + paket));
-                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    getContext().startActivity(i);
-                }
+            if (!muaf && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                i.setData(Uri.parse("package:" + getContext().getPackageName()));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
             }
         } catch (Exception e) {
             /* Bazı cihazlarda bu niyet hiç yok; kullanıcı ayarlardan elle
                yapabilir, uygulama çalışmaya devam etmeli. */
         }
-        call.resolve();
+        JSObject s = new JSObject();
+        s.put("muaf", muaf);          // İSTEMEDEN ÖNCEKİ durum
+        call.resolve(s);
     }
 
     /* ================= KAYAN EKRAN (Picture-in-Picture) ================= */
