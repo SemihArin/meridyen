@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
 
@@ -22,14 +23,21 @@ import androidx.core.app.NotificationCompat;
  * ve Doze kipinde ağ erişimi kesiliyor. WebView'daki JavaScript durunca
  * veritabanı bağlantısı da ölüyor; yeni mesaj gelse bile kimse görmüyor.
  *
- * ÇÖZÜM: Ön plan servisi. Tek işi VAR OLMAK — hiçbir şey hesaplamıyor, uyanık
- * tutma kilidi (wake lock) almıyor. Varlığı işlemi "önbelleğe alınmış"
- * olmaktan çıkarıyor: dondurulmuyor ve Doze'da ağ erişimi sürüyor, böylece
- * veritabanı bağlantısı ve onun beslediği bildirimler çalışmaya devam ediyor.
+ * ÇÖZÜM: Ön plan servisi. Varlığı işlemi "önbelleğe alınmış" olmaktan
+ * çıkarıyor: dondurulmuyor ve Doze'da ağ erişimi sürüyor, böylece veritabanı
+ * bağlantısı ve onun beslediği bildirimler çalışmaya devam ediyor.
  *
- * BEDELİ dürüstçe: Android 8'den beri ön plan servisi KALICI bir bildirim
- * göstermek zorunda. Bu yüzden bildirim en düşük önemde ve sessiz —
- * bildirim gölgesinin en altında tek satır. Ayarlardan kapatılabiliyor.
+ * UYANIK TUTMA KİLİDİ (kısmi wake lock) da alınıyor. Ön plan servisi tek
+ * başına yetmiyordu: ekran kapanınca işlemci uykuya dalıyor, WebSocket'in
+ * canlı tutma yoklaması gecikiyor ve bağlantı sessizce ölüyordu ("arka
+ * planda bağlantı hemen kapanıyor"). Kısmi kilit ekranı AÇMIYOR, yalnız
+ * işlemcinin uyumasını engelliyor.
+ *
+ * BEDELİ dürüstçe, iki kalem: (1) pil — kilit işlemciyi uyutmuyor;
+ * (2) kalıcı bildirim — Android 8'den beri ön plan servisi bunu göstermek
+ * zorunda, o yüzden en düşük önemde ve sessiz, gölgenin en altında tek satır.
+ * İkisi de kullanıcının "Arka planda bağlı kal" ayarına bağlı: kapatılınca
+ * servis durur, kilit bırakılır, bildirim kaybolur.
  *
  * Uygulama KAPALIYKEN gelen bildirim yine sunucudan gelen FCM'e bağlı
  * (bkz. MeridyenMesajServisi); bu servis "açık ama arka planda" durumunu
@@ -41,6 +49,30 @@ public class MeridyenNobet extends Service {
     private static final int BILDIRIM_ID = 2000000002;   // ilerleme bildiriminin komşusu
 
     public static boolean calisiyor = false;
+
+    private PowerManager.WakeLock kilit = null;
+
+    /** Kısmi uyanık tutma kilidi: ekran kapalıyken bile işlemci çalışsın ki
+     *  veritabanı bağlantısının canlı tutma yoklaması zamanında gitsin. */
+    private void kilidiAl() {
+        if (kilit != null && kilit.isHeld()) return;
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm == null) return;
+            kilit = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "meridyen:nobet");
+            kilit.setReferenceCounted(false);
+            kilit.acquire();
+        } catch (Exception e) {
+            /* Kilit alınamazsa servis yine çalışsın: bağlantı daha kırılgan
+               olur ama uygulama bozulmaz. */
+            kilit = null;
+        }
+    }
+
+    private void kilidiBirak() {
+        try { if (kilit != null && kilit.isHeld()) kilit.release(); } catch (Exception e) {}
+        kilit = null;
+    }
 
     public static void baslat(Context c) {
         try {
@@ -103,6 +135,7 @@ public class MeridyenNobet extends Service {
                 startForeground(BILDIRIM_ID, bildirim());
             }
             calisiyor = true;
+            kilidiAl();
         } catch (Exception e) {
             calisiyor = false;
             stopSelf();
@@ -116,6 +149,7 @@ public class MeridyenNobet extends Service {
     @Override
     public void onDestroy() {
         calisiyor = false;
+        kilidiBirak();
         super.onDestroy();
     }
 

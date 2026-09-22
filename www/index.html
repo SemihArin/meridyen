@@ -6216,6 +6216,29 @@ window.addEventListener('focus', () => { if (!document.hidden && gizlendiTs) one
    süreç dondurulmadığı için bu zamanlayıcı — sistem onu seyreltse bile —
    ara ara tetikleniyor ve bağlantıyı ayakta tutuyor. Beklemeyi kendimiz
    artırıyoruz: 3s, 6s, 12s, 24s, en çok 30s. */
+/* ---- ARKA PLANDA CANLI TUTMA ----
+   Ekran kapanınca ya da uygulama arka plana düşünce soket sessizce ölüyordu:
+   Firebase'in kendi canlı tutma yoklaması 45 saniyede bir ve zamanlayıcılar
+   arka planda seyreltildiği için o yoklama geç kalıyor, sunucu bağlantıyı
+   düşürüyor. Bunu iki taraftan birden tutuyoruz: yerli tarafta ön plan
+   servisi işlemciyi uyutmuyor (MeridyenNobet), burada da 30 saniyede bir
+   SUNUCUYA küçük bir yazma yapıyoruz. Yazma hem hattı sıcak tutuyor hem de
+   bağlantı ölmüşse bunu 45 saniye beklemeden fark ettiriyor.
+   Yalnız "Arka planda bağlı kal" açıkken ve oturum varken çalışıyor. */
+let kalpAtisi = null;
+function kalpAtisiKur(){
+  clearInterval(kalpAtisi);
+  kalpAtisi = null;
+  if (!oturumVar || !tercihler.arkaPlanBagli) return;
+  kalpAtisi = setInterval(() => {
+    if (!oturumVar || !tercihler.arkaPlanBagli) return kalpAtisiKur();
+    if (!document.hidden) return;            // öndeyken zaten trafik var
+    if (!firebaseHazir || !ben) return;
+    if (!baglantiCanli) return;              // kopuksa nöbet zaten uğraşıyor
+    baglantiyiSina();
+  }, 30000);
+}
+
 function baglantiNobeti(){
   if (!oturumVar) return false;
   if (navigator.onLine === false) return false;
@@ -6261,6 +6284,7 @@ async function oturumDegisti(kullanici){
     bakimYonetici = false; bakimUygula();
     komutlariBirak();
     nobetiTazele();       // oturum yoksa nöbete de gerek yok
+    kalpAtisiKur();
     kanaliDurdur();
     vitrineGec();
     hesapDurumu();
@@ -6278,6 +6302,7 @@ async function oturumDegisti(kullanici){
   bakimYetkiTazele();     // yönetici perdeden muaf
   komutlariDinle();       // uzaktan "sayfayı yenile" isteği
   nobetiTazele();         // arka planda bağlı kal (ön plan servisi)
+  kalpAtisiKur();         // arka planda soketi canlı tut
   if (elleGiris) {
     // Az önce formdan parolayla girildi: kimlik zaten kanıtlandı, kilit ekranı atlanır.
     elleGiris = false; bekleyenTiklama = false;
@@ -7790,6 +7815,7 @@ async function pilSatiriTazele(){
 }
 anahtarKur('#ayarArkaPlan', 'arkaPlanBagli', async () => {
   nobetiTazele();
+  kalpAtisiKur();
   bildir(tercihler.arkaPlanBagli
     ? 'Arka planda bağlı kalınacak.'
     : 'Kapatıldı — uygulama arka planda bir süre sonra bildirim almayabilir.');
@@ -11927,6 +11953,7 @@ function hikayeleriTemizle(){
    nerede olduğunu gösteriyor. */
 let hkSahipler = [], hkSahipNo = 0, hkListe = [], hkNo = 0;
 let hkZamanlayici = null, hkBaslangic = 0, hkKalan = 0, hkSure = 0, hkDurdu = false;
+let hkVideoDenetci = null;         // açık hikaye videosunun indirme denetçisi
 let hkIzlendiRef = null;
 
 function hikayeIzleyiciAc(uid){
@@ -11946,6 +11973,7 @@ function hikayeIzleyiciAc(uid){
 
 function hikayeIzleyiciKapat(){
   hkDurdur();
+  hkVideoBirak();
   /* Yığındaki kendi adımını da düşür (mercek ile aynı desen). Eskiden bunu
      yapan yalnız kapatma düğmesiydi ve o da history.back() ile yapıyordu:
      gelen popstate ASENKRON olduğu için "hikayeyi kapat, sohbeti aç"
@@ -12020,6 +12048,30 @@ async function hkGoster(){
   const img = $('#hkGorsel'), vid = $('#hkVideo'), bekle = $('#hkYukleniyor');
   img.classList.remove('gor'); vid.classList.remove('gor');
   bekle.classList.remove('gizli');
+  hkVideoBirak();
+
+  /* VİDEO: sohbet ve büyüteçle AYNI aşamalı motor. Eskiden burada dosyanın
+     TAMAMI inene kadar bekleniyordu — hikaye "hemen açılmalı" olduğu hâlde
+     en yavaş açılan yüzeydi. Artık ilk parça gelince başlıyor. */
+  if (h.tip === 'video' && h.medyaId) {
+    hkSure = (h.sure ? h.sure * 1000 : 0) || 8000;
+    vid.classList.add('gor');
+    let basladi = false;
+    hkVideoDenetci = medyaParcaliOynatBaslat(vid, h.medyaId, {
+      otoOynat: true,
+      onHazir: () => {
+        if (hkListe[hkNo] !== h || basladi) return;
+        basladi = true;
+        bekle.classList.add('gizli');
+        hikayeIzlendiYaz(h);
+        /* Zamanlayıcı ANCAK görüntü gelince başlıyor: yoksa bekleme süresi
+           hikayenin süresinden yeniyordu. */
+        hkBaslat(hkSure);
+      },
+      onHata: () => { if (hkListe[hkNo] === h) hikayeSonraki(); }
+    });
+    return;
+  }
 
   /* Önden yükleme sayesinde bu çoğu zaman anında dönüyor: medyaGetir
      kendi blob önbelleğine bakıyor. */
@@ -12031,17 +12083,17 @@ async function hkGoster(){
   if (!adres) { return hikayeSonraki(); }
 
   hikayeIzlendiYaz(h);
-
-  if (h.tip === 'video') {
-    vid.src = adres; vid.classList.add('gor');
-    vid.currentTime = 0;
-    vid.play().catch(() => {});
-    hkSure = (h.sure ? h.sure * 1000 : 0) || 8000;
-  } else {
-    img.src = adres; img.classList.add('gor');
-    hkSure = HIKAYE_GORSEL_SN * 1000;
-  }
+  img.src = adres; img.classList.add('gor');
+  hkSure = HIKAYE_GORSEL_SN * 1000;
   hkBaslat(hkSure);
+}
+
+/* Açık hikaye videosunun indirmesini kes: kullanıcı ilerlediğinde arka
+   planda parça indirmeye devam etmesin. */
+function hkVideoBirak(){
+  if (hkVideoDenetci) { try { hkVideoDenetci.iptal(); } catch (e) {} hkVideoDenetci = null; }
+  const v = $('#hkVideo');
+  try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
 }
 
 function hkBaslat(sure){
@@ -12164,7 +12216,12 @@ function hikayeIzleyenSayisiTazele(){
      bile oynatıcının kendi sonu geçerli. */
   $('#hkVideo').addEventListener('ended', hikayeSonraki);
   $('#hkVideo').addEventListener('loadedmetadata', function(){
-    if (this.duration && isFinite(this.duration)) { hkSure = this.duration * 1000; hkBaslat(hkSure); }
+    if (!this.duration || !isFinite(this.duration)) return;
+    hkSure = this.duration * 1000;
+    /* Yalnız çubuk ZATEN işliyorsa yeniden kur. Aşamalı oynatmada bu olay
+       ilk görüntüden ÖNCE geliyor; burada koşulsuz başlatmak hikayenin
+       süresini bekleme süresine yediriyordu. */
+    if (hkZamanlayici) hkBaslat(hkSure);
   });
 })();
 
@@ -16932,7 +16989,7 @@ async function mp4ParcaliYap(dosya, ilerleme){
   const init = fmp4BaslatmaParcasi(izler, 1000);
 
   const okuyucu = new ParcaOkuyucu(dosya);
-  const parcalar = [];
+  const parcalar = [], parcaSn = [];
   let sira = 1, sesIdx = 0, toplam = init.length;
 
   let i = 0;
@@ -16972,6 +17029,10 @@ async function mp4ParcaliYap(dosya, ilerleme){
     }
 
     const parca = fmp4Parcasi(sira++, gruplar, veriler);
+    /* Parçanın BAŞLANGIÇ SANİYESİ: oynatıcı ileri sarıldığında hangi parçayı
+       isteyeceğini bu dizinden buluyor. Olmadan sadece baştan sona akış
+       yapılabiliyordu (ileri sarınca video dolana kadar bekliyordu). */
+    parcaSn.push(+(basDts / video.zamanOlcek).toFixed(3));
     parcalar.push(parca);
     toplam += parca.length;
     i = j;
@@ -16986,7 +17047,7 @@ async function mp4ParcaliYap(dosya, ilerleme){
   const ornekSuresi = video.ornekler.reduce((t, o) => t + o.sure, 0) / (video.zamanOlcek || 1);
 
   return {
-    init, parcalar, toplam,
+    init, parcalar, parcaSn, toplam,
     sure: ornekSuresi > 0 ? ornekSuresi : (coz.sure || 0),
     en: coz.video.en, boy: coz.video.boy,
     kodekler: kodekler.join(',')
@@ -17969,6 +18030,32 @@ const onYuklemeSirasi = [];
 const onYuklemeIstenen = new Set();
 let onYuklemeCalisiyor = false;
 
+/* ---- BAŞ PARÇA ÖNBELLEĞİ ----
+   Parçalı videoda oynatmanın anında başlaması için dosyanın TAMAMI değil,
+   yalnız başlatma parçası + ilk iki medya parçası yeterli. Ön yükleme artık
+   büyük videolarda da bunu yapıyor: birkaç yüz KB ile "oynata bas → anında
+   başla" elde ediliyor, mobil veri boşuna harcanmıyor. */
+const PARCA_KES_ADET = 24;
+const parcaKes = new Map();               // "medyaId/i" -> base64
+function parcaKesEkle(medyaId, i, b64){
+  if (!b64 || b64.length > 1.5 * 1024 * 1024) return;
+  const anahtar = medyaId + '/' + i;
+  parcaKes.delete(anahtar);
+  parcaKes.set(anahtar, b64);
+  while (parcaKes.size > PARCA_KES_ADET) parcaKes.delete(parcaKes.keys().next().value);
+}
+function parcaKesAl(medyaId, i){ return parcaKes.get(medyaId + '/' + i) || null; }
+/* Bir videonun ilk parçalarını sessizce indir (oynatma yoksa bile). */
+async function basParcalariGetir(medyaId, adet){
+  const kok = db.ref('medya/' + medyaId);
+  for (let i = 0; i < adet; i++) {
+    if (parcaKesAl(medyaId, i)) continue;
+    const p = await kok.child('parca/' + i).get();
+    if (!p.exists()) return;
+    parcaKesEkle(medyaId, i, p.val());
+  }
+}
+
 function videoOnYuklemeIste(medyaId){
   if (!medyaId || !db) return;
   if (onYuklemeIstenen.has(medyaId)) return;
@@ -17988,7 +18075,13 @@ async function onYuklemeSirasiniIsle(){
       try {
         if (medyaBlobKes.has(medyaId)) continue;
         const bilgi = (await db.ref('medya/' + medyaId + '/bilgi').get()).val();
-        if (!bilgi || !bilgi.uzunluk || bilgi.uzunluk > ON_YUKLEME_MAKS) continue;
+        if (!bilgi) continue;
+        /* PARÇALI VİDEO: tamamını indirmeye gerek yok. Baş parçalar gelsin,
+           oynatma anında başlasın; gerisi izlerken akar. Böylece boyut
+           sınırı da gerekmiyor — 200 MB'lık bir video için de birkaç yüz
+           KB iniyor. */
+        if (bilgi.parcali && bilgi.parca > 1) { await basParcalariGetir(medyaId, 3); continue; }
+        if (!bilgi.uzunluk || bilgi.uzunluk > ON_YUKLEME_MAKS) continue;
         if (medyaBlobKes.has(medyaId)) continue;
         await medyaGetir(medyaId);
       } catch (e) {
@@ -19155,6 +19248,10 @@ async function rtdbParcaliYaz(medyaId, fm, mime, ilerleme, iptalRef, ekBilgi){
        ya da sonda boş bekleme olur. */
     sure: Math.max(1, Math.round(fm.sure)), sureTam: fm.sure,
     en: fm.en, boy: fm.boy, kodekler: fm.kodekler,
+    /* Parça başlangıç saniyeleri: ileri sarma bunu kullanıyor. Eski
+       kayıtlarda yok; oynatıcı o zaman eski (yalnız baştan akan) yola
+       düşüyor. */
+    parcaSn: fm.parcaSn && fm.parcaSn.length ? fm.parcaSn : null,
     hizliBaslangic: true,
     uid: ben.uid, ts: Date.now()
   }, ekBilgi || {})));
@@ -19478,13 +19575,31 @@ function mseUygunMu(bilgi){
   return !!mseTipi(bilgi);
 }
 
+/* Aşamalı oynatıcı (MSE).
+   Üç yetenek eklendi, üçü de gerçek şikayetlerden:
+   1) İLERİ SARMA. Parçalar mutlak zaman damgası (tfdt) taşıdığı için
+      SIRASIZ eklenebiliyor. Kayıtta parça başlangıç saniyeleri varsa
+      (bilgi.parcaSn) ileri sarınca doğrudan o parçaya atlıyoruz; eskiden
+      video baştan sona akana kadar bekliyordu.
+   2) TAMPON DOLMASI. Uzun videoda appendBuffer "QuotaExceededError"
+      fırlatıyor ve oynatma orada duruyordu. Artık oynatılan yerin
+      GERİSİNDEKİ tampon boşaltılıp ekleme yeniden deneniyor.
+   3) BOŞLUK DOLDURMA. Atlamadan sonra geride kalan parçalar da arka planda
+      tamamlanıyor; hepsi yazılmadan akış "bitti" sayılmıyor. */
 function mseOynat(video, kok, bilgi, o){
   return new Promise((coz) => {
-    let bitti = false, ilkGeldi = false, adres = null;
+    let bitti = false, ilkGeldi = false, adres = null, seekDinleyici = null;
+    /* DİKKAT: bu söz "MSE yolu tuttu mu" sorusunu yanıtlıyor, oynatmanın
+       bittiğini DEĞİL. Başarılıysa oynatıcı yaşamaya devam ediyor; ileri
+       sarma dinleyicisi de duruyor. Yalnız başarısızlıkta (eski yola
+       düşerken) her şeyi topluyoruz. */
     const bitir = (sonuc) => {
       if (bitti) return;
       bitti = true;
-      if (!sonuc) { try { if (adres) URL.revokeObjectURL(adres); } catch (e) {} }
+      if (!sonuc) {
+        if (seekDinleyici) { try { video.removeEventListener('seeking', seekDinleyici); } catch (e) {} }
+        try { if (adres) URL.revokeObjectURL(adres); } catch (e) {}
+      }
       coz(sonuc);
     };
 
@@ -19505,51 +19620,165 @@ function mseOynat(video, kok, bilgi, o){
            bitirir ya da sonda boş bekleme bırakır. */
         try { ms.duration = bilgi.sureTam || bilgi.sure || 0; } catch (e) {}
 
-        const bekle = () => new Promise((tamam, hata) => {
-          const bit = () => { sb.removeEventListener('updateend', bit); sb.removeEventListener('error', yan); tamam(); };
-          const yan = () => { sb.removeEventListener('updateend', bit); sb.removeEventListener('error', yan); hata(new Error('SourceBuffer hatası')); };
-          sb.addEventListener('updateend', bit);
-          sb.addEventListener('error', yan);
-        });
+        const bekle = () => {
+          let bit, yan;
+          const soz = new Promise((tamam, hata) => {
+            bit = () => { temizle(); tamam(); };
+            yan = () => { temizle(); hata(new Error('SourceBuffer hatası')); };
+            function temizle(){
+              sb.removeEventListener('updateend', bit);
+              sb.removeEventListener('error', yan);
+            }
+            sb.addEventListener('updateend', bit);
+            sb.addEventListener('error', yan);
+          });
+          soz.catch(() => {});
+          return { soz, birak: () => { sb.removeEventListener('updateend', bit); sb.removeEventListener('error', yan); } };
+        };
 
         const parcaAl = async (i) => {
-          const p = await parcaDene(() => kok.child('parca/' + i).get());
-          if (!p.exists()) throw new Error('parça yok: ' + i);
-          return new Uint8Array(await base64Blob(p.val()).arrayBuffer());
+          let b64 = parcaKesAl(o.medyaId || '', i);        // ön yüklenmişse anında
+          if (!b64) {
+            const p = await parcaDene(() => kok.child('parca/' + i).get());
+            if (!p.exists()) throw new Error('parça yok: ' + i);
+            b64 = p.val();
+          }
+          return new Uint8Array(await base64Blob(b64).arrayBuffer());
         };
-        const ekle = async (veri) => { const s = bekle(); sb.appendBuffer(veri); await s; };
+        /* İstek başlatılırken boş bir catch takılıyor: parça gelmeden
+           döngüden çıkarsak o söz sahipsiz kalıp "unhandledrejection"
+           üretmesin. await yine hatayı fırlatır. */
+        const iste = (i) => { const sz = parcaAl(i); sz.catch(() => {}); return { i, sz }; };
+
+        const tamponda = (t) => {
+          try {
+            const b = sb.buffered;
+            for (let i = 0; i < b.length; i++) {
+              if (t >= b.start(i) - 0.15 && t < b.end(i) - 0.2) return true;
+            }
+          } catch (e) {}
+          return false;
+        };
+        /* Oynatılan yerin gerisini at: tampon dolduğunda tek çıkış yolu. */
+        const tamponBosalt = async () => {
+          try {
+            const b = sb.buffered;
+            if (!b.length) return false;
+            const bas = b.start(0);
+            const son = Math.max(bas, (video.currentTime || 0) - 10);
+            if (son <= bas + 1) return false;
+            const n = bekle();
+            sb.remove(bas, son);
+            await n.soz;
+            oynatmaLogla(o.kisaId + ' tampon boşaltıldı: ' + bas.toFixed(1) + '-' + son.toFixed(1));
+            return true;
+          } catch (e) { return false; }
+        };
+        const ekle = async (veri) => {
+          for (let deneme = 0; deneme < 4; deneme++) {
+            const n = bekle();
+            try {
+              sb.appendBuffer(veri);
+            } catch (e) {
+              n.birak();
+              const ad = String((e && (e.name || e.message)) || '');
+              if (!/quota/i.test(ad)) throw e;
+              if (!(await tamponBosalt())) throw e;
+              continue;                       // yer açıldı, yeniden dene
+            }
+            await n.soz;
+            return;
+          }
+          throw new Error('tampon açılamadı');
+        };
 
         const medyaAdedi = Math.max(1, bilgi.parca - 1);
+        const sureler = Array.isArray(bilgi.parcaSn) && bilgi.parcaSn.length ? bilgi.parcaSn : null;
+        /* parcaSn[k] = (k+1) numaralı parçanın başlangıç saniyesi. */
+        const parcaBul = (t) => {
+          if (!sureler) return null;
+          let en = 1;
+          for (let k = 0; k < sureler.length; k++) if (sureler[k] <= t + 0.001) en = k + 1;
+          return Math.min(en, bilgi.parca - 1);
+        };
+
+        const kalan = new Set();
+        for (let i = 1; i < bilgi.parca; i++) kalan.add(i);
+        const yazilan = new Set();
+        let siradaki = 2, atlaHedef = null, doluyor = null;   // doluyor: çalışan doldurma sözü
+
+        const sonrakiIndeks = () => {
+          const bas = (atlaHedef !== null) ? atlaHedef : siradaki;
+          if (kalan.has(bas)) return bas;
+          for (let i = bas; i < bilgi.parca; i++) if (kalan.has(i)) return i;
+          return kalan.size ? kalan.values().next().value : null;
+        };
+
+        /* Çalışan doldurma varsa ONUN sözünü döndürüyoruz. Eskiden boş
+           dönüyordu: sarma doldurmayı başlattığında ana akış "bitti" sanıp
+           akışı erken tamamlanmış sayıyordu. */
+        const doldur = () => {
+          if (doluyor) return doluyor;
+          doluyor = doldurGovde().finally(() => { doluyor = null; });
+          return doluyor;
+        };
+        const doldurGovde = async () => {
+          let bekleyen = null;
+          try {
+            while (kalan.size) {
+              if (o.iptal()) return;
+              const i = sonrakiIndeks();
+              if (i === null) break;
+              atlaHedef = null;
+              const veri = (bekleyen && bekleyen.i === i) ? await bekleyen.sz : await iste(i).sz;
+              kalan.delete(i);
+              siradaki = i + 1;
+              const sonra = sonrakiIndeks();          // atlaHedef artık boş: sıradaki
+              bekleyen = (sonra !== null && sonra !== i) ? iste(sonra) : null;
+              await ekle(veri);
+              yazilan.add(i);
+              o.onIndirme(yazilan.size / medyaAdedi, false);
+            }
+            if (yazilan.size >= medyaAdedi) {
+              try { if (ms.readyState === 'open') ms.endOfStream(); } catch (e) {}
+              o.onIndirme(1, true);
+              oynatmaLogla(o.kisaId + ' MSE: ' + bilgi.parca + ' parça eklendi, akış tamam');
+            }
+          } finally { /* bayrak doldur() içinde temizleniyor */ }
+        };
+
+        /* İleri/geri sarma: istenen an tamponda değilse o parçaya atla.
+           Tampon boşaltılmış olabileceği için parça yeniden yazılabilir
+           kılınıyor. Dinleyici İLK PARÇADAN ÖNCE takılıyor: oynatıcı hazır
+           olur olmaz sarma gelebilir (otomatik oynat + kullanıcı çubuğu
+           kapar), sonra takılsa o ilk sarma kaçıyordu. */
+        if (sureler) {
+          seekDinleyici = () => {
+            if (o.iptal()) return;
+            const t = video.currentTime || 0;
+            if (tamponda(t)) return;
+            const hedef = parcaBul(t);
+            if (!hedef) return;
+            kalan.add(hedef);
+            atlaHedef = hedef;
+            oynatmaLogla(o.kisaId + ' ileri sarma: ' + t.toFixed(1) + 'sn → parça ' + hedef);
+            doldur();
+          };
+          video.addEventListener('seeking', seekDinleyici);
+        }
 
         await ekle(await parcaAl(0));                 // başlatma parçası
         if (o.iptal()) return bitir(true);
 
         await ekle(await parcaAl(1));                 // ilk moof+mdat
+        kalan.delete(1); yazilan.add(1); siradaki = 2;
         if (o.iptal()) return bitir(true);
         ilkGeldi = true;
         o.onIndirme(1 / medyaAdedi, false);
         o.onHazir();
         if (o.otoOynat) video.play().catch(() => {});
 
-        /* BİR PARÇA İLERİDEN GETİR: eskiden "getir → ekle → getir" sırayla
-           gidiyordu, yani her parçada ağ bir gidiş-dönüş boyunca boş
-           bekliyordu. Sıradaki parçayı, elimizdekini SourceBuffer'a eklerken
-           istiyoruz; indirme oynatmanın önünde kalıyor. */
-        /* İstek başlatılırken boş bir catch takılıyor: parça gelmeden döngüden
-           çıkarsak (iptal ya da ekleme hatası) o söz sahipsiz kalıp
-           "unhandledrejection" üretmesin. await yine hatayı fırlatır. */
-        const iste = (i) => { const sz = parcaAl(i); sz.catch(() => {}); return sz; };
-        let bekleyen = bilgi.parca > 2 ? iste(2) : null;
-        for (let i = 2; i < bilgi.parca; i++) {
-          if (o.iptal()) return bitir(true);
-          const veri = await bekleyen;
-          bekleyen = (i + 1 < bilgi.parca) ? iste(i + 1) : null;
-          await ekle(veri);
-          o.onIndirme((i) / medyaAdedi, false);
-        }
-        try { if (ms.readyState === 'open') ms.endOfStream(); } catch (e) {}
-        o.onIndirme(1, true);
-        oynatmaLogla(o.kisaId + ' MSE: ' + bilgi.parca + ' parça eklendi, akış tamam');
+        await doldur();
         bitir(true);
       } catch (e) {
         oynatmaLogla(o.kisaId + ' MSE hatası: ' + ((e && e.message) || e));
@@ -19682,7 +19911,7 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
       if (bilgi && bilgi.parcali && bilgi.parca > 1 && mseUygunMu(bilgi)) {
         const oldu = await mseOynat(video, kok, bilgi, {
           iptal: () => iptalEdildi,
-          onIndirme, onHazir, otoOynat, kisaId
+          onIndirme, onHazir, otoOynat, kisaId, medyaId
         });
         if (iptalEdildi) return;
         if (oldu) return;
