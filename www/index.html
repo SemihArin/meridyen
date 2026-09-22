@@ -5654,6 +5654,18 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
             <div class="ayar-satir gizli" id="videoTaniSatir">
               <pre class="tani-kutu" id="videoTaniKutu"></pre>
             </div>
+            <!-- Bağlantı günlüğü: "arka planda kopuyor" gibi şikayetlerde
+                 tahmin yürütmek yerine elimizde kayıt olsun diye. -->
+            <div class="ayar-satir uzun">
+              <span class="ay-ikon mavi"><svg viewBox="0 0 24 24"><path d="M5 12.5a9 9 0 0 1 14 0"/><path d="M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="18.5" r=".9"/></svg></span>
+              <div class="ayar-bilgi"><b>Bağlantı tanısı</b><small id="ayarBaglantiOzet">Bağlantının ne zaman koptuğu, ne zaman döndüğü.</small></div>
+              <button class="ayar-dugme" id="ayarBaglantiTani">Göster</button>
+            </div>
+            <div class="ayar-satir gizli" id="baglantiTaniSatir"
+                 style="flex-direction:column;align-items:stretch;gap:10px">
+              <pre class="tani-kutu" id="baglantiTaniKutu"></pre>
+              <button class="ayar-dugme" id="ayarBaglantiKopyala">Günlüğü kopyala</button>
+            </div>
           </div>
 
           <div class="ayar-bolum">
@@ -6120,6 +6132,7 @@ function baglantiyiZorla(sebep){
   if (yenidenBaglaniyor) return;
   yenidenBaglaniyor = true;
   setTimeout(() => { yenidenBaglaniyor = false; }, 1500);
+  baglantiNotu('yeniden bağlan: ' + (sebep || ''));
 
   if (!firebaseHazir) {
     // SDK hiç yüklenememişti: baştan dene.
@@ -6128,10 +6141,19 @@ function baglantiyiZorla(sebep){
     return;
   }
   try {
-    // Beklemeyi kırmanın tek güvenilir yolu: kapat–aç.
+    /* KAPAT–AÇ AYNI TIKTA.
+       Burada bir zamanlayıcıyla (setTimeout 60ms) açıyorduk. Arka planda
+       zamanlayıcılar dakikaya kadar seyreltildiği için goOffline ile kendimizi
+       KAPATIP açmayı bir dakika sonraya bırakmış oluyorduk: bağlantı bizim
+       yüzümüzden kopuk kalıyor, mesaj ve bildirim gelmiyordu. Uygulamaya geri
+       dönünce görülen "bağlantı yok" şeridinin sebebi buydu.
+       Artık açma çağrısı aynı tıkta yapılıyor; zamanlayıcılı olanlar yalnız
+       yedek (idempotent, fazladan çağrı zararsız). */
     db.goOffline();
-    setTimeout(() => { try { db.goOnline(); } catch (e) {} }, 60);
-  } catch (e) {}
+    db.goOnline();
+    setTimeout(() => { try { db.goOnline(); } catch (e) {} }, 300);
+    setTimeout(() => { try { db.goOnline(); } catch (e) {} }, 2000);
+  } catch (e) { baglantiNotu('zorlama hatası: ' + ((e && e.message) || e)); }
 }
 
 /* ---- bağlantı sağlığı ----
@@ -6143,6 +6165,23 @@ function baglantiyiZorla(sebep){
    Artık üç şey var: (1) .info/connected'i tek yerden izleyen bir durum,
    (2) kopukken KENDİ artan beklememiz (Firebase'inki dakikayı bulabiliyor),
    (3) öne dönüşte soketin gerçekten yaşadığını sunucuya yazarak sınama. */
+/* ---- BAĞLANTI GÜNLÜĞÜ ----
+   Telefonda konsol açmak zor; "bağlantı kopuyor" şikayetini kanıtla
+   kovalayabilmek için her durum değişimi, her zorlama ve her yoklama
+   zaman damgasıyla buraya yazılıyor. Ayarlar > "Bağlantı tanısı" gösteriyor. */
+const BAGLANTI_GUNLUK_MAKS = 120;
+let baglantiGunlugu = [];
+function baglantiNotu(metin){
+  try {
+    const d = new Date();
+    const ss = (n, k) => String(n).padStart(k || 2, '0');
+    baglantiGunlugu.push(ss(d.getHours()) + ':' + ss(d.getMinutes()) + ':' +
+      ss(d.getSeconds()) + '.' + ss(d.getMilliseconds(), 3) + '  ' +
+      (document.hidden ? '[arka] ' : '[ön] ') + metin);
+    if (baglantiGunlugu.length > BAGLANTI_GUNLUK_MAKS) baglantiGunlugu.shift();
+  } catch (e) {}
+}
+
 let baglantiCanli = false;      // .info/connected son değeri
 let kopukTs = 0;                // ne zamandır kopuk
 let sonDeneme = 0;              // en son ne zaman zorladık
@@ -6157,7 +6196,10 @@ function baglantiyiBekle(is){
 }
 /* .info/connected dinleyicisi (kanaliBaslat) buraya haber veriyor. */
 function baglantiDurumu(canli){
+  const degisti = baglantiCanli !== !!canli;
   baglantiCanli = !!canli;
+  if (degisti) baglantiNotu(canli ? 'BAĞLANDI' : 'KOPTU');
+  baglantiSeridiCiz();
   if (!canli) { if (!kopukTs) kopukTs = Date.now(); return; }
   kopukTs = 0; sonDeneme = 0; kopukDeneme = 0;
   const isler = baglantiBekleyenler;
@@ -6166,39 +6208,75 @@ function baglantiDurumu(canli){
 }
 /* Soket yaşıyor mu? Yerel okumalar bunu söylemez (önbellekten dönerler),
    bu yüzden sunucuya bir YAZMA yapıyoruz: sözü ancak sunucu onaylayınca
-   çözülür. Zaten varlık damgasını da tazelemiş oluyoruz. */
+   çözülür. Zaten varlık damgasını da tazelemiş oluyoruz.
+
+   ZORLAMA KONUSUNDA TEMKİN: yavaş yanıt "bağlantı öldü" demek DEĞİL. Uyuyan
+   bir telefonda telsiz uyanırken onay 10 saniyeyi bulabiliyor. Eskiden 4
+   saniyede yanıt gelmezse bağlantıyı kapat–aç yapıyorduk; arka planda bu
+   iyileştirme değil, kendi kendini kopartma oluyordu. Artık:
+     - arka plandaki kalp atışı ASLA zorlamıyor, yalnız hattı sıcak tutuyor
+       ve sonucu günlüğe yazıyor;
+     - öne dönüşte zorlama yalnız süre dolduğunda VE .info/connected hâlâ
+       "kopuk" derken yapılıyor. */
 let sinamaSuruyor = false;
-function baglantiyiSina(){
+function baglantiyiSina(zorlayabilir, sure){
   if (sinamaSuruyor || !oturumVar || !ben || !firebaseHazir) return;
   sinamaSuruyor = true;
+  const t0 = Date.now();
   let yanit = false;
-  const zaman = setTimeout(() => {
-    if (yanit) return;
+  const bitir = (not) => {
+    if (yanit) return false;
     yanit = true; sinamaSuruyor = false;
-    baglantiyiZorla('yoklama yanıtsız');
-  }, 4000);
+    baglantiNotu('yoklama ' + not + ' (' + (Date.now() - t0) + 'ms)');
+    return true;
+  };
+  const zaman = setTimeout(() => {
+    if (!bitir('yanıtsız')) return;
+    /* Yalnız gerçekten kopuksak müdahale et. Bağlantı canlı görünüyorsa
+       yavaşlık geçicidir; kapat–aç yapmak yalnız zarar verir. */
+    if (zorlayabilir && !baglantiCanli) baglantiyiZorla('yoklama yanıtsız + kopuk');
+  }, sure || 8000);
   db.ref('varlik/' + ben.uid).set({ ad: benimAdim, ts: Date.now() })
-    .then(() => { if (!yanit) { yanit = true; clearTimeout(zaman); sinamaSuruyor = false; } })
-    .catch(() => {
-      if (yanit) return;
-      yanit = true; clearTimeout(zaman); sinamaSuruyor = false;
-      baglantiyiZorla('yoklama hatası');
+    .then(() => { if (bitir('tamam')) clearTimeout(zaman); })
+    .catch((e) => {
+      if (!bitir('hata: ' + ((e && e.code) || e))) return;
+      clearTimeout(zaman);
+      if (zorlayabilir && !baglantiCanli) baglantiyiZorla('yoklama hatası + kopuk');
     });
 }
 
-window.addEventListener('online', () => { kopukDeneme = 0; baglantiyiZorla('ağ döndü'); });
+/* Şeridi TEK yerden çiziyoruz. Eskiden 'offline' olayı şeridi açıyor ama
+   kapatan yalnız .info/connected dinleyicisiydi: soket hiç kopmadıysa o
+   dinleyici bir daha ateşlenmiyor ve şerit her şey çalışırken ekranda
+   asılı kalıyordu. */
+function baglantiSeridiCiz(){
+  const kopuk = firebaseHazir ? !baglantiCanli : (navigator.onLine === false);
+  $('#baglantiUyari').classList.toggle('gor', !!kopuk);
+}
+window.addEventListener('online', () => {
+  kopukDeneme = 0;
+  baglantiNotu('ağ döndü (navigator.onLine)');
+  baglantiSeridiCiz();
+  if (!baglantiCanli) baglantiyiZorla('ağ döndü');
+});
 window.addEventListener('offline', () => {
-  if (firebaseHazir) $('#baglantiUyari').classList.add('gor');
+  baglantiNotu('ağ gitti (navigator.onLine)');
+  if (firebaseHazir && !baglantiCanli) baglantiSeridiCiz();
+  else if (!firebaseHazir) $('#baglantiUyari').classList.add('gor');
 });
 function oneGelindi(){
   const gecen = gizlendiTs ? Date.now() - gizlendiTs : 0;
   gizlendiTs = 0;
   kopukDeneme = 0;                       // öne dönüşte beklemeyi sıfırla
-  if (!firebaseHazir) return baglantiyiZorla('öne geldi');
+  baglantiNotu('öne geldi (' + Math.round(gecen / 1000) + 'sn arka planda)' +
+               (baglantiCanli ? ' — bağlı' : ' — KOPUK'));
+  baglantiSeridiCiz();
+  if (!firebaseHazir) return baglantiyiZorla('öne geldi, SDK yok');
   if (!baglantiCanli) return baglantiyiZorla('öne geldi, kopuk');
-  /* Kısa bir geçişte (bildirime dokunma, kamera) soketi boşuna çevirmeyelim;
-     ama birkaç saniyeden fazla arka planda kaldıysak mutlaka sına. */
-  if (gecen > 6000) baglantiyiSina();
+  /* Kısa bir geçişte (bildirime dokunma, kamera) soketi boşuna yoklamayalım;
+     ama birkaç saniyeden fazla arka planda kaldıysak yokla. Yoklama yavaş
+     dönerse BİR ŞEY YAPMIYOR: yalnız gerçekten kopuksa müdahale var. */
+  if (gecen > 6000) baglantiyiSina(true, 10000);
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { gizlendiTs = Date.now(); return; }
@@ -6235,7 +6313,7 @@ function kalpAtisiKur(){
     if (!document.hidden) return;            // öndeyken zaten trafik var
     if (!firebaseHazir || !ben) return;
     if (!baglantiCanli) return;              // kopuksa nöbet zaten uğraşıyor
-    baglantiyiSina();
+    baglantiyiSina(false, 15000);            // arka planda ZORLAMA YOK
   }, 30000);
 }
 
@@ -6247,7 +6325,7 @@ function baglantiNobeti(){
   const bekle = Math.min(3000 * Math.pow(2, kopukDeneme), 30000);
   if (Date.now() - Math.max(kopukTs, sonDeneme) < bekle) return false;
   kopukDeneme++; sonDeneme = Date.now();
-  baglantiyiZorla('kopuk');
+  baglantiyiZorla('nöbet: ' + Math.round((Date.now() - (kopukTs || Date.now())) / 1000) + 'sn kopuk');
   return true;
 }
 setInterval(baglantiNobeti, 3000);
@@ -7739,6 +7817,44 @@ $('#ayarYonetimBtn').addEventListener('click', yonetimAc);
    Telefonda konsol açmak zor. Bu kutu cihazın hangi video biçimlerini
    kaydedebildiğini ve son gönderme denemesinin adımlarını gösterir; metni
    seçip kopyalayabilirsin. */
+/* ---- bağlantı tanısı ---- */
+function baglantiTanisiCiz(){
+  const kutu = $('#baglantiTaniKutu');
+  if (!kutu) return;
+  const d = [];
+  d.push('durum: ' + (!firebaseHazir ? 'SDK yüklenmedi'
+                      : baglantiCanli ? 'BAĞLI' : 'KOPUK'));
+  d.push('ağ (tarayıcı): ' + (navigator.onLine === false ? 'yok' : 'var'));
+  d.push('arka planda bağlı kal: ' + (tercihler.arkaPlanBagli ? 'açık' : 'kapalı'));
+  d.push('nöbet servisi: ' + (window.MeridyenKopru && window.MeridyenKopru.nobetVar
+                              ? 'var (APK)' : 'yok (tarayıcı)'));
+  if (kopukTs) d.push('kopalı: ' + Math.round((Date.now() - kopukTs) / 1000) + ' sn');
+  d.push('');
+  d.push('— son olaylar —');
+  d.push(baglantiGunlugu.length ? baglantiGunlugu.join('\n') : '(kayıt yok)');
+  kutu.textContent = d.join('\n');
+}
+$('#ayarBaglantiTani').addEventListener('click', () => {
+  const satir = $('#baglantiTaniSatir');
+  const acik = !satir.classList.contains('gizli');
+  if (acik) { satir.classList.add('gizli'); $('#ayarBaglantiTani').textContent = 'Göster'; return; }
+  baglantiTanisiCiz();
+  satir.classList.remove('gizli');
+  $('#ayarBaglantiTani').textContent = 'Gizle';
+});
+$('#ayarBaglantiKopyala').addEventListener('click', () => {
+  const metin = $('#baglantiTaniKutu').textContent || '';
+  const yedek = () => {
+    const a = document.createElement('textarea');
+    a.value = metin; document.body.appendChild(a); a.select();
+    try { document.execCommand('copy'); bildir('Kopyalandı.'); } catch (e) { bildir('Kopyalanamadı.'); }
+    a.remove();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(metin).then(() => bildir('Kopyalandı.')).catch(yedek);
+  } else yedek();
+});
+
 $('#ayarVideoTani').addEventListener('click', async () => {
   const satir = $('#videoTaniSatir'), kutu = $('#videoTaniKutu');
   const acik = !satir.classList.contains('gizli');
@@ -12432,9 +12548,18 @@ async function bildirimIzniIste(){
 }
 
 function sistemBildirimi(digerUid, metin){
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  /* Bildirim yolunun her adımı bağlantı günlüğüne düşüyor: "bildirim
+     gelmiyor" dendiğinde mesajın ulaşıp ulaşmadığını, izin var mı yok mu
+     olduğunu tahmin etmeden görebilelim. */
+  if (!('Notification' in window)) return baglantiNotu('bildirim atlandı: Notification yok');
+  if (Notification.permission !== 'granted') {
+    return baglantiNotu('bildirim atlandı: izin ' + Notification.permission);
+  }
   // sekme öndeyse ve o sohbet zaten açıksa rahatsız etme
-  if (!document.hidden && aktifSohbet && aktifSohbet.uid === digerUid) return;
+  if (!document.hidden && aktifSohbet && aktifSohbet.uid === digerUid) {
+    return baglantiNotu('bildirim atlandı: sohbet zaten açık');
+  }
+  baglantiNotu('bildirim çiziliyor: ' + String(digerUid).slice(0, 6));
   // İçerik varsayılan olarak gizli: bildirim kilit ekranında görünebilir.
   // Ayarlar'dan açılırsa gönderen adı ve mesaj yazılır.
   const ad = (profilKesi[digerUid] || {}).ad || 'Yeni mesaj';
