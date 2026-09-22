@@ -6218,7 +6218,7 @@ function baglantiDurumu(canli){
        ve sonucu günlüğe yazıyor;
      - öne dönüşte zorlama yalnız süre dolduğunda VE .info/connected hâlâ
        "kopuk" derken yapılıyor. */
-let sinamaSuruyor = false;
+let sinamaSuruyor = false, sonYoklamaTs = 0;   // en son BAŞARILI yoklama
 function baglantiyiSina(zorlayabilir, sure){
   if (sinamaSuruyor || !oturumVar || !ben || !firebaseHazir) return;
   sinamaSuruyor = true;
@@ -6237,7 +6237,7 @@ function baglantiyiSina(zorlayabilir, sure){
     if (zorlayabilir && !baglantiCanli) baglantiyiZorla('yoklama yanıtsız + kopuk');
   }, sure || 8000);
   db.ref('varlik/' + ben.uid).set({ ad: benimAdim, ts: Date.now() })
-    .then(() => { if (bitir('tamam')) clearTimeout(zaman); })
+    .then(() => { sonYoklamaTs = Date.now(); if (bitir('tamam')) clearTimeout(zaman); })
     .catch((e) => {
       if (!bitir('hata: ' + ((e && e.code) || e))) return;
       clearTimeout(zaman);
@@ -6245,13 +6245,39 @@ function baglantiyiSina(zorlayabilir, sure){
     });
 }
 
-/* Şeridi TEK yerden çiziyoruz. Eskiden 'offline' olayı şeridi açıyor ama
-   kapatan yalnız .info/connected dinleyicisiydi: soket hiç kopmadıysa o
-   dinleyici bir daha ateşlenmiyor ve şerit her şey çalışırken ekranda
-   asılı kalıyordu. */
-function baglantiSeridiCiz(){
-  const kopuk = firebaseHazir ? !baglantiCanli : (navigator.onLine === false);
+/* Bağlantı görünümü (şerit + başlıktaki "çevrimiçi/bağlantı yok") TEK
+   yerden çiziliyor ve KISA kopmalar gösterilmiyor.
+
+   Neden: tanı günlüğü şunu gösterdi — arka planda bağlantı sapasağlam
+   (10 dakika boyunca 30 saniyede bir yoklama, hepsi ~130 ms). Kopma
+   yalnızca uygulamaya GERİ DÖNERKEN oluyor: WebView ağ yığınını
+   tazeliyor, soket düşüyor ve 0,5-0,6 saniye içinde kendiliğinden geri
+   geliyor. Bunu kırmızı şeritle duyurmak "bağlantı sürekli kopuyor"
+   hissi veriyordu; oysa bağlantı sağlam. Artık uyarı ancak kopukluk
+   SÜRERSE (2,5 sn) çıkıyor, dönünce anında kalkıyor. */
+const SERIT_GECIKME = 2500;
+let seritZaman = null;
+function baglantiKopukMu(){
+  return firebaseHazir ? !baglantiCanli : (navigator.onLine === false);
+}
+function baglantiGorunumuUygula(kopuk){
+  const sayi = $('#onlineSayi'), metin = $('#onlineMetin');
+  if (sayi) { sayi.hidden = !!kopuk; sayi.classList.toggle('kopuk', !!kopuk); }
+  if (metin) metin.textContent = kopuk ? 'bağlantı yok' : 'çevrimiçi';
   $('#baglantiUyari').classList.toggle('gor', !!kopuk);
+}
+function baglantiSeridiCiz(){
+  const kopuk = baglantiKopukMu();
+  if (!kopuk) {
+    clearTimeout(seritZaman); seritZaman = null;
+    baglantiGorunumuUygula(false);
+    return;
+  }
+  if ($('#baglantiUyari').classList.contains('gor') || seritZaman) return;
+  seritZaman = setTimeout(() => {
+    seritZaman = null;
+    if (baglantiKopukMu()) baglantiGorunumuUygula(true);
+  }, SERIT_GECIKME);
 }
 window.addEventListener('online', () => {
   kopukDeneme = 0;
@@ -6261,10 +6287,16 @@ window.addEventListener('online', () => {
 });
 window.addEventListener('offline', () => {
   baglantiNotu('ağ gitti (navigator.onLine)');
-  if (firebaseHazir && !baglantiCanli) baglantiSeridiCiz();
-  else if (!firebaseHazir) $('#baglantiUyari').classList.add('gor');
+  baglantiSeridiCiz();
 });
+let sonOneGelme = 0;
 function oneGelindi(){
+  /* Öne dönüşte visibilitychange, pageshow, focus ve Yaşam Döngüsü 'resume'
+     olaylarının birkaçı birden ateşleniyor (günlükte üst üste üç "öne geldi"
+     satırı bundandı). Aynı dönüşü bir kez işliyoruz. */
+  if (Date.now() - sonOneGelme < 1500) return;
+  sonOneGelme = Date.now();
+
   const gecen = gizlendiTs ? Date.now() - gizlendiTs : 0;
   gizlendiTs = 0;
   kopukDeneme = 0;                       // öne dönüşte beklemeyi sıfırla
@@ -6274,9 +6306,10 @@ function oneGelindi(){
   if (!firebaseHazir) return baglantiyiZorla('öne geldi, SDK yok');
   if (!baglantiCanli) return baglantiyiZorla('öne geldi, kopuk');
   /* Kısa bir geçişte (bildirime dokunma, kamera) soketi boşuna yoklamayalım;
-     ama birkaç saniyeden fazla arka planda kaldıysak yokla. Yoklama yavaş
-     dönerse BİR ŞEY YAPMIYOR: yalnız gerçekten kopuksa müdahale var. */
-  if (gecen > 6000) baglantiyiSina(true, 10000);
+     ama birkaç saniyeden fazla arka planda kaldıysak yokla. Arka plandaki
+     kalp atışı az önce yanıt aldıysa bağlantının canlı olduğu ZATEN kanıtlı;
+     dönüşün en kırılgan anında fazladan istek atmıyoruz. */
+  if (gecen > 6000 && Date.now() - sonYoklamaTs > 60000) baglantiyiSina(true, 10000);
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { gizlendiTs = Date.now(); return; }
@@ -7101,20 +7134,13 @@ function kanaliBaslat(){
   const varlikRef = db.ref('varlik/' + uid);
   dinle(db.ref('.info/connected'), 'value', (s) => {
     baglantiDurumu(!!s.val());          // yeniden bağlanma mantığına haber ver
+    /* Görünümü BURADA boyamıyoruz: kısa kopmaları gizleyen tek karar yeri
+       baglantiSeridiCiz (baglantiDurumu onu zaten çağırdı). Eskiden buradaki
+       doğrudan boyama yüzünden yarım saniyelik kopma bile "bağlantı yok"
+       yazdırıyordu. */
     if (s.val()) {
       varlikRef.onDisconnect().remove();
       varlikRef.set({ ad: benimAdim, ts: Date.now() });
-      $('#onlineSayi').classList.remove('kopuk');
-      $('#onlineSayi').hidden = false;
-      $('#onlineMetin').textContent = 'çevrimiçi';
-      $('#baglantiUyari').classList.remove('gor');
-    } else {
-      // Eskiden "— çevrimiçi" yazıyordu; anlamsızdı. Sayıyı gizleyip
-      // durumu açıkça yazıyoruz.
-      $('#onlineSayi').hidden = true;
-      $('#onlineSayi').classList.add('kopuk');
-      $('#onlineMetin').textContent = 'bağlantı yok';
-      $('#baglantiUyari').classList.add('gor');
     }
   });
   dinle(db.ref('varlik'), 'value', (s) => {
@@ -12573,6 +12599,11 @@ function sistemBildirimi(digerUid, metin){
       body: govde, tag: 'meridyen-' + digerUid, lang: 'tr',
       data: { gonderen: digerUid, tur: 'mesaj' }
     });
+    /* APK'da bu çağrı köprü üstünden yerli bildirime gidiyor ve sessizce
+       düşebiliyordu. Sonucu günlüğe yazıyoruz: "çizildi" satırından sonra
+       "yerli tamam" gelmiyorsa sorun Android tarafında demektir. */
+    n.onshow = () => baglantiNotu('bildirim yerli tarafta gösterildi');
+    n.onerror = () => baglantiNotu('bildirim YERLİ TARAFTA DÜŞTÜ');
     n.onclick = () => {
       window.focus();
       panelGirisTalebi(() => { paneleGec(); sohbetAc(digerUid); });
