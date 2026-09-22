@@ -6171,13 +6171,24 @@ function baglantiyiZorla(sebep){
    zaman damgasıyla buraya yazılıyor. Ayarlar > "Bağlantı tanısı" gösteriyor. */
 const BAGLANTI_GUNLUK_MAKS = 120;
 let baglantiGunlugu = [];
+let sonNot = '', sonNotAdet = 0;
 function baglantiNotu(metin){
   try {
     const d = new Date();
     const ss = (n, k) => String(n).padStart(k || 2, '0');
-    baglantiGunlugu.push(ss(d.getHours()) + ':' + ss(d.getMinutes()) + ':' +
-      ss(d.getSeconds()) + '.' + ss(d.getMilliseconds(), 3) + '  ' +
-      (document.hidden ? '[arka] ' : '[ön] ') + metin);
+    const damga = ss(d.getHours()) + ':' + ss(d.getMinutes()) + ':' +
+                  ss(d.getSeconds()) + '.' + ss(d.getMilliseconds(), 3) + '  ' +
+                  (document.hidden ? '[arka] ' : '[ön] ');
+    /* ART ARDA gelen aynı satır yığılmıyor, sayılıyor. Yoksa açık bir
+       sohbette "bildirim atlandı" satırları günlüğü doldurup asıl olayları
+       (kopma/dönüş) dışarı itiyordu — ilk tanıda tam olarak bu oldu. */
+    if (metin === sonNot && baglantiGunlugu.length) {
+      sonNotAdet++;
+      baglantiGunlugu[baglantiGunlugu.length - 1] = damga + metin + ' (×' + sonNotAdet + ')';
+      return;
+    }
+    sonNot = metin; sonNotAdet = 1;
+    baglantiGunlugu.push(damga + metin);
     if (baglantiGunlugu.length > BAGLANTI_GUNLUK_MAKS) baglantiGunlugu.shift();
   } catch (e) {}
 }
