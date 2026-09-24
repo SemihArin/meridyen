@@ -12380,6 +12380,12 @@ function hikayeIzleyenSayisiTazele(){
 
 /* ---- oluşturma ekranı ---- */
 let hikayeEk = null;                 // { dosya|tam, kucuk, video, sure, en, boy }
+let hoOnizlemeAdres = null;          // video önizlemesinin blob adresi
+function hoOnizlemeBirak(){
+  if (!hoOnizlemeAdres) return;
+  try { URL.revokeObjectURL(hoOnizlemeAdres); } catch (e) {}
+  hoOnizlemeAdres = null;
+}
 let hoMetinY = 0.5, hoRenk = '#ffffff', hoBoyut = 2;
 
 function hikayeOlusturAc(){
@@ -12398,6 +12404,7 @@ function hikayeFormuTemizle(){
   const v = $('#hoVideo');
   v.classList.remove('gor');
   try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+  hoOnizlemeBirak();
   $('#hoAraclar').classList.add('gizli');
   $('#hoMetin').value = '';
   $('#hoYazi').textContent = '';
@@ -12445,7 +12452,12 @@ async function hikayeDosyaSec(dosya){
       hikayeEk = { dosya: hazir.dosya, kucuk: hazir.kucuk, video: true, sure: hazir.sure,
                    en: hazir.en, boy: hazir.boy };
       const v = $('#hoVideo');
-      v.src = URL.createObjectURL(hazir.dosya);
+      /* Önceki önizleme adresini bırak: her video seçiminde yenisi
+         üretiliyordu ve eskisi (dosyanın tamamıyla birlikte) bellekte
+         kalıyordu. */
+      hoOnizlemeBirak();
+      hoOnizlemeAdres = URL.createObjectURL(hazir.dosya);
+      v.src = hoOnizlemeAdres;
       v.classList.add('gor'); v.play().catch(() => {});
       $('#hoGorsel').classList.remove('gor');
     } else if (dosya.type.startsWith('image/')) {
@@ -18202,14 +18214,25 @@ let onYuklemeCalisiyor = false;
    yalnız başlatma parçası + ilk iki medya parçası yeterli. Ön yükleme artık
    büyük videolarda da bunu yapıyor: birkaç yüz KB ile "oynata bas → anında
    başla" elde ediliyor, mobil veri boşuna harcanmıyor. */
-const PARCA_KES_ADET = 24;
+/* Sınır ADET değil BAYT: 24 parça x 1,5 MB, düşük bellekli telefonda 36 MB
+   base64 metin demekti. Artık toplam bütçe tutuluyor. */
+const PARCA_KES_BUTCE = 8 * 1024 * 1024;
+const PARCA_KES_ENBUYUK = 1.5 * 1024 * 1024;
 const parcaKes = new Map();               // "medyaId/i" -> base64
+let parcaKesBayt = 0;
 function parcaKesEkle(medyaId, i, b64){
-  if (!b64 || b64.length > 1.5 * 1024 * 1024) return;
+  if (!b64 || b64.length > PARCA_KES_ENBUYUK) return;
+  if (!parcaKes.size) parcaKesBayt = 0;      // dışarıdan temizlenmişse sayaç da sıfırlansın
   const anahtar = medyaId + '/' + i;
-  parcaKes.delete(anahtar);
+  const eski = parcaKes.get(anahtar);
+  if (eski !== undefined) { parcaKesBayt -= eski.length; parcaKes.delete(anahtar); }
   parcaKes.set(anahtar, b64);
-  while (parcaKes.size > PARCA_KES_ADET) parcaKes.delete(parcaKes.keys().next().value);
+  parcaKesBayt += b64.length;
+  while (parcaKesBayt > PARCA_KES_BUTCE && parcaKes.size > 1) {
+    const ilk = parcaKes.keys().next().value;
+    parcaKesBayt -= (parcaKes.get(ilk) || '').length;
+    parcaKes.delete(ilk);
+  }
 }
 function parcaKesAl(medyaId, i){ return parcaKes.get(medyaId + '/' + i) || null; }
 /* Bir videonun ilk parçalarını sessizce indir (oynatma yoksa bile). */
@@ -19285,6 +19308,11 @@ function dilimiBase64Yap(dilim){
 const ESZAMANLI_YAZMA = 4;
 async function dilimleriYaz(kok, adet, dilimAl, ilerleme, iptalMi){
   let sonraki = 0, biten = 0, hata = null;
+  /* İPTALDE ARTIK KALMASIN. İptal, yazma sırasında düğümü siliyor; ama
+     eşzamanlı yazdığımız için o sırada UÇUŞTA olan dilimler silme
+     işleminden SONRA sunucuya inip yetim kayıtlar bırakabiliyor
+     (bilgi düğümü olmayan, kimsenin okuyamayacağı yarım medya). Bu yüzden
+     bütün işçiler durduktan sonra bir kez daha siliyoruz. */
   const isci = async () => {
     while (!hata) {
       const i = sonraki++;
@@ -19300,7 +19328,10 @@ async function dilimleriYaz(kok, adet, dilimAl, ilerleme, iptalMi){
   };
   const isciSayisi = Math.max(1, Math.min(ESZAMANLI_YAZMA, adet));
   await Promise.all(Array.from({ length: isciSayisi }, isci));
-  if (hata) throw hata;
+  if (hata) {
+    if (hata.iptalEdildi) { try { await kok.remove(); } catch (e) {} }
+    throw hata;
+  }
 }
 
 /* Bir Blob/File'ı RTDB'ye dilim dilim yazar; ilerlemeyi 0..1 bildirir.
@@ -19931,7 +19962,8 @@ function mseOynat(video, kok, bilgi, o){
             oynatmaLogla(o.kisaId + ' ileri sarma: ' + t.toFixed(1) + 'sn → parça ' + hedef);
             doldur();
           };
-          video.addEventListener('seeking', seekDinleyici);
+          if (o.olayEkle) o.olayEkle('seeking', seekDinleyici);
+          else video.addEventListener('seeking', seekDinleyici);
         }
 
         await ekle(await parcaAl(0));                 // başlatma parçası
@@ -19969,8 +20001,32 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
   const onIndirme = secenek.onIndirme || (() => {});   // (oran 0..1, tamamlandiMi)
   const onHata = secenek.onHata || (() => {});
   const otoOynat = secenek.otoOynat !== false;
+
+  /* AYNI <video> ÖĞESİ TEKRAR TEKRAR KULLANILIYOR: büyüteçteki ve hikaye
+     katmanındaki öğeler kalıcı, her açılışta yenisi kurulmuyor. Aşağıdaki
+     onlarca dinleyici ise hiç kaldırılmıyordu — yirmi video açmak yüzlerce
+     dinleyici bırakıyordu. Daha kötüsü: ESKİ oturumların "sona sıçrama
+     düzeltmesi" ve ileri sarma işleyicisi yeni oynatmaya karışabiliyordu
+     (kapanmış bir SourceBuffer'a ekleme, gereksiz parça indirme).
+     Artık dinleyiciler kayıtlı ve yeni oynatma başlarken öncekiler
+     toplanıyor. Temizlik ÖĞENİN ÜSTÜNDE duruyor: çağıranın iptal() demeyi
+     unutması da sızıntıya dönüşmüyor. */
+  try { if (video.__mrdTemizle) video.__mrdTemizle(); } catch (e) {}
+  const dinleyiciler = [];
+  const olayEkle = (tur, islev, secenekler) => {
+    video.addEventListener(tur, islev, secenekler);
+    dinleyiciler.push([tur, islev, secenekler]);
+  };
   let iptalEdildi = false;
-  const denetci = { iptal(){ iptalEdildi = true; } };
+  const temizle = () => {
+    iptalEdildi = true;
+    dinleyiciler.splice(0).forEach(([tur, islev, sec]) => {
+      try { video.removeEventListener(tur, islev, sec); } catch (e) {}
+    });
+    if (video.__mrdTemizle === temizle) video.__mrdTemizle = null;
+  };
+  video.__mrdTemizle = temizle;
+  const denetci = { iptal: temizle };
 
   /* ---- 1) OYNATMA TANILAMASI ----
      Telefonda konsol açmak zor; "takılıyor/sona sıçrıyor" gibi bir şikayet
@@ -19983,9 +20039,9 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
     (isFinite(video.duration) ? video.duration.toFixed(2) : '?') + ' hazır=' + video.readyState;
   ['loadstart', 'loadedmetadata', 'loadeddata', 'canplay', 'playing', 'waiting',
    'stalled', 'suspend', 'ended', 'emptied'].forEach(ad => {
-    video.addEventListener(ad, () => oynatmaLogla(kisaId + ' [' + ad + '] ' + durum()));
+    olayEkle(ad, () => oynatmaLogla(kisaId + ' [' + ad + '] ' + durum()));
   });
-  video.addEventListener('error', () => {
+  olayEkle('error', () => {
     const e = video.error;
     oynatmaLogla(kisaId + ' [error] kod=' + (e && e.code) + ' ' + durum());
   });
@@ -20002,9 +20058,9 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
      bu koruma hiç devreye girmezse zaten sorun burada değildir, girerse de
      elimizde somut kanıt olur. */
   let sonBilinenZaman = 0, sonZamanDamgasi = Date.now(), sonAramaZamani = 0;
-  video.addEventListener('seeking', () => { sonAramaZamani = Date.now(); });
-  video.addEventListener('seeked', () => { sonBilinenZaman = video.currentTime; sonZamanDamgasi = Date.now(); });
-  video.addEventListener('timeupdate', () => {
+  olayEkle('seeking', () => { sonAramaZamani = Date.now(); });
+  olayEkle('seeked', () => { sonBilinenZaman = video.currentTime; sonZamanDamgasi = Date.now(); });
+  olayEkle('timeupdate', () => {
     const simdi = video.currentTime, simdiZaman = Date.now();
     const gecenGercekSn = (simdiZaman - sonZamanDamgasi) / 1000;
     const fark = simdi - sonBilinenZaman;
@@ -20038,7 +20094,7 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
       let denendi = false;
       const dene = () => { if (denendi || iptalEdildi) return; denendi = true; video.play().catch(() => {}); };
       if (video.readyState >= 3) dene();
-      else { video.addEventListener('canplay', dene, { once: true }); setTimeout(dene, 2500); }
+      else { olayEkle('canplay', dene, { once: true }); setTimeout(dene, 2500); }
     }
   };
 
@@ -20078,7 +20134,8 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
       if (bilgi && bilgi.parcali && bilgi.parca > 1 && mseUygunMu(bilgi)) {
         const oldu = await mseOynat(video, kok, bilgi, {
           iptal: () => iptalEdildi,
-          onIndirme, onHazir, otoOynat, kisaId, medyaId
+          onIndirme, onHazir, otoOynat, kisaId, medyaId,
+          olayEkle                       // sarma dinleyicisi de toplanabilsin
         });
         if (iptalEdildi) return;
         if (oldu) return;
@@ -20136,8 +20193,11 @@ function medyaParcaliOynatBaslat(video, medyaId, secenek){
                 ', inen ' + blob.size + ') — deneme ' + (deneme + 1));
               if (deneme === 0) continue;   // bir kez daha dene
             }
-            const adres = URL.createObjectURL(blob);
-            medyaBlobKes.set(medyaId, adres);   // sonraki açılış anında olsun
+            /* Ortak önbellek fonksiyonundan GEÇMEK zorunlu: doğrudan
+               medyaBlobKes.set() yapınca LRU tahliyesi hiç çalışmıyor ve
+               hiçbir adres bırakılmıyordu — izlenen her eski video tüm
+               gövdesiyle bellekte kalıyordu. */
+            const adres = medyaBlobAdresi(medyaId, blob);
             return dogrudanGoster(adres, true);
           } catch (e) {
             sonHata = e;
@@ -20816,11 +20876,13 @@ async function dosyaIndir(medyaId, ad){
      sessizce YENİ SEKMEDE AÇILIR, inmez. Bu yüzden önce fetch edip gerçek
      bir blob: adresine çeviriyoruz — eski (zaten data:/blob: olan) kayıtlar
      için bu adım gereksiz ama zararsız. */
+  let yeniAdres = false;
   if (veri && /^https?:\/\//.test(veri)) {
     try {
       const yanit = await fetch(veri);
       const blob = await yanit.blob();
       veri = URL.createObjectURL(blob);
+      yeniAdres = true;
     } catch (e) { yuklemeBitir(); return bildir('Dosya indirilemedi.'); }
   }
   yuklemeBitir();
@@ -20828,6 +20890,10 @@ async function dosyaIndir(medyaId, ad){
   const a = document.createElement('a');
   a.href = veri; a.download = ad || 'dosya';
   document.body.appendChild(a); a.click(); a.remove();
+  /* Yalnız BURADA üretilmiş adresi bırakıyoruz (önbellekteki blob adresleri
+     medyaBlobKes'in; onları iptal etmek açık videoyu öldürürdü). İndirme
+     başlaması için tarayıcıya birkaç saniye tanıyoruz. */
+  if (yeniAdres) setTimeout(() => { try { URL.revokeObjectURL(veri); } catch (e) {} }, 20000);
 }
 
 /* ================= SAYFA YIĞINI =================
