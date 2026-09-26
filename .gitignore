@@ -4,6 +4,10 @@
 # commit dışında bırakıyordu.
 /android/
 /node_modules/
+# Her turda elle teslim edilen çıktılar: derlenmiş APK ve www/index.html'in
+# kopyası. İkisi de üretilen dosya — APK derleme çıktısı, index.html zaten
+# depoda izleniyor.
+/teslim/
 *.log
 .DS_Store
 __pycache__/
