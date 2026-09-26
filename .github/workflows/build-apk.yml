@@ -142,6 +142,18 @@ jobs:
           PAKET=$(python3 -c "import json;print(json.load(open('capacitor.config.json'))['appId'].replace('.','/'))")
           test -f "android/app/src/main/java/$PAKET/MeridyenIlerleme.java" \
             || { echo "HATA: native ilerleme eklentisi kopyalanmamış"; exit 1; }
+          # ARKA PLANDA ÇALIŞMANIN ŞARTI: kendi WebView alt sınıfımız ve
+          # Capacitor'un layout'unu EZEN kopya. Biri eksik kalırsa sayfa arka
+          # planda donar ve bu dışarıdan hiç belli olmaz.
+          test -f "android/app/src/main/java/$PAKET/MeridyenWebView.java" \
+            || { echo "HATA: MeridyenWebView kopyalanmamış"; exit 1; }
+          grep -q 'MeridyenWebView' android/app/src/main/res/layout/bridge_layout_main.xml \
+            || { echo "HATA: bridge_layout_main.xml bizim WebView'ı kullanmıyor"; exit 1; }
+          # Firebase SDK APK'nın içinde mi? (açılış hızı)
+          for FB in app auth database messaging; do
+            test -s "android/app/src/main/assets/public/fb/firebase-$FB-compat.js" \
+              || { echo "HATA: firebase-$FB-compat.js APK'ya gömülmemiş"; exit 1; }
+          done
           grep -q 'registerPlugin(MeridyenIlerleme.class)' "android/app/src/main/java/$PAKET/MainActivity.java" \
             || { echo "HATA: native eklenti MainActivity'de kayıtlı değil"; exit 1; }
           # Bildirim yığını: kapalıyken gelen push'u çizen servis ve onun

@@ -24,6 +24,7 @@ import re
 import sys
 
 KAYNAK_KLASOR = "android-assets/java"
+KAYNAK_KAYNAKLAR = "android-assets/res"      # layout vb. (Capacitor'unkini ezen)
 
 
 def main():
@@ -37,6 +38,25 @@ def main():
     dosyalar = sorted(a for a in os.listdir(KAYNAK_KLASOR) if a.endswith(".java"))
     if not dosyalar:
         sys.exit("HATA: " + KAYNAK_KLASOR + " altında hiç .java yok.")
+
+    # 0) Kaynak (res) dosyaları: Capacitor'un kendi layout'unu EZEN kopyalar.
+    #    Uygulama modülünün kaynağı kitaplığınkinin önüne geçtiği için,
+    #    aynı adlı bridge_layout_main.xml bizim WebView alt sınıfımızı
+    #    kullandırıyor (arka planda donmayı engelleyen sınıf).
+    if os.path.isdir(KAYNAK_KAYNAKLAR):
+        for alt in sorted(os.listdir(KAYNAK_KAYNAKLAR)):
+            kaynak_alt = os.path.join(KAYNAK_KAYNAKLAR, alt)
+            if not os.path.isdir(kaynak_alt):
+                continue
+            hedef_alt = os.path.join("android/app/src/main/res", alt)
+            os.makedirs(hedef_alt, exist_ok=True)
+            for ad in sorted(os.listdir(kaynak_alt)):
+                with io.open(os.path.join(kaynak_alt, ad), encoding="utf-8") as f:
+                    icerik = f.read().replace("__PAKET__", paket)
+                hedef = os.path.join(hedef_alt, ad)
+                with io.open(hedef, "w", encoding="utf-8") as f:
+                    f.write(icerik)
+                print("kaynak kuruldu: res/" + alt + "/" + ad)
 
     # 1) Sınıfları kopyala (paket adını yerine koyarak)
     eklentiler = []          # @CapacitorPlugin taşıyanlar: MainActivity'de kaydedilecek

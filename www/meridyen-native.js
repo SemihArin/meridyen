@@ -753,10 +753,8 @@
       return IP.pilIzniIste().catch(function () { return { muaf: false }; });
     } catch (e) { return Promise.resolve({ muaf: false }); }
   };
-  /* Yan etkisiz durum sorgusu: ayar satırı "muaf mıyız" diye buna bakıyor,
-     pencereyi boşuna açmadan. */
-  /* Arka planda çalışma kipi: WebView işleyici süreç önceliğini sabitler.
-     Sayfanın arka planda DONMAMASININ şartı bu. */
+  /* Arka planda çalışma kipi: WebView işleyici süreç önceliğini ve pencere
+     görünürlüğünü sabitler. Sayfanın arka planda DONMAMASININ şartı bu. */
   K.arkaPlanKipi = function (acik) {
     if (!yerli || typeof IP.arkaPlanKipi !== 'function') return Promise.resolve({ sabit: false });
     try {
@@ -765,12 +763,59 @@
   };
   K.arkaPlanKipiVar = yerli && typeof IP.arkaPlanKipi === 'function';
 
+  /* Yan etkisiz durum sorgusu: ayar satırı "muaf mıyız" diye buna bakıyor,
+     pencereyi boşuna açmadan. */
   K.pilDurumu = function () {
     if (!yerli || typeof IP.pilDurumu !== 'function') return Promise.resolve({ muaf: true });
     try {
       return IP.pilDurumu().catch(function () { return { muaf: false }; });
     } catch (e) { return Promise.resolve({ muaf: false }); }
   };
+
+  /* ================= ÖN/ARKA PLAN GERÇEĞİ =================
+   * MeridyenWebView arka planda Chromium'a "hâlâ görünürüm" diyor; yoksa
+   * motor sayfayı donduruyor ve arka planda hiçbir şey çalışmıyordu
+   * (tanı günlüğünde "zamanlayıcı 135 sn durmuş" satırı bunun kanıtıydı).
+   *
+   * Bunun bedeli: document.hidden artık doğruyu söylemez, hep false kalır.
+   * Sayfadaki onlarca mantık ona bakıyor ("sohbet açıkken bildirim gösterme",
+   * "arka planda kilit iste", "hikayeyi duraklat"...). Bu yüzden gerçeği
+   * yerli taraftan (Activity yaşam döngüsü) alıp document.hidden ve
+   * visibilityState'i yeniden tanımlıyoruz ve visibilitychange olayını
+   * kendimiz atıyoruz. Sonuç: motor sayfayı açık sanıyor ve çalıştırmaya
+   * devam ediyor, sayfa ise gerçeği biliyor. index.html'de tek satır
+   * değişmiyor.
+   */
+  (function () {
+    /* Yalnız görünürlüğü sabitleyen YENİ yapıda kuruluyor: eski bir APK'da
+       WebView gerçeği söylüyor olurdu ve document.hidden'ı ezmek zararlı
+       olurdu. arkaPlanKipi metodunun varlığı bu yapının imzası. */
+    if (!yerli || typeof IP.arkaPlanKipi !== 'function') return;
+    var onde = true, kuruldu = false;
+    function kur() {
+      if (kuruldu) return;
+      try {
+        Object.defineProperty(document, 'hidden', {
+          configurable: true, get: function () { return !onde; }
+        });
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true, get: function () { return onde ? 'visible' : 'hidden'; }
+        });
+        kuruldu = true;
+      } catch (e) { kuruldu = false; }
+    }
+    kur();                       // baştan yerinde olsun (açılışta ön plandayız)
+    window.addEventListener('meridyenOnPlan', function (olay) {
+      var yeni = !!(olay && olay.onde);
+      kur();
+      if (yeni === onde) return;
+      onde = yeni;
+      try { document.dispatchEvent(new Event('visibilitychange')); } catch (e) {}
+    });
+    K.ondeMi = function () { return onde; };
+    K.gorunurlukKopru = true;
+  })();
+
 })();
 
 /* ================= BİLDİRİM TEMİZLEME =================

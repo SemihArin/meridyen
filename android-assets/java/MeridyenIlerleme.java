@@ -128,9 +128,35 @@ public class MeridyenIlerleme extends Plugin {
     public void arkaPlanKipi(PluginCall call) {
         boolean acik = Boolean.TRUE.equals(call.getBoolean("acik", Boolean.TRUE));
         islemciOnceligiUygula(acik);
+        /* Asıl iş bu: WebView arka planda Chromium'a "hâlâ görünürüm" diyecek
+           mi? Demezse motor sayfayı donduruyor (bkz. MeridyenWebView). */
+        MeridyenWebView.arkaPlandaCalis = acik;
         JSObject s = new JSObject();
         s.put("sabit", oncelikSabit);
+        s.put("gorunurlukSabit", MeridyenWebView.arkaPlandaCalis);
         call.resolve(s);
+    }
+
+    /* ---- GERÇEK ÖN/ARKA PLAN BİLGİSİ ----
+     * WebView görünürlüğü sabitlendiği için sayfa artık document.hidden'a
+     * güvenemez. Gerçeği Activity yaşam döngüsünden alıp sayfaya bildiriyoruz;
+     * köprü document.hidden'ı buna göre yeniden tanımlıyor. */
+    private static boolean ondeMi = true;
+
+    @Override
+    protected void handleOnResume() { onPlanBildir(true); }
+
+    @Override
+    protected void handleOnPause() { onPlanBildir(false); }
+
+    private void onPlanBildir(boolean onde) {
+        ondeMi = onde;
+        try {
+            if (getBridge() != null) {
+                getBridge().triggerWindowJSEvent("meridyenOnPlan",
+                    "{\"onde\":" + (onde ? "true" : "false") + "}");
+            }
+        } catch (Exception e) {}
     }
 
     /** Uygulama zaten açıkken bildirime dokunulursa buraya düşer. */
@@ -348,6 +374,8 @@ public class MeridyenIlerleme extends Plugin {
             /* İşleyici (renderer) süreç önceliği sabitlendi mi? Arka planda
                sayfanın hiç durmamasının şartı bu. */
             s.put("islemciOnceligi", oncelikSabit);
+            s.put("gorunurlukSabit", MeridyenWebView.arkaPlandaCalis);
+            s.put("onde", ondeMi);
             s.put("kayanEkran", MeridyenKayanEkran.desteklenir(getContext()));
             s.put("kayanEkranIzni", MeridyenKayanEkran.izinVarMi(getContext()));
             s.put("tamEkranCagri", MeridyenCagri.tamEkranIzniVarMi(getContext()));
