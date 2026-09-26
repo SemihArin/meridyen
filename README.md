@@ -1495,6 +1495,69 @@ Riskli oldukları için bilerek bu partiye alınmadı; istersen tek tek ele alı
 - **Dokunsal geri bildirim (haptics)** ve **paylaşım sayfasına bağlanma**
   (dışarıdan Meridyen'e dosya paylaşma).
 
+## İşleyici süreci ölünce sayfa diriliyor
+
+Arka planda çalışmayı üç katmanda çözmüştük: ön plan servisi (`MeridyenNobet`)
+süreci canlı tutuyor, işleyici süreç önceliği sabitleniyor, `MeridyenWebView`
+de Chromium'a "hâlâ görünürüm" diyerek sayfanın dondurulmasını engelliyor.
+Geride tek bir delik kalmıştı ve kayıtlara donmayla **birebir aynı** yansıyordu.
+
+Sayfayı çalıştıran Chromium **işleyici süreci** (renderer) uygulamanın kendi
+süreci değil, ayrı bir sandbox süreci. Android bellek sıkıştığında uygulamayı
+öldürmeden yalnız onu öldürebiliyor. O an ortaya çıkan tablo şu:
+
+- ön plan servisi hayatta, bildirim çubuğunda "Meridyen etkin" yazıyor,
+- ama sayfa yok: Firebase'i dinleyen, gelen mesajı işleyen, bildirimi çizen
+  hiçbir JavaScript kalmamış,
+- kullanıcı uygulamayı açınca beyaz ekran görüyor.
+
+Capacitor bu olay için bir kanca sunuyor (`WebViewListener.onRenderProcessGone`)
+ama öntanımlı karşılığı `false` — "ilgilenmiyorum". Android'de bu cevabın
+anlamı kesin: **sistem uygulama sürecini öldürüyor.** Yani her işleyici ölümü
+sessiz bir çökmeyle sonuçlanıyordu.
+
+Artık karşılığı `MeridyenDirilis` veriyor: `true` dönüp toparlanmayı kendimiz
+yapıyoruz. Ölen WebView bir daha kullanılamaz, bu yüzden Activity yeniden
+yaratılıyor — yeni yerleşim, yeni WebView, yeni işleyici süreç. Sayfa sıfırdan
+yükleniyor ve dinlemeye kaldığı yerden devam ediyor. Diriltme **arka planda da**
+çalışıyor, çünkü Capacitor sayfayı `onCreate` içinde yüklüyor, görünür olmayı
+beklemiyor.
+
+Birkaç karar:
+
+- **Sonsuz döngü koruması.** Bellek gerçekten tükendiyse yeni işleyici de hemen
+  ölebilir. Aynı beş dakika içinde en çok üç kez otomatik diriltiyoruz; üstüne
+  çıkarsa arka planda pili tüketmek yerine bırakıyoruz ve diriltmeyi
+  **kullanıcı öne geldiğinde** yapıyoruz. Böylece ne döngü oluyor ne de
+  kullanıcı beyaz ekran görüyor.
+- **Ölen WebView `destroy()` edilmiyor.** Android'in tarif ettiği temizlik bu,
+  ama burada zararı faydasından çok: `destroy()` edilmiş bir WebView'ın
+  çağrıları istisna atıyor, ölü bir WebView'ın çağrıları sessizce hiçbir şey
+  yapmıyor. Diriltme kullanıcının dönüşüne bırakıldığında arada gelen bir push
+  köprüyü yoklayabiliyor; o yoklamanın çökmeye dönüşmesini istemiyoruz.
+  Activity yeniden yaratılınca eski görünüm ağacı zaten gidiyor.
+- **Her sayfa yüklenişinde ön/arka plan durumu tazeleniyor.** Köprü her
+  yüklenişte "öndeyim" varsayımıyla başlıyor; arka planda diriltme olduğunda bu
+  düzeltme olmasa sayfa kendini önde sanıp gelen mesajın bildirimini yutardı.
+- **Olay kalıcı olarak sayılıyor.** Ayarlar → **Bağlantı tanısı** artık
+  "işleyici süreci ölümü: N kez (son: 12 sn önce, bellek için öldürüldü)"
+  satırını gösteriyor, diriltme olduysa olay günlüğüne de `DİRİLDİ` satırı
+  düşüyor. Bundan sonra "arka planda durdu" şikayetinde donma ile süreç ölümü
+  **ayırt edilebilir**; şimdiye kadar edilemiyordu.
+
+### Doğrulama
+
+`MeridyenDirilis`in gerçek kodu 33 senaryoyla koşturuldu (pencere kuralı ve
+sınır değerleri, halka taşması, ilk üç ölümde otomatik diriltme, dördüncüsünde
+erteleme, öne gelince diriltme ve sayacın sıfırlanması, kalıcı kayıt, çökme ile
+bellek için öldürülmenin ayrımı, `Activity` yok/bitiyor/yıkıldı hâlleri).
+Kopyası değil dosyanın kendisi derleniyor: Android tarafında davranışına sadık
+saplamalar var, Capacitor tarafında yok — gerçek `WebViewListener`
+node_modules'ten alınıyor, böylece imza uyuşmazlığı sınamada yakalanıyor.
+Saplamalar APK'ya girmiyor. Derleme iş akışı ayrıca dinleyicinin **kayıtlı**
+olduğunu doğruluyor: sınıfın var olması yetmiyor, kayıt düşerse Capacitor yine
+`false` dönerdi. APK yerelde derlendi, `MeridyenDirilis` dex içinde.
+
 ## Diğer sıradaki adımlar
 
 - **İmzalama / Play Store**: Şu anki APK "debug" imzalı — sideload (elle

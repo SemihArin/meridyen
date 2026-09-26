@@ -6241,6 +6241,32 @@ function acilisSuresi(){ return (Date.now() - SAYFA_T0) + 'ms'; }
   window.addEventListener('pagehide', yaz);
 })();
 
+/* Bu yükleniş bir DİRİLTME mi? APK'da WebView'ın işleyici süreci ölürse yerli
+   taraf Activity'yi yeniden yaratıyor ve sayfa sıfırdan başlıyor. Kayıtlarda
+   bu, "arka planda donmuş" tablosuyla birebir aynı görünüyor; ayırt etmenin
+   tek yolu yerli sayacı sormak. Ölüm AZ ÖNCE olduysa satırı günlüğe yazıyoruz,
+   böylece kullanıcının kopyaladığı tanı metninde sebep açıkça yazıyor. */
+(function isleyiciOlumuNotu(){
+  let kalan = 20;   // köprü geç yüklenebiliyor: ~10 sn boyunca bakıyoruz
+  const bak = async () => {
+    const K = window.MeridyenKopru;
+    if (!K || !K.tani) { if (--kalan > 0) setTimeout(bak, 500); return; }
+    try {
+      const n = await K.tani();
+      if (!n || !n.isleyiciOlumu) return;
+      /* 120 sn eşiği: sayfa dirildiyse ölüm birkaç saniye öncesindedir.
+         Daha eski bir kayıt bu yüklenişi açıklamıyor, gürültü olur. */
+      if (n.isleyiciOncekiMs && n.isleyiciOncekiMs < 120000) {
+        baglantiNotu('DİRİLDİ — işleyici süreci ' +
+          Math.round(n.isleyiciOncekiMs / 1000) + ' sn önce ' +
+          (n.isleyiciCokme ? 'çöktü' : 'bellek için öldürüldü') +
+          ', sayfa yeniden yüklendi (toplam ' + n.isleyiciOlumu + ')');
+      }
+    } catch (e) {}
+  };
+  setTimeout(bak, 800);
+})();
+
 let baglantiCanli = false;      // .info/connected son değeri
 let kopukTs = 0;                // ne zamandır kopuk
 let sonDeneme = 0;              // en son ne zaman zorladık
@@ -7925,6 +7951,16 @@ $('#ayarYonetimBtn').addEventListener('click', yonetimAc);
    kaydedebildiğini ve son gönderme denemesinin adımlarını gösterir; metni
    seçip kopyalayabilirsin. */
 /* ---- bağlantı tanısı ---- */
+/* Milisaniyeyi okunur süreye çevirir: tanı metnini telefonda gözle taramak
+   gerekiyor, "8340000 ms" kimseye bir şey anlatmıyor. */
+function sureMetni(ms){
+  const sn = Math.round(ms / 1000);
+  if (sn < 60) return sn + ' sn';
+  if (sn < 3600) return Math.round(sn / 60) + ' dk';
+  if (sn < 86400) return Math.round(sn / 3600) + ' saat';
+  return Math.round(sn / 86400) + ' gün';
+}
+
 async function baglantiTanisiCiz(){
   const kutu = $('#baglantiTaniKutu');
   if (!kutu) return;
@@ -7945,6 +7981,21 @@ async function baglantiTanisiCiz(){
         d.push('pil kısıtı kalktı: ' + (n.pilSerbest ? 'evet' : 'HAYIR'));
         d.push('bildirim izni: ' + (n.bildirimAcik ? 'açık' : 'KAPALI') +
                ' / kanal önemi: ' + n.kanalOnem);
+        /* İŞLEYİCİ ÖLÜMÜ donmayla karıştırılabilen apayrı bir arıza:
+           servis ayakta kalıyor ama sayfa tümden yok oluyor, Firebase'i
+           dinleyen kimse kalmıyor. Sıfırdan büyükse şikayetin sebebi bu. */
+        if (!n.yerli) {
+          /* Tarayıcıda işleyici süreci diye bir şey yok; satırı hiç yazmıyoruz
+             ki "yok" cevabı sanki ölçülmüş gibi görünmesin. */
+        } else if (n.isleyiciOlumu) {
+          d.push('işleyici süreci ölümü: ' + n.isleyiciOlumu + ' kez' +
+                 (n.isleyiciOncekiMs
+                    ? ' (son: ' + sureMetni(n.isleyiciOncekiMs) + ' önce, ' +
+                      (n.isleyiciCokme ? 'çökme' : 'bellek için öldürüldü') + ')'
+                    : ''));
+        } else {
+          d.push('işleyici süreci ölümü: yok');
+        }
       }
     }
   } catch (e) {}

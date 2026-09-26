@@ -1,5 +1,9 @@
-node_modules/
-android/
+# Üretilen Capacitor projesi: KÖK dizindeki android/ klasörü. Desen bilerek
+# "/android/" — eğik çizgisiz "android/" her derinlikteki "android" adlı
+# klasörü yutuyor ve alt klasörlerdeki gerçek kaynak dosyalarımızı sessizce
+# commit dışında bırakıyordu.
+/android/
+/node_modules/
 *.log
 .DS_Store
 __pycache__/

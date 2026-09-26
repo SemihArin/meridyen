@@ -121,6 +121,16 @@ jobs:
       - name: Biriken bildirim kurallarını sına
         run: python3 scripts/test_biriken_bildirim.py
 
+      # İşleyici süreci (WebView renderer) ÖLÜMÜ: Android bellek sıkışınca
+      # uygulamayı öldürmeden yalnız onu öldürebiliyor. Capacitor'un bu olaya
+      # öntanımlı karşılığı "ilgilenmiyorum" ve bunun Android'deki anlamı
+      # uygulamanın öldürülmesi. Karşılığı biz veriyoruz; yanlış ayarlanırsa
+      # ya sonsuz diriltme döngüsü (pil) ya da ölü sayfa (beyaz ekran) çıkıyor.
+      # İkisi de ancak cihazda ve günler sonra görünüyor, bu yüzden gerçek
+      # sınıf burada Android saplamaları üstünde koşturuluyor.
+      - name: Diriltme mantığını sına (işleyici süreci ölümü)
+        run: python3 scripts/test_dirilis.py
+
       # Bildirim sunucusu (sunucu/): uygulama KAPALIYKEN bildirimin tek yolu.
       # Yük biçimi bozulursa Android bildirimi hiç çizmez ya da web tarafı
       # boş bildirim gösterir; ikisi de dışarıdan fark edilmez. Sınama ağsız
@@ -156,6 +166,12 @@ jobs:
             || { echo "HATA: MeridyenWebView kopyalanmamış"; exit 1; }
           grep -q 'MeridyenWebView' android/app/src/main/res/layout/bridge_layout_main.xml \
             || { echo "HATA: bridge_layout_main.xml bizim WebView'ı kullanmıyor"; exit 1; }
+          # İŞLEYİCİ SÜRECİ ÖLÜMÜ: dinleyici KAYITLI DEĞİLSE Capacitor'un
+          # öntanımlı karşılığı false dönüyor ve Android uygulamayı öldürüyor.
+          # Sınıfın var olması yetmiyor, kaydının da yerinde olması gerekiyor.
+          grep -q 'addWebViewListener(new MeridyenDirilis' \
+            "android/app/src/main/java/$PAKET/MeridyenIlerleme.java" \
+            || { echo "HATA: MeridyenDirilis dinleyicisi kayıtlı değil"; exit 1; }
           # Firebase SDK APK'nın içinde mi? (açılış hızı)
           for FB in app auth database messaging; do
             test -s "android/app/src/main/assets/public/fb/firebase-$FB-compat.js" \
@@ -166,7 +182,7 @@ jobs:
           # Bildirim yığını: kapalıyken gelen push'u çizen servis ve onun
           # dayandığı ortak sınıf. Biri eksik kalırsa uygulama kapalıyken
           # hiçbir bildirim görünmez ve bu dışarıdan hiç belli olmaz.
-          for SINIF in MeridyenBildirimler MeridyenMesajServisi MeridyenNobet MeridyenKayanEkran MeridyenBildirimSil MeridyenCagri; do
+          for SINIF in MeridyenBildirimler MeridyenMesajServisi MeridyenNobet MeridyenKayanEkran MeridyenBildirimSil MeridyenCagri MeridyenDirilis; do
             test -f "android/app/src/main/java/$PAKET/$SINIF.java" \
               || { echo "HATA: $SINIF.java kopyalanmamış"; exit 1; }
           done

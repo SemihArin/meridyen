@@ -72,6 +72,14 @@ public class MeridyenIlerleme extends Plugin {
         try { MeridyenCagri.kanaliKur(getContext()); } catch (Exception e) {}
         try { kanaliKur(); } catch (Exception e) {}
         islemciOnceligiSabitle();
+        /* İşleyici süreci ölürse sayfayı dirilten dinleyici. Kaydedilmezse
+           Capacitor'un öntanımlı karşılığı `false` dönüyor ve Android
+           uygulama sürecini öldürüyor (bkz. MeridyenDirilis). */
+        try {
+            if (getBridge() != null) {
+                getBridge().addWebViewListener(new MeridyenDirilis(getActivity()));
+            }
+        } catch (Exception e) {}
         if (getActivity() != null) niyetiIsle(getActivity().getIntent());
     }
 
@@ -144,7 +152,12 @@ public class MeridyenIlerleme extends Plugin {
     private static boolean ondeMi = true;
 
     @Override
-    protected void handleOnResume() { onPlanBildir(true); }
+    protected void handleOnResume() {
+        onPlanBildir(true);
+        /* Arka planda işleyici süreci ölmüş ve döngüye girmemek için diriltme
+           ertelenmişse, kullanıcı beyaz ekran görmeden şimdi yapılıyor. */
+        try { MeridyenDirilis.onGelindi(getActivity()); } catch (Exception e) {}
+    }
 
     @Override
     protected void handleOnPause() { onPlanBildir(false); }
@@ -157,6 +170,15 @@ public class MeridyenIlerleme extends Plugin {
                     "{\"onde\":" + (onde ? "true" : "false") + "}");
             }
         } catch (Exception e) {}
+    }
+
+    /** Sayfa (yeniden) yüklendiğinde çağrılıyor: köprü her yüklenişte
+     *  "öndeyim" varsayımıyla başlıyor, gerçeği yerli taraf biliyor. Arka
+     *  planda diriltme olduğunda bu düzeltme olmadan sayfa kendini önde
+     *  sanıyor ve gelen mesajın bildirimini yutabiliyor. */
+    public static void onPlanTazele() {
+        if (ornek == null) return;
+        try { ornek.onPlanBildir(ondeMi); } catch (Exception e) {}
     }
 
     /** Uygulama zaten açıkken bildirime dokunulursa buraya düşer. */
@@ -376,6 +398,12 @@ public class MeridyenIlerleme extends Plugin {
             s.put("islemciOnceligi", oncelikSabit);
             s.put("gorunurlukSabit", MeridyenWebView.arkaPlandaCalis);
             s.put("onde", ondeMi);
+            /* WebView'ın işleyici süreci kaç kez öldü? Sıfırdan büyükse
+               "arka planda durdu" şikayetinin sebebi donma DEĞİL, sayfanın
+               tümden yok olmasıydı — ikisi kayıtlarda aynı görünüyor. */
+            s.put("isleyiciOlumu", MeridyenDirilis.sayi(getContext()));
+            s.put("isleyiciOncekiMs", MeridyenDirilis.oncekiMs(getContext()));
+            s.put("isleyiciCokme", MeridyenDirilis.cokmeMiydi(getContext()));
             s.put("kayanEkran", MeridyenKayanEkran.desteklenir(getContext()));
             s.put("kayanEkranIzni", MeridyenKayanEkran.izinVarMi(getContext()));
             s.put("tamEkranCagri", MeridyenCagri.tamEkranIzniVarMi(getContext()));
