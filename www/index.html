@@ -6076,12 +6076,30 @@ function yuklemeBitir(){
    Yükleme yine otomatik başlar (kullanıcı dokunmayı beklemez) ki vitrindeyken
    gelen mesaj ve çağrı bildirimleri çalışmayı sürdürsün. */
 let firebaseHazir = false, firebaseSozu = null;
-const FIREBASE_DOSYALARI = [
-  'https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js',
-  'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js',
-  'https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js',
-  'https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js'
+const FIREBASE_SURUM = '10.14.1';
+const FIREBASE_ADLAR = [
+  'firebase-app-compat.js',
+  'firebase-auth-compat.js',
+  'firebase-database-compat.js',
+  'firebase-messaging-compat.js'
 ];
+/* APK içinde miyiz? Capacitor köprüsü sayfadan ÖNCE yükleniyor; ayrıca
+   Android'de sayfa https://localhost üstünden sunuluyor. */
+const YERLI_KOSU = (function(){
+  try {
+    if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function'
+        && window.Capacitor.isNativePlatform()) return true;
+    return location.hostname === 'localhost';
+  } catch (e) { return false; }
+})();
+/* SDK APK'nın İÇİNDE (bkz. scripts/bundle_firebase.py). Her açılışta dört
+   dosyayı gstatic'ten indirmek mobil ağda saniyeler demekti: uygulama
+   açılıyor ama mesajlar SDK inene kadar gelmiyordu. Yerel dosya yoksa
+   (canlı site) CDN'e düşülüyor — davranış hiçbir yerde bozulmuyor. */
+const FIREBASE_DOSYALARI = FIREBASE_ADLAR.map(ad => ({
+  yerel: YERLI_KOSU ? ('fb/' + ad) : null,
+  uzak: 'https://www.gstatic.com/firebasejs/' + FIREBASE_SURUM + '/' + ad
+}));
 
 function betikYukle(src){
   return new Promise((coz, red) => {
@@ -6093,10 +6111,21 @@ function betikYukle(src){
     document.head.appendChild(s);
   });
 }
+/* Önce yerel, olmazsa CDN. */
+function betikYukleYedekli(kayit){
+  if (!kayit.yerel) return betikYukle(kayit.uzak);
+  return betikYukle(kayit.yerel).catch(() => {
+    baglantiNotu('SDK yerelden yüklenemedi, CDN deneniyor: ' + kayit.yerel);
+    return betikYukle(kayit.uzak);
+  });
+}
 
 function firebaseBaslat(){
   if (firebaseSozu) return firebaseSozu;
-  firebaseSozu = Promise.all(FIREBASE_DOSYALARI.map(betikYukle)).then(() => {
+  const t0 = Date.now();
+  firebaseSozu = Promise.all(FIREBASE_DOSYALARI.map(betikYukleYedekli)).then(() => {
+    baglantiNotu('SDK yüklendi (' + (Date.now() - t0) + 'ms, ' +
+                 (YERLI_KOSU ? 'yerel' : 'CDN') + ')');
     firebase.initializeApp(FIREBASE_CONFIG);
     auth = firebase.auth();
     db = firebase.database();
@@ -6192,6 +6221,25 @@ function baglantiNotu(metin){
     if (baglantiGunlugu.length > BAGLANTI_GUNLUK_MAKS) baglantiGunlugu.shift();
   } catch (e) {}
 }
+
+/* SAYFA YENİDEN BAŞLADI MI?
+   Uygulamaya dönünce günlüğün boşalması, sayfanın baştan yüklendiğini
+   gösterir; o zaman arka planda hiçbir şey çalışmamış demektir. Önceki
+   oturumun son izini localStorage'da tutuyoruz ki bunu TAHMİN etmeyelim. */
+const SAYFA_T0 = Date.now();
+function acilisSuresi(){ return (Date.now() - SAYFA_T0) + 'ms'; }
+(function sayfaBasladiNotu(){
+  let onceki = 0;
+  try { onceki = Number(localStorage.getItem('meridyen_sonGorulme') || 0) || 0; } catch (e) {}
+  baglantiNotu('SAYFA BAŞLADI' + (onceki
+    ? ' — önceki oturumun son izi ' + Math.round((Date.now() - onceki) / 1000) + ' sn önce'
+    : ' (ilk kez)'));
+  const yaz = () => { try { localStorage.setItem('meridyen_sonGorulme', String(Date.now())); } catch (e) {} };
+  yaz();
+  setInterval(yaz, 5000);
+  document.addEventListener('visibilitychange', yaz);
+  window.addEventListener('pagehide', yaz);
+})();
 
 let baglantiCanli = false;      // .info/connected son değeri
 let kopukTs = 0;                // ne zamandır kopuk
@@ -6399,8 +6447,11 @@ $('#baglantiUyari').addEventListener('click', () => {
 /* Vitrin boyandıktan sonra, tarayıcı boştayken başlat. */
 function firebaseyiSiradaBaslat(){
   const calistir = () => { firebaseBaslat().catch(() => {}); };
-  // Kısa zaman aşımı: ilk boyamaya yer açacak kadar bekler ama sohbet bu sitenin
-  // asıl işi olduğu için bağlantıyı fazla geciktirmez.
+  /* APK'DA BEKLEME YOK. Orada SDK zaten yerel dosyadan geliyor ve kullanıcı
+     uygulamayı sohbet için açıyor; boşta beklemek "açtım, mesajlar 2-3
+     saniye sonra geldi" hissinin doğrudan sebebiydi. Sitede ise vitrinin
+     ilk boyaması öncelikli, orada eski davranış sürüyor. */
+  if (YERLI_KOSU) return calistir();
   if ('requestIdleCallback' in window) requestIdleCallback(calistir, { timeout: 600 });
   else setTimeout(calistir, 400);
 }
@@ -6431,6 +6482,7 @@ async function oturumDegisti(kullanici){
   }
   ben = kullanici;
   oturumVar = true;
+  baglantiNotu('oturum çözüldü (' + acilisSuresi() + ')');
   benimAdim = await adimiCoz(kullanici);
   hesapDurumu();
   // Mesaj, bildirim ve arama dinleyicileri oturum açıkken çalışmalı;
@@ -7145,6 +7197,7 @@ async function profilGetir(uid){
 
 function kanaliBaslat(){
   kanalAcik = true;
+  baglantiNotu('dinleyiciler kuruldu (' + acilisSuresi() + ')');
   const uid = ben.uid;
   const kadi = kullaniciAdi(ben);
 
@@ -7215,6 +7268,7 @@ function kanaliBaslat(){
         if (yeniMi) sistemBildirimi(digeri, veri.sonMesaj || 'Yeni mesaj');
       });
     }
+    if (ilkKisiYuklemesi) baglantiNotu('sohbet listesi geldi (' + acilisSuresi() + ')');
     ilkKisiYuklemesi = false;
     kisilerIlkYukleme = false;   // iskelet kalksın, gerçek durum gösterilsin
     kisiler = gelen;
@@ -14520,6 +14574,7 @@ async function sohbetAc(uid){
          eski mesaj yüklemeyi tamamen kilitliyordu. */
       if (!aktifSohbet || aktifSohbet.sid !== sid) return;
       mesajIskeletiKaldir();   // sohbet boşsa da iskelet kalkmalı
+      if (!deneme) baglantiNotu('ilk mesaj sayfası geldi (' + acilisSuresi() + ')');
       // Gelen ilk sayfa tam değilse geçmişin tamamı zaten yüklendi demektir.
       if (s.numChildren() < MESAJ_SAYFA) mesajGecmisBitti = true;
       mesajTepeTazele();

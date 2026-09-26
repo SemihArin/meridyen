@@ -121,6 +121,12 @@ jobs:
       - name: Biriken bildirim kurallarını sına
         run: python3 scripts/test_biriken_bildirim.py
 
+      # Firebase SDK APK'nın İÇİNE: her açılışta gstatic'ten dört dosya
+      # indirmek mobil ağda saniyeler demekti ve uygulama açılır açılmaz
+      # mesajların gelmemesinin en büyük payı buydu.
+      - name: Firebase SDK'sını APK'ya göm
+        run: python3 scripts/bundle_firebase.py
+
       - name: Bildirim köprüsünü ekle
         run: python3 scripts/inject_native_script.py
 
