@@ -755,6 +755,16 @@
   };
   /* Yan etkisiz durum sorgusu: ayar satırı "muaf mıyız" diye buna bakıyor,
      pencereyi boşuna açmadan. */
+  /* Arka planda çalışma kipi: WebView işleyici süreç önceliğini sabitler.
+     Sayfanın arka planda DONMAMASININ şartı bu. */
+  K.arkaPlanKipi = function (acik) {
+    if (!yerli || typeof IP.arkaPlanKipi !== 'function') return Promise.resolve({ sabit: false });
+    try {
+      return IP.arkaPlanKipi({ acik: !!acik }).catch(function () { return { sabit: false }; });
+    } catch (e) { return Promise.resolve({ sabit: false }); }
+  };
+  K.arkaPlanKipiVar = yerli && typeof IP.arkaPlanKipi === 'function';
+
   K.pilDurumu = function () {
     if (!yerli || typeof IP.pilDurumu !== 'function') return Promise.resolve({ muaf: true });
     try {

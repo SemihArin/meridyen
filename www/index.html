@@ -6347,6 +6347,22 @@ window.addEventListener('focus', () => { if (!document.hidden && gizlendiTs) one
    SUNUCUYA küçük bir yazma yapıyoruz. Yazma hem hattı sıcak tutuyor hem de
    bağlantı ölmüşse bunu 45 saniye beklemeden fark ettiriyor.
    Yalnız "Arka planda bağlı kal" açıkken ve oturum varken çalışıyor. */
+/* ---- DONMA ÖLÇER ----
+   "Arka planda çalışmıyor" iddiasını kanıta bağlayan tek şey bu: on saniyede
+   bir sadece saate bakıyoruz. İki tik arası beklenenden ÇOK uzunsa sayfa o
+   süre boyunca hiç çalışmamış (işleyici süreç dondurulmuş) demektir.
+   Tanı günlüğünde bunun izi vardı: 9 dakikalık arka planda tek satır yoktu. */
+let sonTik = Date.now(), enUzunDonma = 0;
+setInterval(() => {
+  const simdi = Date.now();
+  const fark = simdi - sonTik;
+  sonTik = simdi;
+  if (fark > 25000) {                       // 10 sn'lik tik, 25 sn'yi aşarsa duraklama
+    if (fark > enUzunDonma) enUzunDonma = fark;
+    baglantiNotu('zamanlayıcı ' + Math.round(fark / 1000) + ' sn durmuş');
+  }
+}, 10000);
+
 let kalpAtisi = null;
 function kalpAtisiKur(){
   clearInterval(kalpAtisi);
@@ -7855,7 +7871,7 @@ $('#ayarYonetimBtn').addEventListener('click', yonetimAc);
    kaydedebildiğini ve son gönderme denemesinin adımlarını gösterir; metni
    seçip kopyalayabilirsin. */
 /* ---- bağlantı tanısı ---- */
-function baglantiTanisiCiz(){
+async function baglantiTanisiCiz(){
   const kutu = $('#baglantiTaniKutu');
   if (!kutu) return;
   const d = [];
@@ -7865,6 +7881,21 @@ function baglantiTanisiCiz(){
   d.push('arka planda bağlı kal: ' + (tercihler.arkaPlanBagli ? 'açık' : 'kapalı'));
   d.push('nöbet servisi: ' + (window.MeridyenKopru && window.MeridyenKopru.nobetVar
                               ? 'var (APK)' : 'yok (tarayıcı)'));
+  /* Arka planda çalışmanın ASIL şartları: işleyici süreç önceliği sabit mi,
+     pil kısıtı kalktı mı. Biri bile eksikse sayfa arka planda donar. */
+  try {
+    if (window.MeridyenKopru && window.MeridyenKopru.tani) {
+      const n = await window.MeridyenKopru.tani();
+      if (n) {
+        d.push('işleyici önceliği sabit: ' + (n.islemciOnceligi ? 'EVET' : 'hayır'));
+        d.push('pil kısıtı kalktı: ' + (n.pilSerbest ? 'evet' : 'HAYIR'));
+        d.push('bildirim izni: ' + (n.bildirimAcik ? 'açık' : 'KAPALI') +
+               ' / kanal önemi: ' + n.kanalOnem);
+      }
+    }
+  } catch (e) {}
+  d.push('en uzun zamanlayıcı duraklaması: ' +
+         (enUzunDonma ? Math.round(enUzunDonma / 1000) + ' sn' : 'yok'));
   if (kopukTs) d.push('kopalı: ' + Math.round((Date.now() - kopukTs) / 1000) + ' sn');
   d.push('');
   d.push('— son olaylar —');
@@ -7940,8 +7971,14 @@ anahtarKur('#ayarKayitAnahtar', 'kayitGoster', () => {
    beri arka plandan başlatmak reddediliyor. Bu yüzden oturum açılınca ve
    ayar değişince burada çağırıyoruz, sayfa gizlenince değil. */
 function nobetiTazele(){
-  if (!window.MeridyenKopru || !window.MeridyenKopru.nobetVar) return;
+  if (!window.MeridyenKopru) return;
   const olmali = !!(oturumVar && tercihler.arkaPlanBagli);
+  /* İKİ AYRI KORUMA, ikisi de gerekli:
+     1) Ön plan servisi UYGULAMA sürecini koruyor.
+     2) İşleyici (renderer) önceliği SAYFANIN sürecini koruyor — sayfa ayrı
+        bir süreçte çalışıyor ve asıl donan oydu. */
+  if (window.MeridyenKopru.arkaPlanKipi) window.MeridyenKopru.arkaPlanKipi(olmali);
+  if (!window.MeridyenKopru.nobetVar) return;
   window.MeridyenKopru.nobet(olmali);
 }
 function arkaPlanSatirlariniCiz(){

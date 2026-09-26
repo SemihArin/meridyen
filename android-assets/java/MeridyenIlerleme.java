@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.Window;
+import android.webkit.WebView;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -70,7 +71,66 @@ public class MeridyenIlerleme extends Plugin {
         try { MeridyenBildirimler.mesajKanaliniKur(getContext()); } catch (Exception e) {}
         try { MeridyenCagri.kanaliKur(getContext()); } catch (Exception e) {}
         try { kanaliKur(); } catch (Exception e) {}
+        islemciOnceligiSabitle();
         if (getActivity() != null) niyetiIsle(getActivity().getIntent());
+    }
+
+    /* ================= ARKA PLANDA ÇALIŞMAYA DEVAM =================
+     * ASIL SORUN BURADAYDI. WebView'ın sayfayı çalıştıran İŞLEYİCİ SÜRECİ
+     * (renderer) uygulamanın kendi süreci DEĞİL, ayrı bir sandbox süreci.
+     * Ön plan servisi ve uyanık tutma kilidi yalnız UYGULAMA sürecini
+     * koruyor; işleyici süreç korumasız kalıyordu.
+     *
+     * WebView'ın varsayılan ilkesi: "görünür değilken önceliği BIRAK"
+     * (setRendererPriorityPolicy(..., waivedWhenNotVisible = true)).
+     * Uygulama arka plana düşünce işleyici süreç arka plan önceliğine
+     * iniyor ve Android (özellikle 14'ün donducurusu) onu donduruyor:
+     * sayfadaki BÜTÜN JavaScript duruyor. Tanı günlüğünde bunun kanıtı
+     * vardı — 9 dakikalık arka planda 30 saniyede bir çalışması gereken
+     * kalp atışından TEK SATIR bile yoktu, dönüşte her şey kaldığı yerden
+     * devam ediyordu.
+     *
+     * Çözüm tek satır: önceliği "önemli" olarak SABİTLE, görünür olmasa da
+     * bırakma. Böylece sayfa arka planda da çalışmaya devam ediyor;
+     * zamanlayıcılar, dinleyiciler, yükleme ve bildirim çizimi durmuyor.
+     */
+    private static boolean oncelikSabit = false;
+
+    private void islemciOnceligiSabitle() { islemciOnceligiUygula(true); }
+
+    /** koru=true: görünür olmasa da önceliği bırakma (arka planda çalışmaya
+     *  devam). koru=false: WebView'ın varsayılanına dön — kullanıcı "arka
+     *  planda bağlı kal" ayarını kapattıysa uygulama gerçekten sussun. */
+    private void islemciOnceligiUygula(final boolean koru) {
+        try {
+            final WebView wv = (getBridge() != null) ? getBridge().getWebView() : null;
+            if (wv == null) return;
+            wv.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            wv.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, !koru);
+                            oncelikSabit = koru;
+                        }
+                        /* Zamanlayıcılar global olarak durdurulmuş olabilir
+                           (başka bir bileşen pauseTimers çağırmışsa). Emniyet. */
+                        if (koru) wv.resumeTimers();
+                    } catch (Exception e) {
+                        oncelikSabit = false;
+                    }
+                }
+            });
+        } catch (Exception e) {}
+    }
+
+    @PluginMethod
+    public void arkaPlanKipi(PluginCall call) {
+        boolean acik = Boolean.TRUE.equals(call.getBoolean("acik", Boolean.TRUE));
+        islemciOnceligiUygula(acik);
+        JSObject s = new JSObject();
+        s.put("sabit", oncelikSabit);
+        call.resolve(s);
     }
 
     /** Uygulama zaten açıkken bildirime dokunulursa buraya düşer. */
@@ -285,6 +345,9 @@ public class MeridyenIlerleme extends Plugin {
                Samsung...) uygulamayı uyutup push teslimini geciktirebiliyor. */
             s.put("pilSerbest", pilSerbest);
             s.put("nobet", MeridyenNobet.calisiyor);
+            /* İşleyici (renderer) süreç önceliği sabitlendi mi? Arka planda
+               sayfanın hiç durmamasının şartı bu. */
+            s.put("islemciOnceligi", oncelikSabit);
             s.put("kayanEkran", MeridyenKayanEkran.desteklenir(getContext()));
             s.put("kayanEkranIzni", MeridyenKayanEkran.izinVarMi(getContext()));
             s.put("tamEkranCagri", MeridyenCagri.tamEkranIzniVarMi(getContext()));
