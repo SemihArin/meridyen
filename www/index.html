@@ -11439,7 +11439,8 @@ async function aramaBaslat(tur){
     });
     await db.ref('cagri/' + aramaHedef).set({ sid: aramaSid, arayan: ben.uid, tur, ts: sunucuSaati() });
     bildirimKuyruguna(aramaHedef, 'arama', benimAdim,
-      tur === 'goruntu' ? 'Görüntülü arıyor' : 'Sesli arıyor', { sid: aramaSid });
+      tur === 'goruntu' ? 'Görüntülü arıyor' : 'Sesli arıyor',
+      { sid: aramaSid, aramaTuru: tur });
     // sekme kapanırsa çağrı ortada kalmasın
     db.ref('cagri/' + aramaHedef).onDisconnect().remove().catch(() => {});
     db.ref('aramalar/' + aramaSid).onDisconnect().remove().catch(() => {});
@@ -12798,6 +12799,9 @@ function bildirimKuyruguna(hedefUid, tur, baslik, metin, ek){
     ts: firebase.database.ServerValue.TIMESTAMP
   };
   if (ek && ek.sid) kayit.sid = ek.sid;
+  /* Çağrıda ses mi görüntü mü: yerli taraf tam ekran çağrı ekranını buna
+     göre kuruyor (bkz. MeridyenCagri). Metinden tahmin etmek kırılgandı. */
+  if (ek && ek.aramaTuru) kayit.aramaTuru = ek.aramaTuru;
   db.ref('bildirimKuyrugu').push(kayit).catch(() => {});
 }
 

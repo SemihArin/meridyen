@@ -121,6 +121,13 @@ jobs:
       - name: Biriken bildirim kurallarını sına
         run: python3 scripts/test_biriken_bildirim.py
 
+      # Bildirim sunucusu (sunucu/): uygulama KAPALIYKEN bildirimin tek yolu.
+      # Yük biçimi bozulursa Android bildirimi hiç çizmez ya da web tarafı
+      # boş bildirim gösterir; ikisi de dışarıdan fark edilmez. Sınama ağsız
+      # çalışıyor (sahte Admin SDK), bu yüzden burada koşabiliyor.
+      - name: Bildirim sunucusunu sına
+        run: node sunucu/test.js
+
       # Firebase SDK APK'nın İÇİNE: her açılışta gstatic'ten dört dosya
       # indirmek mobil ağda saniyeler demekti ve uygulama açılır açılmaz
       # mesajların gelmemesinin en büyük payı buydu.

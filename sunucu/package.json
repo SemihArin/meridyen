@@ -1,0 +1,16 @@
+{
+  "name": "meridyen-bildirim-sunucusu",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Meridyen — RTDB kuyruğunu dinleyip Android ve web'e FCM push gönderen sunucu",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test.js",
+    "dene": "node dene.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}
