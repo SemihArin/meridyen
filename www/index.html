@@ -6380,9 +6380,20 @@ function oneGelindi(){
      olaylarının birkaçı birden ateşleniyor (günlükte üst üste üç "öne geldi"
      satırı bundandı). Aynı dönüşü bir kez işliyoruz. */
   if (Date.now() - sonOneGelme < 1500) return;
+
+  /* HÂLÂ ARKADAYSAK BU "ÖNE GELME" DEĞİL. Yaşam Döngüsü 'resume' olayı sayfa
+     donmadan çözülünce ateşleniyor ve bu ARKA PLANDA da olabiliyor. Eskiden
+     buraya düşüyordu: gizlendiTs siliniyor, süre "0sn" yazılıyor ve 1500 ms
+     yineleme kilidi gerçek öne gelme olayını yutuyordu. Günlükte bunun izi
+     açıkça vardı — "[arka] öne geldi (0sn arka planda)" satırları, 18 dakika
+     donmuş bir sayfadan sonra. Çözülmeyi ayrı ele alıyoruz. */
+  if (document.hidden) { cozulduIsle(); return; }
   sonOneGelme = Date.now();
 
-  const gecen = gizlendiTs ? Date.now() - gizlendiTs : 0;
+  /* Süre birinci elden gizlendiTs'ten; o bir sebeple boşsa donma ölçerinin
+     son duraklamasından. İkisi de yoksa gerçekten kısa bir geçiştir. */
+  let gecen = gizlendiTs ? Date.now() - gizlendiTs : 0;
+  if (!gecen && enUzunDonma && Date.now() - sonDonmaTs < 5000) gecen = enUzunDonma;
   gizlendiTs = 0;
   kopukDeneme = 0;                       // öne dönüşte beklemeyi sıfırla
   baglantiNotu('öne geldi (' + Math.round(gecen / 1000) + 'sn arka planda)' +
@@ -6404,7 +6415,20 @@ window.addEventListener('pageshow', (e) => { if (e.persisted) oneGelindi(); });
 /* Sayfa Yaşam Döngüsü: WebView uzun süre arka planda kalınca sayfayı
    dondurabiliyor (zamanlayıcılar dahil her şey durur). Çözülme anını
    yakalayıp bağlantıyı orada da sınıyoruz. */
-document.addEventListener('freeze', () => { gizlendiTs = Date.now(); });
+document.addEventListener('freeze', () => { gizlendiTs = gizlendiTs || Date.now(); });
+/* Sayfa arka planda dondu ve çözüldü: öne gelmiş DEĞİL. gizlendiTs'e
+   dokunmuyoruz (hâlâ arka plandayız, sayaç işlemeye devam etmeli) ve yineleme
+   kilidini harcamıyoruz ki gerçek öne gelme olayı yutulmasın. Tek işimiz
+   bağlantının donma boyunca ölüp ölmediğine bakmak. */
+let sonCozulme = 0;
+function cozulduIsle(){
+  if (Date.now() - sonCozulme < 1500) return;
+  sonCozulme = Date.now();
+  baglantiNotu('donmadan çözüldü (arka planda)' + (baglantiCanli ? ' — bağlı' : ' — KOPUK'));
+  if (!firebaseHazir) return;
+  if (!baglantiCanli) return baglantiyiZorla('donmadan çözüldü, kopuk');
+  if (Date.now() - sonYoklamaTs > 60000) baglantiyiSina(false, 12000);
+}
 document.addEventListener('resume', () => oneGelindi());
 window.addEventListener('focus', () => { if (!document.hidden && gizlendiTs) oneGelindi(); });
 
@@ -6426,13 +6450,15 @@ window.addEventListener('focus', () => { if (!document.hidden && gizlendiTs) one
    bir sadece saate bakıyoruz. İki tik arası beklenenden ÇOK uzunsa sayfa o
    süre boyunca hiç çalışmamış (işleyici süreç dondurulmuş) demektir.
    Tanı günlüğünde bunun izi vardı: 9 dakikalık arka planda tek satır yoktu. */
-let sonTik = Date.now(), enUzunDonma = 0;
+let sonTik = Date.now(), enUzunDonma = 0, donmaSayisi = 0, sonDonmaTs = 0;
 setInterval(() => {
   const simdi = Date.now();
   const fark = simdi - sonTik;
   sonTik = simdi;
   if (fark > 25000) {                       // 10 sn'lik tik, 25 sn'yi aşarsa duraklama
     if (fark > enUzunDonma) enUzunDonma = fark;
+    donmaSayisi++;
+    sonDonmaTs = simdi;
     baglantiNotu('zamanlayıcı ' + Math.round(fark / 1000) + ' sn durmuş');
   }
 }, 10000);
@@ -7969,15 +7995,30 @@ async function baglantiTanisiCiz(){
                       : baglantiCanli ? 'BAĞLI' : 'KOPUK'));
   d.push('ağ (tarayıcı): ' + (navigator.onLine === false ? 'yok' : 'var'));
   d.push('arka planda bağlı kal: ' + (tercihler.arkaPlanBagli ? 'açık' : 'kapalı'));
-  d.push('nöbet servisi: ' + (window.MeridyenKopru && window.MeridyenKopru.nobetVar
-                              ? 'var (APK)' : 'yok (tarayıcı)'));
+  /* Eskiden burada yalnız `nobetVar` yazıyordu — o "eklentinin nöbet metodu
+     var mı" demek, yani hep APK'da 'var'. Servisin GERÇEKTEN çalışıp
+     çalışmadığını hiç göstermiyordu; oysa çalışmıyorsa Android süreci
+     donduruyor ve üstteki her şey anlamsız kalıyor. Gerçek durum aşağıda,
+     yerli tanıdan (`nobet`) okunuyor. */
+  if (!(window.MeridyenKopru && window.MeridyenKopru.nobetVar)) {
+    d.push('nöbet servisi: yok (tarayıcı)');
+  }
   /* Arka planda çalışmanın ASIL şartları: işleyici süreç önceliği sabit mi,
      pil kısıtı kalktı mı. Biri bile eksikse sayfa arka planda donar. */
   try {
     if (window.MeridyenKopru && window.MeridyenKopru.tani) {
       const n = await window.MeridyenKopru.tani();
       if (n) {
+        d.push('nöbet servisi çalışıyor: ' + (n.nobet ? 'EVET' : 'HAYIR'));
         d.push('işleyici önceliği sabit: ' + (n.islemciOnceligi ? 'EVET' : 'hayır'));
+        /* ARKA PLANDA DONMAYI ENGELLEYEN ASIL ŞART. Bayrağın açık olması
+           yetmiyor: WebView alt sınıfımız gerçekten örneklenmiş olmalı.
+           Bir kez layout ezmesi yanlış dosyayı eziyordu — bayrak açıktı,
+           sınıf derlenmişti, ama canlı WebView Capacitor'un kendisiydi ve
+           sayfa arka planda donuyordu. Tanıda görünmediği için anlaşılmadı. */
+        d.push('görünürlük sabit: ' + (n.gorunurlukCalisiyor ? 'EVET' : 'HAYIR') +
+               ' (' + (n.webviewSinif || '?') + ', ayar ' +
+               (n.gorunurlukSabit ? 'açık' : 'kapalı') + ')');
         d.push('pil kısıtı kalktı: ' + (n.pilSerbest ? 'evet' : 'HAYIR'));
         d.push('bildirim izni: ' + (n.bildirimAcik ? 'açık' : 'KAPALI') +
                ' / kanal önemi: ' + n.kanalOnem);
@@ -7999,8 +8040,11 @@ async function baglantiTanisiCiz(){
       }
     }
   } catch (e) {}
-  d.push('en uzun zamanlayıcı duraklaması: ' +
-         (enUzunDonma ? Math.round(enUzunDonma / 1000) + ' sn' : 'yok'));
+  d.push('zamanlayıcı duraklaması: ' +
+         (enUzunDonma
+            ? donmaSayisi + ' kez, en uzun ' + Math.round(enUzunDonma / 1000) +
+              ' sn, son ' + sureMetni(Date.now() - sonDonmaTs) + ' önce'
+            : 'yok'));
   if (kopukTs) d.push('kopalı: ' + Math.round((Date.now() - kopukTs) / 1000) + ' sn');
   d.push('');
   d.push('— son olaylar —');

@@ -164,8 +164,14 @@ jobs:
           # planda donar ve bu dışarıdan hiç belli olmaz.
           test -f "android/app/src/main/java/$PAKET/MeridyenWebView.java" \
             || { echo "HATA: MeridyenWebView kopyalanmamış"; exit 1; }
-          grep -q 'MeridyenWebView' android/app/src/main/res/layout/bridge_layout_main.xml \
-            || { echo "HATA: bridge_layout_main.xml bizim WebView'ı kullanmıyor"; exit 1; }
+          # Layout ezmesi: adı Capacitor'un BridgeActivity kaynağından okunuyor
+          # ve ezmenin GERÇEKTEN açılan dosya olduğu install_native_plugin.py
+          # içinde doğrulanıyor (yanlış adlı bir ezme sessizce hiçbir şey
+          # yapmıyor — bir kez tam olarak bu oldu). Burada kurulmuş olduğunu
+          # aynı kaynaktan türetilen adla teyit ediyoruz.
+          LAYOUT=$(python3 -c "import io,re;j=io.open('node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/BridgeActivity.java',encoding='utf-8').read();a=[x for x in re.findall(r'setContentView\(R\.layout\.(\w+)\)',j) if x!='no_webview'];print(a[0])")
+          grep -q 'MeridyenWebView' "android/app/src/main/res/layout/$LAYOUT.xml" \
+            || { echo "HATA: Capacitor'un açtığı layout ($LAYOUT) bizim WebView'ı kullanmıyor"; exit 1; }
           # İŞLEYİCİ SÜRECİ ÖLÜMÜ: dinleyici KAYITLI DEĞİLSE Capacitor'un
           # öntanımlı karşılığı false dönüyor ve Android uygulamayı öldürüyor.
           # Sınıfın var olması yetmiyor, kaydının da yerinde olması gerekiyor.

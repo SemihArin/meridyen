@@ -26,6 +26,34 @@ import sys
 KAYNAK_KLASOR = "android-assets/java"
 KAYNAK_KAYNAKLAR = "android-assets/res"      # layout vb. (Capacitor'unkini ezen)
 
+# Capacitor'un BridgeActivity'si burada. Ezdiğimiz layout'un adını ONDAN
+# okuyoruz; sabit yazsaydık sürüm değişiminde sessizce yanlışa düşerdi.
+BRIDGE_ACTIVITY = ("node_modules/@capacitor/android/capacitor/src/main/java/"
+                   "com/getcapacitor/BridgeActivity.java")
+
+
+def acilan_layout():
+    """Capacitor'un GERÇEKTEN setContentView ettiği layout'un adını döndürür.
+
+    NİÇİN OKUNUYOR: Capacitor 7 res/layout altında iki dosya taşıyor —
+    bridge_layout_main.xml (eski, artık açılmıyor) ve
+    capacitor_bridge_layout_main.xml (açılan). Bir kez yanlış olan ezildi:
+    dosya APK'ya giriyordu, MeridyenWebView derleniyordu, ama Capacitor
+    öbürünü açtığı için sınıf hiç örneklenmedi ve arka planda donma aylarca
+    sürdü. Dışarıdan hiçbir belirtisi yoktu. Artık ad kaynaktan okunuyor:
+    Capacitor yeniden adlandırırsa derleme burada kırılıyor.
+    """
+    if not os.path.isfile(BRIDGE_ACTIVITY):
+        sys.exit("HATA: Capacitor kaynağı yok (npm ci çalıştı mı?): " + BRIDGE_ACTIVITY)
+    with io.open(BRIDGE_ACTIVITY, encoding="utf-8") as f:
+        java = f.read()
+    # Hata yolundaki setContentView(R.layout.no_webview) elenmeli.
+    adlar = [a for a in re.findall(r"setContentView\(R\.layout\.(\w+)\)", java)
+             if a != "no_webview"]
+    if len(set(adlar)) != 1:
+        sys.exit("HATA: BridgeActivity'de açılan layout tek değil: %r" % (adlar,))
+    return adlar[0]
+
 
 def main():
     with io.open("capacitor.config.json", encoding="utf-8") as f:
@@ -57,6 +85,23 @@ def main():
                 with io.open(hedef, "w", encoding="utf-8") as f:
                     f.write(icerik)
                 print("kaynak kuruldu: res/" + alt + "/" + ad)
+
+    # Layout ezmesi DOĞRU DOSYAYI mı eziyor? Bu kontrol olmasa yanlış adlı bir
+    # ezme sessizce hiçbir şey yapmaz (bir kez tam olarak bu oldu).
+    beklenen = acilan_layout()
+    ezme = os.path.join(KAYNAK_KAYNAKLAR, "layout", beklenen + ".xml")
+    if not os.path.isfile(ezme):
+        sys.exit("HATA: Capacitor '%s' layout'unu açıyor ama ezmemiz yok: %s\n"
+                 "     (android-assets/res/layout/ içeriği: %s)"
+                 % (beklenen, ezme,
+                    sorted(os.listdir(os.path.join(KAYNAK_KAYNAKLAR, "layout")))))
+    with io.open(ezme, encoding="utf-8") as f:
+        if "MeridyenWebView" not in f.read():
+            sys.exit("HATA: %s bizim WebView alt sınıfımızı kullanmıyor." % ezme)
+    kurulan = os.path.join("android/app/src/main/res/layout", beklenen + ".xml")
+    if not os.path.isfile(kurulan):
+        sys.exit("HATA: layout ezmesi kurulmadı: " + kurulan)
+    print("layout ezmesi doğrulandı: Capacitor %s açıyor, ezme yerinde." % beklenen)
 
     # 1) Sınıfları kopyala (paket adını yerine koyarak)
     eklentiler = []          # @CapacitorPlugin taşıyanlar: MainActivity'de kaydedilecek

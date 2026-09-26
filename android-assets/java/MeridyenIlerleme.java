@@ -397,6 +397,14 @@ public class MeridyenIlerleme extends Plugin {
                sayfanın hiç durmamasının şartı bu. */
             s.put("islemciOnceligi", oncelikSabit);
             s.put("gorunurlukSabit", MeridyenWebView.arkaPlandaCalis);
+            /* HANGİ WebView sınıfı CANLI? Bayrağın açık olması yetmiyor: sınıf
+               gerçekten örneklenmediyse bayrak hiçbir şey yapmıyor. Tam bu
+               oldu — layout ezmesi yanlış dosyayı eziyordu, sınıf derleniyordu
+               ama Capacitor kendi WebView'ını açıyordu ve arka planda donma
+               sürüyordu. Tanıda görünmediği için aylarca fark edilmedi. */
+            WebView wv = (getBridge() != null) ? getBridge().getWebView() : null;
+            s.put("webviewSinif", wv == null ? "yok" : wv.getClass().getSimpleName());
+            s.put("gorunurlukCalisiyor", wv instanceof MeridyenWebView);
             s.put("onde", ondeMi);
             /* WebView'ın işleyici süreci kaç kez öldü? Sıfırdan büyükse
                "arka planda durdu" şikayetinin sebebi donma DEĞİL, sayfanın

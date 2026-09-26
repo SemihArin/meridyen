@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Capacitor'un KENDİ AÇTIĞI layout'unu EZİYOR (uygulama modülünün kaynağı
+     kitaplığınkinin önüne geçer). Tek fark WebView sınıfı: kendi alt sınıfımız
+     arka planda pencere görünürlüğünü sabitliyor, böylece Chromium sayfayı
+     dondurmuyor (bkz. MeridyenWebView). id ve yerleşim birebir aynı; Capacitor
+     köprüsü webview'ı id ile buluyor.
+
+     DOSYA ADI KRİTİK. Capacitor 7 res/layout altında İKİ dosya taşıyor:
+     bridge_layout_main.xml (eski, artık AÇILMIYOR) ve
+     capacitor_bridge_layout_main.xml (BridgeActivity.onCreate'in gerçekten
+     setContentView ettiği dosya). Önce yanlışlıkla eskisi ezildi: dosya
+     APK'ya giriyordu, sınıf derleniyordu, ama Capacitor öbürünü açtığı için
+     MeridyenWebView hiç örneklenmiyordu — arka planda donma sürüyordu ve
+     bu dışarıdan hiç belli olmuyordu. Adın doğru olduğu artık derlemede
+     Capacitor'un kendi kaynağından okunarak doğrulanıyor
+     (scripts/install_native_plugin.py). -->
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context="com.getcapacitor.BridgeActivity"
+    >
+
+    <__PAKET__.MeridyenWebView
+        android:id="@+id/webview"
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
