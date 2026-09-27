@@ -4107,6 +4107,51 @@ mark.arama-vurgu{
 .oyun-dugme.ana{background:var(--vurgu);border-color:var(--vurgu);color:#0f1420;font-weight:600}
 .oyun-ipucu{font-size:.74rem;color:var(--gri);text-align:center;max-width:560px;line-height:1.4;flex:none}
 
+/* ---- tepki ---- */
+.tp-tahta{
+  position:relative;border-radius:14px;border:1px solid #232733;
+  background:#1b1f28;display:grid;place-items:center;
+  transition:background .12s;touch-action:manipulation;cursor:pointer;
+}
+.tp-tahta.bekle{background:#7d2b2b}
+.tp-tahta.yesil{background:#2f9e63}
+.tp-tahta.erken{background:#8a5a1f}
+.tp-tahta.ara{background:#242a37}
+.tp-yazi{
+  font-family:'Bebas Neue',sans-serif;letter-spacing:.09em;
+  font-size:min(9vw,2.2rem);color:#fff;text-align:center;padding:0 16px;
+}
+
+/* ---- sıra ---- */
+.sr-tahta{
+  position:relative;background:#1b1f28;border:1px solid #232733;border-radius:14px;
+  padding:10px;display:grid;gap:10px;
+  grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);
+  touch-action:manipulation;
+}
+.sr-tus{border:0;border-radius:12px;opacity:.42;transition:opacity .1s,transform .1s}
+.sr-tus.yanik{opacity:1;transform:scale(.97)}
+.sr-t0{background:#7c9cff}
+.sr-t1{background:#ffb35c}
+.sr-t2{background:#6fd19a}
+.sr-t3{background:#ff8ba0}
+.sr-tahta.yanlis{animation:fkSars .22s}
+
+/* ---- ışıklar ---- */
+.is-tahta{
+  position:relative;background:#1b1f28;border:1px solid #232733;border-radius:14px;
+  padding:8px;display:grid;gap:6px;
+  grid-template-columns:repeat(var(--is-boyut,5),1fr);
+  grid-template-rows:repeat(var(--is-boyut,5),1fr);
+  touch-action:manipulation;
+}
+.is-kare{
+  border:1px solid #2a3040;border-radius:8px;background:#232936;
+  transition:background .12s,box-shadow .12s;
+}
+.is-kare.acik{background:var(--vurgu-2);border-color:#ffcf9a;
+  box-shadow:0 0 12px rgba(255,179,92,.35)}
+
 /* ---- hafıza ---- */
 .hf-tahta{
   position:relative;
@@ -9940,6 +9985,477 @@ function hafizaBaslat(sahne, bitir){
   };
 }
 
+
+/* ---------------- MİNİ OYUN: TEPKİ ----------------
+ *
+ * Ekran yeşile dönünce dokun. Beş tur, skor ortalama milisaniye — küçük iyi.
+ *
+ * Neden bu: elimizdeki oyunlar karar, dikkat ve bellek ölçüyordu; hiçbiri
+ * HAM REFLEKS ölçmüyordu. Ayrıca tek tur on beş saniye sürüyor, yani
+ * "sıradaki" için en düşük engelli oyun bu.
+ *
+ * ERKEN DOKUNUŞ tahmin etmeyi ödüllendirmemeli. Ekrana rastgele basan biri
+ * bazen 20 ms yakalardı. Kural şu: yeşilden önce dokunursan o tur İPTAL ve
+ * yeniden başlıyor — hiçbir şey kazanmıyorsun, yalnız vakit kaybediyorsun.
+ * Bekleme süresi de her turda rastgele, böylece ritim ezberlenemiyor.
+ */
+const TEPKI_TUR = 5;
+const TEPKI_ENAZ_MS = 1200;
+const TEPKI_ENCOK_MS = 3500;
+
+/* Rastgele bekleme. rast: 0..1 üreten işlev (sınamada sabitlenebiliyor). */
+function tepkiBekleme(rast){
+  const rnd = rast || Math.random;
+  return Math.round(TEPKI_ENAZ_MS + rnd() * (TEPKI_ENCOK_MS - TEPKI_ENAZ_MS));
+}
+
+/* Turların ortalaması. Boş dizi 0 döndürüyor; çağıran zaten bitmiş turu
+   bekliyor ama bölme hatası bırakmıyoruz. */
+function tepkiOrtalama(sureler){
+  if (!sureler || !sureler.length) return 0;
+  let t = 0;
+  for (let i = 0; i < sureler.length; i++) t += sureler[i];
+  return Math.round(t / sureler.length);
+}
+
+function tepkiBaslat(sahne, bitir){
+  let sureler = [], erken = 0, durum = 'hazir';   // hazir|bekle|yesil|bitti
+  let yesilTs = 0, zaman = null, bildirildi = false;
+
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>TUR</span><b id="tpTur">0/' + TEPKI_TUR + '</b></div>' +
+    '<div class="oyun-kutu"><span>ORTALAMA</span><b id="tpOrt">—</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = 'Kırmızı yeşile dönünce dokun. Erken dokunursan tur ' +
+                      'baştan başlar. Beş turun ortalaması tabloya yazılır.';
+
+  const tahta = document.createElement('div');
+  tahta.className = 'oyun-tahta tp-tahta';
+  const yazi = document.createElement('div');
+  yazi.className = 'tp-yazi';
+  tahta.appendChild(yazi);
+
+  sahne.appendChild(ust);
+  sahne.appendChild(ipucu);
+  oyunTahtaYerlestir(sahne, tahta);
+
+  function yaz(){
+    const t = sahne.querySelector('#tpTur');
+    const o = sahne.querySelector('#tpOrt');
+    if (t) t.textContent = sureler.length + '/' + TEPKI_TUR;
+    if (o) o.textContent = sureler.length ? tepkiOrtalama(sureler) + ' ms' : '—';
+  }
+
+  function durdur(){ if (zaman) { clearTimeout(zaman); zaman = null; } }
+
+  function turBaslat(){
+    durum = 'bekle';
+    tahta.className = 'oyun-tahta tp-tahta bekle';
+    yazi.textContent = 'Bekle…';
+    durdur();
+    zaman = setTimeout(() => {
+      durum = 'yesil';
+      yesilTs = Date.now();
+      tahta.className = 'oyun-tahta tp-tahta yesil';
+      yazi.textContent = 'ŞİMDİ!';
+    }, tepkiBekleme());
+  }
+
+  function dokun(){
+    if (durum === 'hazir') { turBaslat(); return; }
+    if (durum === 'bitti') return;
+    if (durum === 'bekle') {
+      /* Erken dokunuş: tur iptal, yeniden. Kazanç yok. */
+      erken++;
+      durdur();
+      tahta.className = 'oyun-tahta tp-tahta erken';
+      yazi.textContent = 'Erken! Tekrar…';
+      zaman = setTimeout(turBaslat, 900);
+      return;
+    }
+    // yeşil
+    sureler.push(Date.now() - yesilTs);
+    yaz();
+    if (sureler.length >= TEPKI_TUR) return bitirTur();
+    tahta.className = 'oyun-tahta tp-tahta ara';
+    yazi.textContent = sureler[sureler.length - 1] + ' ms';
+    zaman = setTimeout(turBaslat, 700);
+  }
+
+  function bitirTur(){
+    durum = 'bitti';
+    durdur();
+    const ort = tepkiOrtalama(sureler);
+    tahta.className = 'oyun-tahta tp-tahta';
+    yazi.textContent = '';
+    let sozu = null;
+    if (!bildirildi) { bildirildi = true; sozu = bitir(ort); }
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>' + ort + ' ms</b><p>' + TEPKI_TUR + ' turun ortalaması' +
+                       (erken ? ' · ' + erken + ' erken dokunuş' : '') + '</p>';
+    ic.appendChild(baslik);
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
+  }
+
+  function yeniOyun(){
+    /* Hafıza gibi: yarım tur BİLDİRİLMİYOR. Süreye oynanan oyunda iki tur
+       yapıp çıkmak haksız bir ortalama verirdi. */
+    durdur();
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    sureler = []; erken = 0; bildirildi = false;
+    durum = 'hazir';
+    tahta.className = 'oyun-tahta tp-tahta';
+    yazi.textContent = 'Başlamak için dokun';
+    yaz();
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+  tahta.addEventListener('click', dokun);
+
+  yeniOyun();
+
+  return function temizle(){ durdur(); };
+}
+
+/* ---------------- MİNİ OYUN: SIRA ----------------
+ *
+ * Dört renkli tuş sırayla yanıp sönüyor; aynı sırayı sen tekrarlıyorsun.
+ * Her turda diziye bir adım ekleniyor. Skor: ulaştığın uzunluk.
+ *
+ * Neden bu: Hafıza oyunu EŞLEŞTİRME belleği ölçüyor (neredeydi?), bu ise
+ * ÇALIŞAN belleği (sıra neydi?). İkisi farklı beceriler — birinde iyi olan
+ * ötekinde iyi olmayabiliyor.
+ *
+ * Dizi her turda SIFIRDAN gösteriliyor ve sonuna bir adım ekleniyor; her
+ * tur için yeni rastgele dizi üretilseydi ezber işe yaramaz, oyun da anlamsız
+ * olurdu.
+ */
+const SIRA_TUS = 4;
+const SIRA_YANMA_MS = 420;      // bir tuşun yanık kalma süresi
+const SIRA_ARA_MS = 180;        // iki tuş arası
+const SIRA_BASLANGIC_MS = 550;  // dizi gösterilmeden önceki nefes
+
+/* Diziye bir adım ekler. Girdiyi DEĞİŞTİRMİYOR. */
+function siraEkle(dizi, rast){
+  const rnd = rast || Math.random;
+  return (dizi || []).concat(Math.min(SIRA_TUS - 1, Math.floor(rnd() * SIRA_TUS)));
+}
+
+/* Girilen kısım diziye uyuyor mu? Sonuna kadar girilmemişse de doğru
+   sayılıyor (ÖN EK kontrolü) — oyuncu daha yazmayı bitirmedi. */
+function siraOnEkDogruMu(dizi, girilen){
+  if (!girilen || !girilen.length) return true;
+  if (girilen.length > dizi.length) return false;
+  for (let i = 0; i < girilen.length; i++) {
+    if (girilen[i] !== dizi[i]) return false;
+  }
+  return true;
+}
+
+function siraTamamMi(dizi, girilen){
+  return !!girilen && girilen.length === dizi.length && siraOnEkDogruMu(dizi, girilen);
+}
+
+function siraBaslat(sahne, bitir){
+  let dizi = [], girilen = [], seviye = 0;
+  let oynatiliyor = false, bittiMi = false, bildirildi = false;
+  let zamanlar = [];
+
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>UZUNLUK</span><b id="srUzun">0</b></div>' +
+    '<div class="oyun-kutu"><span>DURUM</span><b id="srDurum">—</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = 'Yanan sırayı aynen tekrarla. Her turda bir adım uzuyor; ' +
+                      'ulaştığın uzunluk tabloya yazılır.';
+
+  const tahta = document.createElement('div');
+  tahta.className = 'oyun-tahta sr-tahta';
+  const tuslar = [];
+  for (let i = 0; i < SIRA_TUS; i++) {
+    const t = document.createElement('button');
+    t.type = 'button';
+    t.className = 'sr-tus sr-t' + i;
+    t.addEventListener('click', () => bas(i));
+    tahta.appendChild(t);
+    tuslar.push(t);
+  }
+
+  sahne.appendChild(ust);
+  sahne.appendChild(ipucu);
+  oyunTahtaYerlestir(sahne, tahta);
+
+  function yaz(durumMetni){
+    const u = sahne.querySelector('#srUzun');
+    const d = sahne.querySelector('#srDurum');
+    if (u) u.textContent = seviye;
+    if (d && durumMetni != null) d.textContent = durumMetni;
+  }
+
+  function durdur(){
+    zamanlar.forEach(z => clearTimeout(z));
+    zamanlar = [];
+  }
+
+  function yanma(i, sure){
+    tuslar[i].classList.add('yanik');
+    zamanlar.push(setTimeout(() => tuslar[i].classList.remove('yanik'), sure));
+  }
+
+  function diziGoster(){
+    oynatiliyor = true;
+    girilen = [];
+    yaz('izle');
+    durdur();
+    let t = SIRA_BASLANGIC_MS;
+    dizi.forEach((adim) => {
+      zamanlar.push(setTimeout(() => yanma(adim, SIRA_YANMA_MS), t));
+      t += SIRA_YANMA_MS + SIRA_ARA_MS;
+    });
+    zamanlar.push(setTimeout(() => { oynatiliyor = false; yaz('sen'); }, t));
+  }
+
+  function bas(i){
+    /* Gösterim sırasında giriş KAPALI: açık olsaydı diziyi izlerken
+       yanlışlıkla dokunmak oyunu bitiriyordu. */
+    if (oynatiliyor || bittiMi) return;
+    girilen.push(i);
+    yanma(i, 180);
+    if (!siraOnEkDogruMu(dizi, girilen)) return bitirTur();
+    if (siraTamamMi(dizi, girilen)) {
+      seviye = dizi.length;
+      yaz('doğru');
+      dizi = siraEkle(dizi);
+      zamanlar.push(setTimeout(diziGoster, 650));
+    }
+  }
+
+  function bitirTur(){
+    bittiMi = true;
+    durdur();
+    tahta.classList.add('yanlis');
+    yaz('bitti');
+    let sozu = null;
+    /* Skor ULAŞILAN uzunluk: yanlış yapılan tur sayılmıyor. */
+    if (!bildirildi && seviye > 0) { bildirildi = true; sozu = bitir(seviye); }
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>Bitti</b><p>Ulaştığın uzunluk: ' + seviye + '</p>';
+    ic.appendChild(baslik);
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
+  }
+
+  function yeniOyun(){
+    if (!bittiMi && seviye > 0 && !bildirildi) { bildirildi = true; bitir(seviye); }
+    durdur();
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    tahta.classList.remove('yanlis');
+    tuslar.forEach(t => t.classList.remove('yanik'));
+    dizi = siraEkle([]); girilen = []; seviye = 0;
+    bittiMi = false; bildirildi = false;
+    yaz('izle');
+    diziGoster();
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+
+  yeniOyun();
+
+  return function temizle(){
+    durdur();
+    if (!bittiMi && seviye > 0 && !bildirildi) { bildirildi = true; bitir(seviye); }
+  };
+}
+
+/* ---------------- MİNİ OYUN: IŞIKLAR ----------------
+ *
+ * Beşe beş ızgara. Bir kareye dokununca kendisi ve dört komşusu yanıp
+ * sönüyor. Amaç hepsini söndürmek. Skor: kullanılan hamle — küçük iyi.
+ *
+ * Neden bu: elimizdeki altı oyunun hepsi zamana ya da refleksle yarışıyor.
+ * Bu hiç acele ettirmiyor; tek ölçtüğü şey DÜŞÜNMEK. Tabloda da "az hamle"
+ * ile yer alıyor, yani hızlı olan değil doğru olan kazanıyor.
+ *
+ * BULMACANIN ÇÖZÜLEBİLİR OLMASI GARANTİ. Rastgele bir ızgara üretseydik
+ * çözümü OLMAYAN tablolar çıkardı (5×5 Işıklar'da olası 2^25 durumdan yalnız
+ * dörtte biri çözülebilir) ve oyuncu saatlerce boşuna uğraşırdı. Bunun yerine
+ * SÖNMÜŞ tahtadan başlayıp rastgele hamleler uyguluyoruz: her hamle geri
+ * alınabilir olduğu için sonuç her zaman çözülebilir.
+ */
+const ISIK_BOYUT = 5;
+const ISIK_KARISTIRMA = 7;   // başlangıç için uygulanan rastgele hamle sayısı
+
+/* Bir hamle: verilen kare ve dört komşusu ters çevriliyor.
+   Girdiyi DEĞİŞTİRMİYOR. */
+function isikCevir(izgara, i, boyut){
+  const b = boyut || ISIK_BOYUT;
+  const yeni = izgara.slice();
+  const r = Math.floor(i / b), s = i % b;
+  const hedefler = [[r, s], [r - 1, s], [r + 1, s], [r, s - 1], [r, s + 1]];
+  hedefler.forEach(([hr, hs]) => {
+    if (hr < 0 || hs < 0 || hr >= b || hs >= b) return;
+    const k = hr * b + hs;
+    yeni[k] = yeni[k] ? 0 : 1;
+  });
+  return yeni;
+}
+
+/* Sönmüş tahtadan başlayıp rastgele hamlelerle karıştırır: çözülebilirlik
+   garanti. Sonuç tamamen sönük çıkarsa (rastgele hamleler birbirini
+   götürebiliyor) bir hamle daha uygulanıyor — oyuncuya zaten bitmiş bir
+   tahta vermek istemiyoruz. */
+function isikKur(boyut, adim, rast){
+  const b = boyut || ISIK_BOYUT;
+  const rnd = rast || Math.random;
+  let izgara = new Array(b * b).fill(0);
+  const kac = adim == null ? ISIK_KARISTIRMA : adim;
+  for (let n = 0; n < kac; n++) {
+    izgara = isikCevir(izgara, Math.min(b * b - 1, Math.floor(rnd() * b * b)), b);
+  }
+  let emniyet = 0;
+  while (isikBittiMi(izgara) && emniyet < b * b) {
+    izgara = isikCevir(izgara, emniyet, b);
+    emniyet++;
+  }
+  return izgara;
+}
+
+function isikBittiMi(izgara){
+  return izgara.every(v => !v);
+}
+
+function isikBaslat(sahne, bitir){
+  let izgara = [], hamle = 0, bittiMi = false, bildirildi = false;
+
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>HAMLE</span><b id="isHamle">0</b></div>' +
+    '<div class="oyun-kutu"><span>AÇIK</span><b id="isAcik">0</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = 'Hepsini söndür. Bir kareye dokununca kendisi ve dört ' +
+                      'komşusu değişir. Acele yok — en AZ hamle tabloya yazılır.';
+
+  const tahta = document.createElement('div');
+  tahta.className = 'oyun-tahta is-tahta';
+  tahta.style.setProperty('--is-boyut', ISIK_BOYUT);
+  const kareler = [];
+  for (let i = 0; i < ISIK_BOYUT * ISIK_BOYUT; i++) {
+    const k = document.createElement('button');
+    k.type = 'button';
+    k.className = 'is-kare';
+    k.addEventListener('click', () => dokun(i));
+    tahta.appendChild(k);
+    kareler.push(k);
+  }
+
+  sahne.appendChild(ust);
+  sahne.appendChild(ipucu);
+  oyunTahtaYerlestir(sahne, tahta);
+
+  function ciz(){
+    let acik = 0;
+    izgara.forEach((v, i) => {
+      if (v) acik++;
+      const sinif = 'is-kare' + (v ? ' acik' : '');
+      if (kareler[i].className !== sinif) kareler[i].className = sinif;
+    });
+    const h = sahne.querySelector('#isHamle');
+    const a = sahne.querySelector('#isAcik');
+    if (h) h.textContent = hamle;
+    if (a) a.textContent = acik;
+  }
+
+  function dokun(i){
+    if (bittiMi) return;
+    izgara = isikCevir(izgara, i, ISIK_BOYUT);
+    hamle++;
+    ciz();
+    if (isikBittiMi(izgara)) bitirTur();
+  }
+
+  function bitirTur(){
+    bittiMi = true;
+    let sozu = null;
+    if (!bildirildi) { bildirildi = true; sozu = bitir(hamle); }
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>Söndü</b><p>Hamle: ' + hamle + '</p>';
+    ic.appendChild(baslik);
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
+  }
+
+  function yeniOyun(){
+    /* Hafıza ve Tepki gibi: yarım tur BİLDİRİLMİYOR. Az hamle iyi olduğu
+       için iki hamle yapıp çıkmak birincilik demek olurdu. */
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    izgara = isikKur(ISIK_BOYUT, ISIK_KARISTIRMA);
+    hamle = 0; bittiMi = false; bildirildi = false;
+    ciz();
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+
+  yeniOyun();
+
+  return function temizle(){};
+}
+
 /* ---------------- KAYIT DEFTERİ ----------------
    Yeni oyun eklemek: aşağıya bir nesne. id ASLA değişmemeli — skorlar ona
    bağlı. */
@@ -9981,6 +10497,33 @@ const OYUNLAR = [
     birim: 'sn',
     bicim: hafizaSureYaz,
     baslat: hafizaBaslat
+  },
+  {
+    id: 'tepki',
+    ad: 'Tepki',
+    ozet: 'Yeşile dönünce dokun — beş turun ortalaması',
+    ikon: 'TPK',
+    azIyi: true,
+    birim: 'ms',
+    baslat: tepkiBaslat
+  },
+  {
+    id: 'sira',
+    ad: 'Sıra',
+    ozet: 'Yanan sırayı tekrarla, dizi uzasın',
+    ikon: 'SIR',
+    azIyi: false,
+    birim: '',
+    baslat: siraBaslat
+  },
+  {
+    id: 'isik',
+    ad: 'Işıklar',
+    ozet: 'Hepsini söndür — en az hamleyle',
+    ikon: 'ISK',
+    azIyi: true,
+    birim: 'hamle',
+    baslat: isikBaslat
   }
 ];
 

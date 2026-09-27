@@ -45,6 +45,14 @@ ISLEVLER = [
     "hafizaEslesirMi",
     "hafizaSureYaz",
     "oyunSkorYaz",
+    "tepkiBekleme",
+    "tepkiOrtalama",
+    "siraEkle",
+    "siraOnEkDogruMu",
+    "siraTamamMi",
+    "isikCevir",
+    "isikBittiMi",
+    "isikKur",
 ]
 
 SURUCU = r"""
@@ -511,6 +519,124 @@ const yer = (p) => [p.x, p.y];
        oyunGenelTablo(), [{uid:'u2',puan:3},{uid:'u3',puan:2},{uid:'u1',puan:1}]);
 }
 
+
+/* ================= TEPKI ================= */
+{
+  esit('bekleme alt sinir', tepkiBekleme(() => 0), TEPKI_ENAZ_MS);
+  esit('bekleme ust sinir', tepkiBekleme(() => 1), TEPKI_ENCOK_MS);
+  dogru('bekleme hep araligin icinde',
+        [0,0.1,0.33,0.5,0.99,1].every(r => {
+          const v = tepkiBekleme(() => r);
+          return v >= TEPKI_ENAZ_MS && v <= TEPKI_ENCOK_MS && Number.isInteger(v);
+        }));
+  esit('belirlenimci', tepkiBekleme(() => 0.42), tepkiBekleme(() => 0.42));
+
+  esit('ortalama', tepkiOrtalama([200, 300, 400]), 300);
+  esit('ortalama yuvarlaniyor', tepkiOrtalama([200, 301]), 251);
+  esit('tek tur', tepkiOrtalama([187]), 187);
+  esit('bos dizi sifir (bolme hatasi yok)', tepkiOrtalama([]), 0);
+  esit('null guvenli', tepkiOrtalama(null), 0);
+}
+
+/* ================= SIRA ================= */
+{
+  const d = [1, 2];
+  const y = siraEkle(d, () => 0.5);
+  esit('girdi degismedi (saf islev)', d, [1, 2]);
+  esit('bir adim eklendi', y.length, 3);
+  dogru('yeni adim gecerli tus', y[2] >= 0 && y[2] < SIRA_TUS);
+  esit('onceki adimlar korundu', y.slice(0, 2), [1, 2]);
+  esit('bos diziden baslar', siraEkle([], () => 0).length, 1);
+  esit('null guvenli', siraEkle(null, () => 0).length, 1);
+  /* rnd 1'e dayanirsa tus indeksi TASMAMALI. */
+  esit('rast 0.99999 tasmiyor', siraEkle([], () => 0.9999999)[0], SIRA_TUS - 1);
+  esit('belirlenimci', siraEkle([3], () => 0.7), siraEkle([3], () => 0.7));
+}
+{
+  const dizi = [0, 2, 1, 3];
+  dogru('bos giris on ek sayilir', siraOnEkDogruMu(dizi, []));
+  dogru('dogru on ek', siraOnEkDogruMu(dizi, [0, 2]));
+  dogru('tam dizi on ek', siraOnEkDogruMu(dizi, [0, 2, 1, 3]));
+  dogru('yanlis ilk adim', !siraOnEkDogruMu(dizi, [1]));
+  dogru('yanlis son adim', !siraOnEkDogruMu(dizi, [0, 2, 1, 0]));
+  dogru('diziden UZUN giris yanlis', !siraOnEkDogruMu(dizi, [0, 2, 1, 3, 0]));
+
+  dogru('yarim giris tamam degil', !siraTamamMi(dizi, [0, 2]));
+  dogru('tam ve dogru giris tamam', siraTamamMi(dizi, [0, 2, 1, 3]));
+  dogru('tam ama yanlis giris tamam degil', !siraTamamMi(dizi, [0, 2, 1, 0]));
+  dogru('bos giris tamam degil', !siraTamamMi(dizi, []));
+}
+
+/* ================= ISIKLAR ================= */
+
+/* BAGIMSIZ COZUCU: uretecin kullandigindan BASKA bir yontem. 5x5 Isiklar'da
+   ilk satirin 32 olasi basim deseninden biri denenir, sonra "isik kovalama"
+   ile asagi inilir; son satir sonuyorsa bulmaca cozulur. Uretecin
+   "cozulebilir uretiyorum" iddiasini bagimsiz olarak dogruluyor. */
+function isikCozulurMu(baslangic, b){
+  for (let desen = 0; desen < (1 << b); desen++) {
+    let g = baslangic.slice();
+    for (let s = 0; s < b; s++) if (desen & (1 << s)) g = isikCevir(g, s, b);
+    for (let r = 1; r < b; r++) {
+      for (let s = 0; s < b; s++) {
+        if (g[(r - 1) * b + s]) g = isikCevir(g, r * b + s, b);
+      }
+    }
+    if (isikBittiMi(g)) return true;
+  }
+  return false;
+}
+
+{
+  const bos = new Array(25).fill(0);
+  /* Kose: kendisi + 2 komsu = 3 kare. */
+  esit('kose 3 kare cevirir', isikCevir(bos, 0, 5).filter(v => v).length, 3);
+  /* Kenar ortasi: kendisi + 3 komsu = 4. */
+  esit('kenar 4 kare cevirir', isikCevir(bos, 2, 5).filter(v => v).length, 4);
+  /* Ic kare: kendisi + 4 komsu = 5. */
+  esit('ic kare 5 kare cevirir', isikCevir(bos, 12, 5).filter(v => v).length, 5);
+  /* Sag kenardaki kare SOLDAKI satira TASMAMALI. */
+  const sag = isikCevir(bos, 4, 5);
+  esit('sag kenar sonraki satira tasmiyor', sag[5], 0);
+  const sol = isikCevir(bos, 5, 5);
+  esit('sol kenar onceki satira tasmiyor', sol[4], 0);
+
+  esit('girdi degismedi (saf islev)', bos.filter(v => v).length, 0);
+  /* Ayni hamle iki kez = basa donus. Cozulebilirligin dayandigi ozellik bu. */
+  esit('hamle kendi tersi', isikCevir(isikCevir(bos, 7, 5), 7, 5), bos);
+  dogru('bos tahta bitmis sayilir', isikBittiMi(bos));
+  dogru('tek isik varsa bitmemis', !isikBittiMi(isikCevir(bos, 0, 5)));
+}
+{
+  /* 200 uretilmis tahta: hepsi COZULEBILIR ve hicbiri zaten cozulmus degil. */
+  let cozulemeyen = 0, zatenBitmis = 0;
+  for (let n = 0; n < 200; n++) {
+    let t = 0;
+    const r = () => { t = (t * 9301 + 49297 + n * 7919) % 233280; return t / 233280; };
+    const g = isikKur(5, ISIK_KARISTIRMA, r);
+    if (!isikCozulurMu(g, 5)) cozulemeyen++;
+    if (isikBittiMi(g)) zatenBitmis++;
+  }
+  esit('200 tahtanin hepsi cozulebilir', cozulemeyen, 0);
+  esit('hicbiri zaten cozulmus degil', zatenBitmis, 0);
+}
+{
+  /* TASARIM KARARININ KANITI: tamamen rastgele bir izgara uretseydik cogu
+     COZULEMEZDI. 5x5 Isiklar'da olasi durumlarin yalnizca dortte biri
+     cozulebilir. Bu sinama "neden sonmus tahtadan basliyoruz"un kaniti. */
+  let rastgeleCozulemeyen = 0;
+  for (let n = 0; n < 120; n++) {
+    let t = n * 7919 + 13;
+    const r = () => { t = (t * 9301 + 49297) % 233280; return t / 233280; };
+    const g = [];
+    for (let i = 0; i < 25; i++) g.push(r() < 0.5 ? 1 : 0);
+    if (!isikCozulurMu(g, 5)) rastgeleCozulemeyen++;
+  }
+  dogru('rastgele izgaralarin cogu cozulemez (' + rastgeleCozulemeyen + '/120) — ' +
+        'ureteci bu yuzden sonmus tahtadan basliyoruz',
+        rastgeleCozulemeyen > 60);
+}
+
 console.log('');
 console.log(kaldi === 0 ? ('TUMU GECTI (' + gecti + ')')
                         : ('BASARISIZ: ' + kaldi + ' / ' + (gecti + kaldi)));
@@ -609,7 +735,10 @@ def main():
     for ad in ("YILAN_BOYUT", "YILAN_YEM_PUAN", "YILAN_BASLANGIC_MS",
                "YILAN_ENAZ_MS", "YILAN_HIZLANMA",
                "FK_SURE_MS", "FK_CEZA_MS", "FK_ENBUYUK", "FK_ENAZ_FARK",
-               "HAFIZA_CIFT", "HAFIZA_KAPANMA_MS"):
+               "HAFIZA_CIFT", "HAFIZA_KAPANMA_MS",
+               "TEPKI_TUR", "TEPKI_ENAZ_MS", "TEPKI_ENCOK_MS",
+               "SIRA_TUS", "SIRA_YANMA_MS", "SIRA_ARA_MS", "SIRA_BASLANGIC_MS",
+               "ISIK_BOYUT", "ISIK_KARISTIRMA"):
         sabitler.append(satir_cikar(html, "const " + ad + " ="))
     sabitler.append(blok_cikar(html, "const YILAN_YONLER = {"))
     sabitler.append(blok_cikar(html, "const HAFIZA_KARTLAR = ["))
