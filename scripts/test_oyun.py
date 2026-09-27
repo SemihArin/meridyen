@@ -40,6 +40,11 @@ ISLEVLER = [
     "farkliBoyut",
     "farkliFark",
     "farkliTur",
+    "hafizaKaristir",
+    "hafizaDeste",
+    "hafizaEslesirMi",
+    "hafizaSureYaz",
+    "oyunSkorYaz",
 ]
 
 SURUCU = r"""
@@ -419,6 +424,93 @@ const yer = (p) => [p.x, p.y];
   dogru('izgara tavani oynanabilir', FK_ENBUYUK >= 4 && FK_ENBUYUK <= 10);
 }
 
+
+/* ================= HAFIZA ================= */
+
+/* ---- 24) karistirma ---- */
+{
+  const girdi = [1,2,3,4,5,6,7,8];
+  const c = hafizaKaristir(girdi, () => 0.5);
+  esit('girdi degismedi (saf islev)', girdi, [1,2,3,4,5,6,7,8]);
+  esit('uzunluk korundu', c.length, 8);
+  esit('ayni ogeler (permutasyon)', c.slice().sort((a,b)=>a-b), [1,2,3,4,5,6,7,8]);
+  esit('belirlenimci', hafizaKaristir(girdi, () => 0.3), hafizaKaristir(girdi, () => 0.3));
+  esit('tek ogeli dizi', hafizaKaristir([7], () => 0.9), [7]);
+  esit('bos dizi', hafizaKaristir([], () => 0.9), []);
+}
+
+/* ---- 25) deste ---- */
+{
+  const d = hafizaDeste(() => 0.5);
+  esit('16 kart', d.length, HAFIZA_CIFT * 2);
+  const sayim = {};
+  d.forEach(k => { sayim[k.cift] = (sayim[k.cift] || 0) + 1; });
+  esit('sekiz farkli cift', Object.keys(sayim).length, HAFIZA_CIFT);
+  dogru('her cift TAM iki kez', Object.keys(sayim).every(k => sayim[k] === 2));
+  dogru('her kartin sembolu ve rengi var',
+        d.every(k => typeof k.sembol === 'string' && k.sembol.length > 0 &&
+                     /^#[0-9a-f]{6}$/i.test(k.renk)));
+  /* Ayni cift -> ayni sembol; farkli cift -> farkli sembol. */
+  const semboller = {};
+  d.forEach(k => { semboller[k.cift] = k.sembol; });
+  esit('sembol sayisi cift sayisi kadar',
+       new Set(Object.values(semboller)).size, HAFIZA_CIFT);
+  esit('belirlenimci deste', hafizaDeste(() => 0.25), hafizaDeste(() => 0.25));
+}
+{
+  /* Farkli rastgeleliklerle 200 deste: her seferinde gecerli olmali. */
+  let bozuk = 0;
+  for (let n = 0; n < 200; n++) {
+    const r = () => (n * 0.0137 + 0.31) % 1;
+    const d = hafizaDeste(r);
+    const c = {};
+    d.forEach(k => { c[k.cift] = (c[k.cift] || 0) + 1; });
+    if (d.length !== 16 || Object.keys(c).length !== 8 ||
+        !Object.keys(c).every(k => c[k] === 2)) bozuk++;
+  }
+  esit('200 destenin hepsi gecerli', bozuk, 0);
+}
+
+/* ---- 26) eslesme ---- */
+{
+  const d = [{cift:0},{cift:1},{cift:0},{cift:2}];
+  dogru('ayni cift eslesir', hafizaEslesirMi(d, 0, 2));
+  dogru('farkli cift eslesmez', !hafizaEslesirMi(d, 0, 1));
+  /* En sinsi durum: ayni karta iki kez dokunmak. */
+  dogru('kart kendisiyle ESLESMEZ', !hafizaEslesirMi(d, 0, 0));
+  dogru('gecersiz indeks eslesmez', !hafizaEslesirMi(d, 0, 99));
+  dogru('negatif indeks eslesmez', !hafizaEslesirMi(d, -1, 0));
+}
+
+/* ---- 27) sure bicimi ---- */
+{
+  esit('42300 ms', hafizaSureYaz(42300), '42,3 sn');
+  esit('yuvarlama', hafizaSureYaz(9950), '10,0 sn');
+  esit('sifir', hafizaSureYaz(0), '0,0 sn');
+  esit('uzun sure', hafizaSureYaz(125400), '125,4 sn');
+}
+
+/* ---- 28) skor yazimi oyunun bicimini kullaniyor ---- */
+{
+  const suren = { id: 'h', azIyi: true, birim: 'sn', bicim: hafizaSureYaz };
+  const sayan = { id: 's', azIyi: false, birim: '' };
+  esit('bicim verildiyse o kullanilir', oyunSkorYaz(suren, 42300), '42,3 sn');
+  esit('bicim yoksa sayi + birim', oyunSkorYaz(sayan, 18240), (18240).toLocaleString('tr-TR'));
+  esit('deger yoksa tire', oyunSkorYaz(suren, null), '—');
+  /* Bicim patlarsa yedek yola dusmeli, oyun ekrani cokmemeli. */
+  const bozuk = { id: 'b', birim: 'x', bicim: () => { throw new Error('bozuk'); } };
+  esit('bozuk bicim cokertmiyor', oyunSkorYaz(bozuk, 5), '5 x');
+}
+
+/* ---- 29) az-iyi oyun tabloda dogru siralaniyor ---- */
+{
+  globalThis.OYUNLAR = [{ id: 'hafiza', azIyi: true }];
+  globalThis.oyunSkor = { hafiza: { u1: 52000, u2: 31000, u3: 44000 } };
+  esit('kisa sure once', oyunSiralamasi('hafiza').map(r => r.uid), ['u2','u3','u1']);
+  esit('tabloda da kisa sure birinci',
+       oyunGenelTablo(), [{uid:'u2',puan:3},{uid:'u3',puan:2},{uid:'u1',puan:1}]);
+}
+
 console.log('');
 console.log(kaldi === 0 ? ('TUMU GECTI (' + gecti + ')')
                         : ('BASARISIZ: ' + kaldi + ' / ' + (gecti + kaldi)));
@@ -516,9 +608,11 @@ def main():
     sabitler = []
     for ad in ("YILAN_BOYUT", "YILAN_YEM_PUAN", "YILAN_BASLANGIC_MS",
                "YILAN_ENAZ_MS", "YILAN_HIZLANMA",
-               "FK_SURE_MS", "FK_CEZA_MS", "FK_ENBUYUK", "FK_ENAZ_FARK"):
+               "FK_SURE_MS", "FK_CEZA_MS", "FK_ENBUYUK", "FK_ENAZ_FARK",
+               "HAFIZA_CIFT", "HAFIZA_KAPANMA_MS"):
         sabitler.append(satir_cikar(html, "const " + ad + " ="))
     sabitler.append(blok_cikar(html, "const YILAN_YONLER = {"))
+    sabitler.append(blok_cikar(html, "const HAFIZA_KARTLAR = ["))
     kod = ("let o48Sayac = 0;\n" + "\n".join(sabitler) + "\n" +
            "\n\n".join(parcalar) + "\n" + SURUCU)
 

@@ -4107,6 +4107,37 @@ mark.arama-vurgu{
 .oyun-dugme.ana{background:var(--vurgu);border-color:var(--vurgu);color:#0f1420;font-weight:600}
 .oyun-ipucu{font-size:.74rem;color:var(--gri);text-align:center;max-width:560px;line-height:1.4;flex:none}
 
+/* ---- hafıza ---- */
+.hf-tahta{
+  position:relative;
+  background:#1b1f28;border:1px solid #232733;border-radius:14px;padding:8px;
+  display:grid;gap:8px;
+  grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);
+  touch-action:manipulation;
+}
+/* Kart üç boyutlu çevriliyor: iki yüz üst üste, arkası gizli. */
+.hf-kart{
+  position:relative;transform-style:preserve-3d;
+  transition:transform .32s cubic-bezier(.2,.8,.2,1);
+  padding:0;border:0;background:none;
+}
+.hf-kart.acik,.hf-kart.eslesti{transform:rotateY(180deg)}
+.hf-yuz{
+  position:absolute;inset:0;display:grid;place-items:center;border-radius:9px;
+  backface-visibility:hidden;-webkit-backface-visibility:hidden;
+}
+.hf-arka{background:#2b3141;border:1px solid #333a4d}
+.hf-arka::after{
+  content:'';width:36%;height:36%;border-radius:50%;
+  background:rgba(255,255,255,.05);
+}
+.hf-on{
+  transform:rotateY(180deg);background:#20252f;border:1px solid #2f3648;
+  font-size:min(8vw,2rem);line-height:1;
+}
+/* Eşleşen çift sönükleşsin: kalanlara odaklanmak kolaylaşıyor. */
+.hf-kart.eslesti .hf-on{opacity:.45;border-color:#242a37}
+
 /* ---- farklı kare ---- */
 .fk-tahta{
   position:relative;
@@ -8807,9 +8838,15 @@ function oyunGenelTablo(){
     .map(uid => ({ uid, puan: puan[uid] }));
 }
 
+/* Skoru insan diline çevirir. Oyun kendi `bicim` işlevini verebiliyor:
+   süreye oynanan bir oyunda ham sayı milisaniye ve "42.300 ms" kimseye bir
+   şey anlatmıyor. Vermezse binlik ayraçlı sayı + birim. */
 function oyunSkorYaz(oyun, deger){
   if (deger == null) return '—';
-  return deger.toLocaleString('tr-TR') + (oyun.birim ? ' ' + oyun.birim : '');
+  if (oyun && typeof oyun.bicim === 'function') {
+    try { return oyun.bicim(deger); } catch (e) {}
+  }
+  return deger.toLocaleString('tr-TR') + ((oyun && oyun.birim) ? ' ' + oyun.birim : '');
 }
 
 /* Tabloda görünecek kişilerin adları önbellekte yoksa çekip yeniden çiziyoruz.
@@ -9680,6 +9717,229 @@ function farkliBaslat(sahne, bitir){
   };
 }
 
+
+/* ---------------- MİNİ OYUN: HAFIZA ----------------
+ *
+ * On altı kart, sekiz çift. İkisini açıyorsun; tutarsa açık kalıyor,
+ * tutmazsa kapanıyor. Skor SÜRE — yani KÜÇÜK olan iyi.
+ *
+ * Neden bu dördüncü: ilk üçü de "büyük skor iyi" idi, çerçevedeki `azIyi`
+ * yolu hiçbir oyunda kullanılmıyordu. Ayrıca üçü de refleks ya da dikkat
+ * ölçüyordu; bu hafıza ölçüyor.
+ *
+ * ÖTEKİLERDEN AYRILAN BİR KURAL: yarıda bırakılan tur BİLDİRİLMİYOR. Öteki
+ * oyunlarda yarım turun puanı da gerçek bir başarı (topladığın kadarı senin),
+ * ama süreye oynanan bir oyunda yarım tur ANLAMSIZ: iki kart açıp çıkan kişi
+ * "3 saniye" ile birinci olurdu. Skor yalnız tahta bitince gidiyor.
+ *
+ * Sembol + renk birlikte kullanılıyor, yalnız renk değil: renk körlüğünde
+ * yalnız renge dayanan bir eşleştirme oyunu oynanamaz hâle geliyor.
+ * Semboller her yazı tipinde bulunan en yaygın kümeden seçildi.
+ */
+const HAFIZA_CIFT = 8;
+const HAFIZA_KARTLAR = [
+  { sembol: '●', renk: '#7c9cff' },
+  { sembol: '■', renk: '#ffb35c' },
+  { sembol: '▲', renk: '#6fd19a' },
+  { sembol: '◆', renk: '#ff8ba0' },
+  { sembol: '★', renk: '#ffd479' },
+  { sembol: '✚', renk: '#9ee0e6' },
+  { sembol: '♠', renk: '#c3a6ff' },
+  { sembol: '♥', renk: '#ff9d7a' }
+];
+/* Kapanma gecikmesi: tutmayan çifti görmeye yetecek kadar uzun, oyunu
+   yavaşlatmayacak kadar kısa. */
+const HAFIZA_KAPANMA_MS = 750;
+
+/* Fisher-Yates. Girdiyi DEĞİŞTİRMİYOR.
+   rast: 0..1 üreten işlev (sınamada sabitlenebiliyor). */
+function hafizaKaristir(dizi, rast){
+  const rnd = rast || Math.random;
+  const d = dizi.slice();
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const g = d[i]; d[i] = d[j]; d[j] = g;
+  }
+  return d;
+}
+
+/* Karıştırılmış deste: her çift tam iki kez. */
+function hafizaDeste(rast){
+  const kartlar = [];
+  for (let i = 0; i < HAFIZA_CIFT; i++) {
+    kartlar.push({ cift: i, sembol: HAFIZA_KARTLAR[i].sembol, renk: HAFIZA_KARTLAR[i].renk });
+    kartlar.push({ cift: i, sembol: HAFIZA_KARTLAR[i].sembol, renk: HAFIZA_KARTLAR[i].renk });
+  }
+  return hafizaKaristir(kartlar, rast);
+}
+
+/* İki kart eşleşiyor mu? Aynı kartın kendisiyle eşleşmesi YASAK — yoksa
+   hızlı iki dokunuş aynı karta gelince çift "tutmuş" sayılıyordu. */
+function hafizaEslesirMi(deste, a, b){
+  if (a === b) return false;
+  if (!deste[a] || !deste[b]) return false;
+  return deste[a].cift === deste[b].cift;
+}
+
+/* Süreyi okunur yazar: 42300 -> "42,3 sn". Tabloda ve kartta bu görünüyor.
+   Yuvarlama AÇIKÇA yapılıyor: doğrudan toFixed(1) kayan nokta yüzünden
+   9950 ms'yi "9,9 sn" gösteriyordu (9.95 ikilik tabanda 9.9499…). */
+function hafizaSureYaz(ms){
+  return (Math.round(ms / 100) / 10).toFixed(1).replace('.', ',') + ' sn';
+}
+
+function hafizaBaslat(sahne, bitir){
+  let deste = [], acik = [], eslesen = 0, hamle = 0;
+  let baslangic = 0, sayac = null, kilit = false;
+  let bittiMi = false, bildirildi = false;
+  let kapatmaZaman = null;
+
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>SÜRE</span><b id="hfSure">0,0</b></div>' +
+    '<div class="oyun-kutu"><span>HAMLE</span><b id="hfHamle">0</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = 'Aynı iki sembolü bul. Süre ilk dokunuşta başlar; ' +
+                      'en KISA süre tabloya yazılır. Yarıda bırakılan tur sayılmaz.';
+
+  const tahta = document.createElement('div');
+  tahta.className = 'oyun-tahta hf-tahta';
+
+  sahne.appendChild(ust);
+  sahne.appendChild(ipucu);
+  oyunTahtaYerlestir(sahne, tahta);
+
+  function yaz(){
+    const sr = sahne.querySelector('#hfSure');
+    const hm = sahne.querySelector('#hfHamle');
+    if (sr) sr.textContent = ((baslangic ? Date.now() - baslangic : 0) / 1000)
+                               .toFixed(1).replace('.', ',');
+    if (hm) hm.textContent = hamle;
+  }
+
+  function durdur(){
+    if (sayac) { clearInterval(sayac); sayac = null; }
+    if (kapatmaZaman) { clearTimeout(kapatmaZaman); kapatmaZaman = null; }
+  }
+
+  function dokun(i){
+    if (bittiMi || kilit) return;
+    const el = tahta.children[i];
+    if (!el || el.classList.contains('acik') || el.classList.contains('eslesti')) return;
+
+    /* Süre İLK dokunuşta başlıyor: tahtayı açıp bakakalan biri
+       cezalandırılmasın, ama ilk karta dokununca saat işlesin. */
+    if (!baslangic) {
+      baslangic = Date.now();
+      sayac = setInterval(yaz, 100);
+    }
+
+    el.classList.add('acik');
+    acik.push(i);
+    if (acik.length < 2) return;
+
+    hamle++;
+    const [a, b] = acik;
+    if (hafizaEslesirMi(deste, a, b)) {
+      /* `acik` geçici açıklık, `eslesti` kalıcı: eşleşince ilkini
+         bırakmıyoruz ki durum okunaklı kalsın (ikisi de aynı görünüyor,
+         ama karışık durum ileride yanlış karara yol açar). */
+      [a, b].forEach(i => {
+        tahta.children[i].classList.remove('acik');
+        tahta.children[i].classList.add('eslesti');
+      });
+      acik = [];
+      eslesen++;
+      if (eslesen === HAFIZA_CIFT) bitirTur();
+    } else {
+      /* Kilit ŞART: kapanma beklerken üçüncü karta dokunulunca eski kod
+         durumu bozuyordu (üç kart açık kalıyor, çiftler karışıyordu). */
+      kilit = true;
+      kapatmaZaman = setTimeout(() => {
+        tahta.children[a].classList.remove('acik');
+        tahta.children[b].classList.remove('acik');
+        acik = [];
+        kilit = false;
+        kapatmaZaman = null;
+      }, HAFIZA_KAPANMA_MS);
+    }
+    yaz();
+  }
+
+  function bitirTur(){
+    bittiMi = true;
+    const sure = Date.now() - baslangic;
+    durdur();
+    yaz();
+    let sozu = null;
+    if (!bildirildi) { bildirildi = true; sozu = bitir(sure); }
+    bittiPerdesi(sure, sozu);
+  }
+
+  function bittiPerdesi(sure, sozu){
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>Bitti</b><p>Süre: ' + hafizaSureYaz(sure) +
+                       ' · Hamle: ' + hamle + '</p>';
+    ic.appendChild(baslik);
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
+  }
+
+  function yeniOyun(){
+    /* Öteki oyunların aksine yarım tur BİLDİRİLMİYOR: süreye oynanan bir
+       oyunda iki kart açıp çıkmak "3 saniye" ile birincilik demek olurdu. */
+    durdur();
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    deste = hafizaDeste();
+    acik = []; eslesen = 0; hamle = 0; baslangic = 0;
+    kilit = false; bittiMi = false; bildirildi = false;
+    tahta.innerHTML = '';
+    deste.forEach((k, i) => {
+      const kart = document.createElement('button');
+      kart.type = 'button';
+      kart.className = 'hf-kart';
+      const arka = document.createElement('span');
+      arka.className = 'hf-yuz hf-arka';
+      const on = document.createElement('span');
+      on.className = 'hf-yuz hf-on';
+      on.textContent = k.sembol;
+      on.style.color = k.renk;
+      kart.appendChild(arka);
+      kart.appendChild(on);
+      kart.addEventListener('click', () => dokun(i));
+      tahta.appendChild(kart);
+    });
+    yaz();
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+
+  yeniOyun();
+
+  return function temizle(){
+    durdur();
+    /* Bilerek skor bildirmiyoruz — bkz. yeniOyun. */
+  };
+}
+
 /* ---------------- KAYIT DEFTERİ ----------------
    Yeni oyun eklemek: aşağıya bir nesne. id ASLA değişmemeli — skorlar ona
    bağlı. */
@@ -9710,6 +9970,17 @@ const OYUNLAR = [
     azIyi: false,
     birim: '',
     baslat: farkliBaslat
+  },
+  {
+    /* Tablodaki ilk "küçük olan iyi" oyun: skor süre. */
+    id: 'hafiza',
+    ad: 'Hafıza',
+    ozet: 'Sekiz çifti en kısa sürede eşleştir',
+    ikon: 'HFZ',
+    azIyi: true,
+    birim: 'sn',
+    bicim: hafizaSureYaz,
+    baslat: hafizaBaslat
   }
 ];
 
