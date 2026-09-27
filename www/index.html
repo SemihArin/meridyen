@@ -4001,24 +4001,39 @@ mark.arama-vurgu{
 .oyun-tablo .puan{font-family:'DM Mono',monospace;font-size:.78rem;color:var(--kar);flex:none}
 .oyun-tablo .bos{color:var(--gri);font-size:.85rem;padding:6px 0}
 
-.oyun-liste{display:flex;flex-direction:column;gap:10px}
+.oyun-liste{display:flex;flex-direction:column;gap:12px}
 .oyun-kart{
-  display:flex;align-items:center;gap:14px;width:100%;text-align:left;
   background:var(--gece-2);border:1px solid #232733;border-radius:var(--r);
-  padding:14px 16px;transition:border-color var(--gecis),background var(--gecis);
+  padding:14px 16px 12px;
 }
-.oyun-kart:hover{border-color:rgba(124,156,255,.45);background:#171a21}
-.oyun-kart .ok-ikon{
+.ok-ust{display:flex;align-items:center;gap:14px}
+.ok-ikon{
   flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
   background:rgba(124,156,255,.12);color:var(--vurgu);font-family:'Bebas Neue',sans-serif;
   font-size:1.05rem;letter-spacing:.04em;
 }
-.oyun-kart .ok-orta{flex:1;min-width:0}
-.oyun-kart .ok-orta b{display:block;font-family:'Syne',sans-serif;font-size:1rem;margin-bottom:3px}
-.oyun-kart .ok-orta span{display:block;font-size:.78rem;color:var(--gri);line-height:1.35}
-.oyun-kart .ok-skor{flex:none;text-align:right;font-family:'DM Mono',monospace}
-.oyun-kart .ok-skor b{display:block;font-size:.95rem;color:var(--kar)}
-.oyun-kart .ok-skor span{display:block;font-size:.6rem;letter-spacing:.06em;color:var(--gri);margin-top:2px}
+.ok-orta{flex:1;min-width:0}
+.ok-orta b{display:block;font-family:'Syne',sans-serif;font-size:1rem;margin-bottom:3px}
+.ok-orta span{display:block;font-size:.78rem;color:var(--gri);line-height:1.35}
+.ok-skor{flex:none;text-align:right;font-family:'DM Mono',monospace}
+.ok-skor b{display:block;font-size:.95rem;color:var(--kar)}
+.ok-skor span{display:block;font-size:.6rem;letter-spacing:.06em;color:var(--gri);margin-top:2px}
+
+/* Oyuna özel sıralama: genel tablo dereceyi gösteriyor, bu da o oyundaki
+   gerçek skorları. İkisi farklı sorulara cevap veriyor. */
+.ok-mini{list-style:none;margin:12px 0 0;display:flex;flex-direction:column;gap:1px}
+.ok-mini li{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:.82rem}
+.ok-mini li+li{border-top:1px solid rgba(255,255,255,.045)}
+.ok-mini .s{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--gri);width:12px;flex:none}
+.ok-mini li:nth-child(1) .s{color:#ffd479}
+.ok-mini li:nth-child(2) .s{color:#cfd4de}
+.ok-mini li:nth-child(3) .s{color:#d9a06b}
+.ok-mini .a{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--gri)}
+.ok-mini li.benim .a{color:var(--vurgu)}
+.ok-mini .p{font-family:'DM Mono',monospace;font-size:.76rem;flex:none}
+
+.ok-alt{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}
+.ok-rekor{font-family:'DM Mono',monospace;font-size:.66rem;letter-spacing:.05em;color:var(--gri)}
 
 /* ---- oyunun oynandığı katman ---- */
 .oyun-sahne{
@@ -4042,6 +4057,21 @@ mark.arama-vurgu{
 .oyun-dugme:hover{border-color:rgba(124,156,255,.5)}
 .oyun-dugme.ana{background:var(--vurgu);border-color:var(--vurgu);color:#0f1420;font-weight:600}
 .oyun-ipucu{font-size:.76rem;color:var(--gri);text-align:center;max-width:420px;line-height:1.45}
+
+/* ---- yılan ---- */
+.yl-tahta{
+  position:relative;width:min(92vw,420px);aspect-ratio:1;
+  background:#1b1f28;border:1px solid #232733;border-radius:14px;padding:6px;
+  display:grid;gap:1px;
+  grid-template-columns:repeat(var(--yl-boyut,15),1fr);
+  grid-template-rows:repeat(var(--yl-boyut,15),1fr);
+  touch-action:none;user-select:none;-webkit-user-select:none;
+}
+.yl-kare{background:rgba(255,255,255,.03);border-radius:2px}
+.yl-kare.govde{background:var(--vurgu);border-radius:3px}
+/* Baş gövdeden ayrılsın: hangi uca gittiğin bir bakışta belli olmalı. */
+.yl-kare.bas{background:#d8e2ff;border-radius:4px}
+.yl-kare.yem{background:var(--vurgu-2);border-radius:50%}
 
 /* ---- 2048 ---- */
 .o48-tahta{
@@ -4082,6 +4112,14 @@ mark.arama-vurgu{
 }
 .o48-bitti b{font-family:'Bebas Neue',sans-serif;font-size:1.7rem;letter-spacing:.08em;display:block;margin-bottom:6px}
 .o48-bitti p{font-size:.85rem;color:var(--gri);margin-bottom:14px}
+/* "Yeni rekor" rozeti: skor tablosunun soğuk bir listeden fazlası olmasını
+   sağlayan tek geri bildirim. Oyun bittiği anda, oyunun içinde görünüyor. */
+.oyun-rekor-rozet{
+  display:inline-block;margin:0 0 12px;padding:5px 12px;border-radius:100px;
+  background:rgba(255,179,92,.16);color:var(--vurgu-2);
+  font-family:'DM Mono',monospace;font-size:.68rem;letter-spacing:.09em;
+  animation:o48Bel .3s ease-out;
+}
 
 /* ============ DUYARLI DÜZEN ============
    Sıra önemli: geniş → dar. Aynı seçici birden çok blokta varsa
@@ -8595,13 +8633,27 @@ function oyunDinleyicileriKur(){
   });
 }
 
-/* Skoru yazar. İşlem (transaction) ile: yalnız DAHA İYİYSE geçiyor, böylece
-   iki sekmede oynarken ya da eski bir yazım geç gelirken kayıt düşmüyor. */
+/* Skoru yazar ve NE OLDUĞUNU döndürür: haftalık rekor mu, tüm zamanların
+   rekoru mu, önceki en iyisi neydi. Oyun bunu bitiş ekranında gösteriyor —
+   "yeni rekor" geri bildirimi olmadan skor tablosu soğuk bir liste kalıyor.
+
+   Yazım işlemle (transaction): yalnız DAHA İYİYSE geçiyor. Böylece iki
+   sekmede oynarken ya da geç gelen bir yazımda iyi kayıt düşmüyor. */
 async function oyunSkoruBildir(oyunId, skor){
-  if (!db || !ben || typeof skor !== 'number' || !isFinite(skor) || skor < 0) return;
+  const bos = { haftaRekoru: false, tumZamanRekoru: false, oncekiEnIyi: null };
+  if (!db || !ben || typeof skor !== 'number' || !isFinite(skor) || skor < 0) return bos;
   const oyun = OYUNLAR.find(o => o.id === oyunId);
-  if (!oyun) return;
+  if (!oyun) return bos;
   const dahaIyi = (a, b) => (oyun.azIyi ? a < b : a > b);
+  /* Karşılaştırmayı CANLI önbellekten yapıyoruz (dinleyiciler zaten açık):
+     fazladan okuma yok ve kullanıcı bitiş ekranını beklemiyor. */
+  const oncekiHafta = (oyunSkor[oyunId] || {})[ben.uid];
+  const oncekiTum = (oyunEnIyi[oyunId] || {})[ben.uid];
+  const sonuc = {
+    haftaRekoru: oncekiHafta == null || dahaIyi(skor, oncekiHafta),
+    tumZamanRekoru: oncekiTum == null || dahaIyi(skor, oncekiTum),
+    oncekiEnIyi: oncekiTum == null ? null : oncekiTum
+  };
   const yaz = (yol) => db.ref(yol).transaction(
     (mevcut) => (mevcut == null || dahaIyi(skor, mevcut)) ? skor : undefined);
   try {
@@ -8612,6 +8664,32 @@ async function oyunSkoruBildir(oyunId, skor){
   } catch (e) {
     bildir('Skor kaydedilemedi — bağlantı yok.');
   }
+  return sonuc;
+}
+
+/* Bitiş ekranına "yeni rekor" rozetini koyar. İki oyun da bunu kullanıyor:
+   rozet metni ve kararı tek yerde dursun. `sozu`, bitir(skor) çağrısının
+   döndürdüğü söz — yazım ağa bağlı olduğu için rozet gecikmeli gelebiliyor,
+   oyun onu beklemiyor. */
+function oyunRekorRozeti(yer, sozu){
+  if (!yer || !sozu || typeof sozu.then !== 'function') return;
+  sozu.then(r => {
+    if (!r || (!r.tumZamanRekoru && !r.haftaRekoru)) return;
+    yer.innerHTML = '';
+    const el = document.createElement('div');
+    el.className = 'oyun-rekor-rozet';
+    el.textContent = r.tumZamanRekoru ? 'YENİ REKOR' : 'HAFTANIN EN İYİSİ';
+    yer.appendChild(el);
+  }).catch(() => {});
+}
+
+/* Bir oyunun kendi sıralaması (tablo değil, o oyuna özel). */
+function oyunSiralamasi(oyunId){
+  const oyun = OYUNLAR.find(o => o.id === oyunId);
+  const skorlar = oyunSkor[oyunId] || {};
+  return Object.keys(skorlar)
+    .sort((a, b) => (oyun && oyun.azIyi) ? skorlar[a] - skorlar[b] : skorlar[b] - skorlar[a])
+    .map(uid => ({ uid, skor: skorlar[uid] }));
 }
 
 /* Genel tablo: oyunlar arası puanları TOPLAMIYOR (2048'de on binler, bir
@@ -8670,7 +8748,7 @@ function oyunSayfasiCizGercek(){
     if (!sirali.length) {
       const li = document.createElement('li');
       li.className = 'bos';
-      li.textContent = 'Bu hafta kimse oynamadı. İlk skoru sen koy.';
+      li.textContent = 'Bu hafta kimse oynamadı — ilk skoru koyan birinci olur.';
       tablo.appendChild(li);
     } else {
       sirali.forEach((r, i) => {
@@ -8692,26 +8770,56 @@ function oyunSayfasiCizGercek(){
   if (!liste) return;
   liste.innerHTML = '';
   OYUNLAR.forEach(o => {
-    const skorlar = oyunSkor[o.id] || {};
-    const benimki = ben ? skorlar[ben.uid] : null;
-    const uidler = Object.keys(skorlar);
-    let lider = null;
-    uidler.forEach(u => {
-      if (lider == null || (o.azIyi ? skorlar[u] < skorlar[lider] : skorlar[u] > skorlar[lider])) lider = u;
-    });
-    oyunProfilleriGetir([lider]);
+    const sirali = oyunSiralamasi(o.id);
+    oyunProfilleriGetir(sirali.map(r => r.uid));
+    const benimki = ben ? (oyunSkor[o.id] || {})[ben.uid] : null;
+    const rekorum = ben ? (oyunEnIyi[o.id] || {})[ben.uid] : null;
+    const benimSira = ben ? sirali.findIndex(r => r.uid === ben.uid) : -1;
 
-    const kart = document.createElement('button');
-    kart.type = 'button';
+    const kart = document.createElement('div');
     kart.className = 'oyun-kart';
-    kart.innerHTML =
+
+    /* Üst satır: oyun kimliği ve senin durumun. Tıklanabilir olan bu satır
+       değil, altındaki düğme — kartın içinde kendi sıralaması da var ve
+       oraya dokununca oyun başlamamalı. */
+    const ust = document.createElement('div');
+    ust.className = 'ok-ust';
+    ust.innerHTML =
       '<span class="ok-ikon">' + kacir(o.ikon) + '</span>' +
-      '<span class="ok-orta"><b>' + kacir(o.ad) + '</b><span>' + kacir(o.ozet) +
-        (lider ? ' · lider ' + kacir((profilKesi[lider] || {}).ad || '?') : '') +
-      '</span></span>' +
-      '<span class="ok-skor"><b>' + oyunSkorYaz(o, benimki == null ? null : benimki) +
-        '</b><span>BU HAFTA</span></span>';
-    kart.addEventListener('click', () => oyunAc(o.id));
+      '<span class="ok-orta"><b>' + kacir(o.ad) + '</b><span>' + kacir(o.ozet) + '</span></span>' +
+      '<span class="ok-skor"><b>' + oyunSkorYaz(o, benimki == null ? null : benimki) + '</b>' +
+        '<span>' + (benimSira >= 0 ? (benimSira + 1) + '. SIRA' : 'BU HAFTA') + '</span></span>';
+    kart.appendChild(ust);
+
+    /* Oyuna özel sıralama: genel tablo dereceyi gösteriyor ama "2048'de kaç
+       yaptı" bilgisini hiçbir yer vermiyordu. İlk üç yeter; dört kişilik bir
+       çevrede zaten herkes görünüyor. */
+    if (sirali.length) {
+      const mini = document.createElement('ol');
+      mini.className = 'ok-mini';
+      sirali.slice(0, 3).forEach((r, i) => {
+        const li = document.createElement('li');
+        if (ben && r.uid === ben.uid) li.classList.add('benim');
+        li.innerHTML = '<span class="s">' + (i + 1) + '</span>' +
+                       '<span class="a">' + kacir((profilKesi[r.uid] || {}).ad || '…') + '</span>' +
+                       '<span class="p">' + oyunSkorYaz(o, r.skor) + '</span>';
+        mini.appendChild(li);
+      });
+      kart.appendChild(mini);
+    }
+
+    const alt = document.createElement('div');
+    alt.className = 'ok-alt';
+    alt.innerHTML = '<span class="ok-rekor">' +
+      (rekorum == null ? 'Henüz oynamadın' : 'Rekorun ' + oyunSkorYaz(o, rekorum)) + '</span>';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Oyna';
+    btn.addEventListener('click', () => oyunAc(o.id));
+    alt.appendChild(btn);
+    kart.appendChild(alt);
+
     liste.appendChild(kart);
   });
 }
@@ -8940,11 +9048,15 @@ function o48Baslat(sahne, bitir){
     if (e) e.textContent = enb.toLocaleString('tr-TR');
   }
 
-  function bittiPerdesi(){
+  function bittiPerdesi(sozu){
     const perde = document.createElement('div');
     perde.className = 'o48-bitti';
     const ic = document.createElement('div');
-    ic.innerHTML = '<b>Bitti</b><p>Puan: ' + puan.toLocaleString('tr-TR') + '</p>';
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>Bitti</b><p>Puan: ' + puan.toLocaleString('tr-TR') + '</p>';
+    ic.appendChild(baslik);
     const btn = document.createElement('button');
     btn.className = 'oyun-dugme ana';
     btn.textContent = 'Yeniden oyna';
@@ -8952,6 +9064,7 @@ function o48Baslat(sahne, bitir){
     ic.appendChild(btn);
     perde.appendChild(ic);
     tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
   }
 
   function hamle(yon){
@@ -8965,8 +9078,9 @@ function o48Baslat(sahne, bitir){
     if (o48Bitti(taslar)) {
       bittiMi = true;
       /* Skoru BİR KEZ bildiriyoruz: aynı turun skoru iki kez gitmesin. */
-      if (!bildirildi) { bildirildi = true; bitir(puan); }
-      bittiPerdesi();
+      let sozu = null;
+      if (!bildirildi) { bildirildi = true; sozu = bitir(puan); }
+      bittiPerdesi(sozu);
     }
   }
 
@@ -9026,6 +9140,258 @@ function o48Baslat(sahne, bitir){
   };
 }
 
+
+/* ---------------- MİNİ OYUN: YILAN ----------------
+ *
+ * Mantık SAF (yilanYonSec, yilanAdim, yilanYemKoy): Android ve DOM olmadan
+ * sınanabiliyor. Yılanın üç klasik tuzağı var ve üçü de elle denemeyle zor
+ * yakalanıyor, çünkü oyun yanlışken de "çalışıyor" görünüyor:
+ *
+ *  1. TERS DÖNME. Sağa giderken sola basınca yılan kendi boynuna girip anında
+ *     ölür. Engellenmeli.
+ *  2. AYNI ADIMDA İKİ DÖNÜŞ. Yukarı giderken hızlıca sol+aşağı basılırsa,
+ *     yönü doğrudan değiştiren bir kod "aşağı"yı kabul eder ve yılan yine
+ *     kendini yer. Bu yüzden yön bir KUYRUĞA alınıyor ve her adımda yalnız
+ *     biri uygulanıyor.
+ *  3. KUYRUĞUN BOŞALTTIĞI KARE. Yılan büyümüyorsa kuyruk aynı adımda
+ *     çekiliyor, yani oraya girmek YASAL. Basit çarpışma kontrolü bunu ölüm
+ *     sayar ve oyun haksız yere biter.
+ *
+ * Duvara çarpmak ölüm (kenardan geçiş yok): skor tablosu için beceri
+ * ölçmesini istiyoruz, sonsuz tur atılabilen bir tahta ölçmez.
+ */
+const YILAN_BOYUT = 15;          // 15×15 kare
+const YILAN_YEM_PUAN = 10;
+const YILAN_BASLANGIC_MS = 170;  // ilk adım aralığı
+const YILAN_ENAZ_MS = 80;        // hızlanmanın tabanı
+const YILAN_HIZLANMA = 6;        // her yemde kaç ms kısalıyor
+
+const YILAN_YONLER = {
+  sol:    { x: -1, y: 0 },
+  sag:    { x: 1,  y: 0 },
+  yukari: { x: 0,  y: -1 },
+  asagi:  { x: 0,  y: 1 }
+};
+
+/* Yeni yön kabul edilebilir mi? Tam tersi reddediliyor (tuzak 1). */
+function yilanYonSec(mevcut, yeni){
+  const a = YILAN_YONLER[mevcut], b = YILAN_YONLER[yeni];
+  if (!a || !b) return mevcut;
+  if (a.x + b.x === 0 && a.y + b.y === 0) return mevcut;   // 180° dönüş
+  return yeni;
+}
+
+/* Yılanın üstünde olmayan rastgele bir kareye yem koyar.
+   rast: 0..1 üreten işlev (sınamada sabitlenebiliyor). */
+function yilanYemKoy(yilan, boyut, rast){
+  const dolu = new Set(yilan.map(p => p.x + ',' + p.y));
+  const bos = [];
+  for (let y = 0; y < boyut; y++) for (let x = 0; x < boyut; x++) {
+    if (!dolu.has(x + ',' + y)) bos.push({ x, y });
+  }
+  if (!bos.length) return null;          // tahta doldu: oyun kazanıldı
+  const rnd = rast || Math.random;
+  return bos[Math.floor(rnd() * bos.length)];
+}
+
+/* Bir adım. Girdiyi DEĞİŞTİRMİYOR; yeni durum döndürüyor.
+   durum: { yilan:[{x,y}...], yon, yem, puan, boyut } */
+function yilanAdim(durum, rast){
+  const yon = YILAN_YONLER[durum.yon];
+  const bas = { x: durum.yilan[0].x + yon.x, y: durum.yilan[0].y + yon.y };
+  const boyut = durum.boyut || YILAN_BOYUT;
+
+  if (bas.x < 0 || bas.y < 0 || bas.x >= boyut || bas.y >= boyut) {
+    return { yilan: durum.yilan, yem: durum.yem, puan: durum.puan, bitti: true, yedi: false };
+  }
+
+  const yedi = !!(durum.yem && bas.x === durum.yem.x && bas.y === durum.yem.y);
+
+  /* Büyümüyorsak kuyruk bu adımda çekiliyor: son kare çarpışmaya SAYILMAZ
+     (tuzak 3). Büyüyorsak kuyruk yerinde kalıyor ve sayılıyor. */
+  const govde = yedi ? durum.yilan : durum.yilan.slice(0, durum.yilan.length - 1);
+  if (govde.some(p => p.x === bas.x && p.y === bas.y)) {
+    return { yilan: durum.yilan, yem: durum.yem, puan: durum.puan, bitti: true, yedi: false };
+  }
+
+  const yeniYilan = [bas].concat(govde);
+  return {
+    yilan: yeniYilan,
+    yem: yedi ? yilanYemKoy(yeniYilan, boyut, rast) : durum.yem,
+    puan: durum.puan + (yedi ? YILAN_YEM_PUAN : 0),
+    bitti: false,
+    yedi
+  };
+}
+
+/* Yem sayısına göre adım aralığı: her yemde biraz hızlanıyor, bir tabana
+   kadar. Hız sabit kalsaydı oyun uzadıkça can sıkıcı olurdu; sınırsız
+   hızlansaydı oynanamaz olurdu. */
+function yilanAralik(puan){
+  const yem = Math.floor(puan / YILAN_YEM_PUAN);
+  return Math.max(YILAN_ENAZ_MS, YILAN_BASLANGIC_MS - yem * YILAN_HIZLANMA);
+}
+
+/* ---- arayüz ---- */
+function yilanBaslat(sahne, bitir){
+  const boyut = YILAN_BOYUT;
+  let durum = null, zamanlayici = null, bittiMi = false, bildirildi = false;
+  let yon = 'sag';
+  let kuyruk = [];      // bekleyen yön değişiklikleri (tuzak 2)
+
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>PUAN</span><b id="ylPuan">0</b></div>' +
+    '<div class="oyun-kutu"><span>UZUNLUK</span><b id="ylUzun">3</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const tahta = document.createElement('div');
+  tahta.className = 'yl-tahta';
+  tahta.style.setProperty('--yl-boyut', boyut);
+  const kareler = [];
+  for (let i = 0; i < boyut * boyut; i++) {
+    const k = document.createElement('div');
+    k.className = 'yl-kare';
+    tahta.appendChild(k);
+    kareler.push(k);
+  }
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = 'Parmağını kaydır (bilgisayarda yön tuşları). ' +
+                      'Duvara ya da kendine çarparsan biter; her yemde biraz hızlanır.';
+
+  sahne.appendChild(ust);
+  sahne.appendChild(tahta);
+  sahne.appendChild(ipucu);
+
+  function ciz(){
+    const bas = durum.yilan[0];
+    const govde = new Set(durum.yilan.slice(1).map(p => p.x + ',' + p.y));
+    for (let y = 0; y < boyut; y++) for (let x = 0; x < boyut; x++) {
+      const el = kareler[y * boyut + x];
+      const anahtar = x + ',' + y;
+      let sinif = 'yl-kare';
+      if (bas.x === x && bas.y === y) sinif += ' bas';
+      else if (govde.has(anahtar)) sinif += ' govde';
+      else if (durum.yem && durum.yem.x === x && durum.yem.y === y) sinif += ' yem';
+      /* Yalnız DEĞİŞENİ yazıyoruz: her adımda 225 düğüme dokunmak mobilde
+         gereksiz yerleşim işi çıkarıyordu. */
+      if (el.className !== sinif) el.className = sinif;
+    }
+    const p = sahne.querySelector('#ylPuan');
+    const u = sahne.querySelector('#ylUzun');
+    if (p) p.textContent = durum.puan.toLocaleString('tr-TR');
+    if (u) u.textContent = durum.yilan.length;
+  }
+
+  function bittiPerdesi(sozu){
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>Bitti</b><p>Puan: ' + durum.puan.toLocaleString('tr-TR') +
+                       ' · Uzunluk: ' + durum.yilan.length + '</p>';
+    ic.appendChild(baslik);
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
+  }
+
+  function durdur(){
+    if (zamanlayici) { clearTimeout(zamanlayici); zamanlayici = null; }
+  }
+
+  function tik(){
+    /* Bekleyen yönlerden BİRİNİ uyguluyoruz: aynı adımda iki dönüş yılanı
+       kendi boynuna sokuyordu (tuzak 2). */
+    if (kuyruk.length) yon = yilanYonSec(yon, kuyruk.shift());
+    const sonraki = yilanAdim({ yilan: durum.yilan, yon, yem: durum.yem,
+                               puan: durum.puan, boyut });
+    durum = { yilan: sonraki.yilan, yem: sonraki.yem, puan: sonraki.puan, boyut };
+    ciz();
+    if (sonraki.bitti) {
+      bittiMi = true;
+      durdur();
+      let sozu = null;
+      if (!bildirildi) { bildirildi = true; sozu = bitir(durum.puan); }
+      bittiPerdesi(sozu);
+      return;
+    }
+    /* setTimeout zinciri (setInterval değil): aralık her yemde değişiyor ve
+       zincirde yeni aralık anında geçerli oluyor. */
+    zamanlayici = setTimeout(tik, yilanAralik(durum.puan));
+  }
+
+  function yeniOyun(){
+    /* Yarıda bırakılan tur da sayılsın. */
+    if (!bittiMi && durum && durum.puan > 0 && !bildirildi) { bildirildi = true; bitir(durum.puan); }
+    durdur();
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    const orta = Math.floor(boyut / 2);
+    const yilan = [{ x: orta, y: orta }, { x: orta - 1, y: orta }, { x: orta - 2, y: orta }];
+    durum = { yilan, yem: yilanYemKoy(yilan, boyut), puan: 0, boyut };
+    yon = 'sag'; kuyruk = []; bittiMi = false; bildirildi = false;
+    ciz();
+    zamanlayici = setTimeout(tik, YILAN_BASLANGIC_MS);
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+
+  /* ---- girdi ---- */
+  function yonIste(ad){
+    if (bittiMi) return;
+    /* Kuyruk en çok iki derin: daha fazlası "geç gelen" dönüşler biriktirip
+       oyuncunun kontrolünü elinden alıyor. */
+    if (kuyruk.length < 2) kuyruk.push(ad);
+  }
+  const tusIsle = (e) => {
+    const h = { ArrowLeft:'sol', ArrowRight:'sag', ArrowUp:'yukari', ArrowDown:'asagi',
+                a:'sol', d:'sag', w:'yukari', s:'asagi' }[e.key];
+    if (!h) return;
+    e.preventDefault();
+    yonIste(h);
+  };
+  document.addEventListener('keydown', tusIsle);
+
+  let bx = 0, by = 0, basildi = false;
+  const basla = (e) => {
+    const n = e.touches ? e.touches[0] : e;
+    bx = n.clientX; by = n.clientY; basildi = true;
+  };
+  const birak = (e) => {
+    if (!basildi) return;
+    basildi = false;
+    const n = (e.changedTouches && e.changedTouches[0]) || e;
+    const dx = n.clientX - bx, dy = n.clientY - by;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
+    yonIste(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'sag' : 'sol') : (dy > 0 ? 'asagi' : 'yukari'));
+  };
+  tahta.addEventListener('touchstart', basla, { passive: true });
+  tahta.addEventListener('touchend', birak);
+  tahta.addEventListener('mousedown', basla);
+  tahta.addEventListener('mouseup', birak);
+
+  yeniOyun();
+
+  return function temizle(){
+    durdur();
+    document.removeEventListener('keydown', tusIsle);
+    if (!bittiMi && durum && durum.puan > 0 && !bildirildi) { bildirildi = true; bitir(durum.puan); }
+  };
+}
+
 /* ---------------- KAYIT DEFTERİ ----------------
    Yeni oyun eklemek: aşağıya bir nesne. id ASLA değişmemeli — skorlar ona
    bağlı. */
@@ -9038,6 +9404,15 @@ const OYUNLAR = [
     azIyi: false,
     birim: '',
     baslat: o48Baslat
+  },
+  {
+    id: 'yilan',
+    ad: 'Yılan',
+    ozet: 'Yemi topla, duvara ve kendine çarpma',
+    ikon: 'YLN',
+    azIyi: false,
+    birim: '',
+    baslat: yilanBaslat
   }
 ];
 

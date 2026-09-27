@@ -32,6 +32,11 @@ ISLEVLER = [
     "o48Bitti",
     "oyunHaftasi",
     "oyunGenelTablo",
+    "oyunSiralamasi",
+    "yilanYonSec",
+    "yilanYemKoy",
+    "yilanAdim",
+    "yilanAralik",
 ]
 
 SURUCU = r"""
@@ -223,11 +228,156 @@ function goster(taslar){
   esit('kimse oynamadiysa tablo bos', oyunGenelTablo(), []);
 }
 
+
+/* ================= YILAN ================= */
+
+function yilanKur(noktalar, yon, yem, puan){
+  return { yilan: noktalar.map(([x, y]) => ({ x, y })), yon: yon || 'sag',
+           yem: yem ? { x: yem[0], y: yem[1] } : null, puan: puan || 0, boyut: 15 };
+}
+const yer = (p) => [p.x, p.y];
+
+/* ---- 11) TUZAK 1: ters donus reddedilir ---- */
+{
+  esit('saga giderken sol reddedilir', yilanYonSec('sag', 'sol'), 'sag');
+  esit('sola giderken sag reddedilir', yilanYonSec('sol', 'sag'), 'sol');
+  esit('yukari giderken asagi reddedilir', yilanYonSec('yukari', 'asagi'), 'yukari');
+  esit('asagi giderken yukari reddedilir', yilanYonSec('asagi', 'yukari'), 'asagi');
+  esit('dik donus kabul edilir', yilanYonSec('sag', 'yukari'), 'yukari');
+  esit('ayni yon kabul edilir', yilanYonSec('sag', 'sag'), 'sag');
+  esit('tanimsiz yon yoksayilir', yilanYonSec('sag', 'zip'), 'sag');
+}
+
+/* ---- 12) temel hareket ---- */
+{
+  const d = yilanKur([[5,5],[4,5],[3,5]], 'sag', [9,9]);
+  const s = yilanAdim(d);
+  esit('bas bir kare ilerledi', s.yilan.map(yer), [[6,5],[5,5],[4,5]]);
+  esit('uzunluk degismedi', s.yilan.length, 3);
+  esit('puan degismedi', s.puan, 0);
+  dogru('bitmedi', !s.bitti);
+  esit('girdi degismedi (saf islev)', d.yilan.map(yer), [[5,5],[4,5],[3,5]]);
+}
+
+/* ---- 13) yem yemek ---- */
+{
+  const d = yilanKur([[5,5],[4,5],[3,5]], 'sag', [6,5]);
+  const s = yilanAdim(d, () => 0);
+  esit('yiyince uzadi', s.yilan.length, 4);
+  esit('govde korundu', s.yilan.map(yer), [[6,5],[5,5],[4,5],[3,5]]);
+  esit('puan arttı', s.puan, YILAN_YEM_PUAN);
+  dogru('yedi bayragi', s.yedi);
+  dogru('yeni yem kondu', !!s.yem);
+  dogru('yeni yem yilanin ustunde degil',
+        !s.yilan.some(p => p.x === s.yem.x && p.y === s.yem.y));
+}
+
+/* ---- 14) duvar olumu (dort kenar) ---- */
+{
+  dogru('sag duvar', yilanAdim(yilanKur([[14,5],[13,5]], 'sag')).bitti);
+  dogru('sol duvar', yilanAdim(yilanKur([[0,5],[1,5]], 'sol')).bitti);
+  dogru('ust duvar', yilanAdim(yilanKur([[5,0],[5,1]], 'yukari')).bitti);
+  dogru('alt duvar', yilanAdim(yilanKur([[5,14],[5,13]], 'asagi')).bitti);
+  dogru('kenarin hemen icinde olmuyor', !yilanAdim(yilanKur([[13,5],[12,5]], 'sag')).bitti);
+}
+
+/* ---- 15) TUZAK 3: kuyrugun bosalttigi kareye girmek YASAL ---- */
+{
+  /* 2x2 halka: bas (5,5), kuyruk (5,6). Asagi gidince kuyruk o kareyi
+     birakiyor, yani girmek olum DEGIL. */
+  const d = yilanKur([[5,5],[6,5],[6,6],[5,6]], 'asagi', [0,0]);
+  const s = yilanAdim(d);
+  dogru('kuyrugun bosalttigi kareye girmek olum degil', !s.bitti);
+  esit('halka donduruldu', s.yilan.map(yer), [[5,6],[5,5],[6,5],[6,6]]);
+}
+{
+  /* Ama YİYORSA kuyruk kalıyor: ayni kareye girmek olum. */
+  const d = yilanKur([[5,5],[6,5],[6,6],[5,6]], 'asagi', [5,6]);
+  const s = yilanAdim(d);
+  dogru('yem kuyruktaysa carpisma sayilir', s.bitti);
+}
+
+/* ---- 16) kendine carpma ---- */
+{
+  const d = yilanKur([[5,5],[5,6],[6,6],[6,5]], 'yukari', [0,0]);
+  /* yukari: (5,4) bos -> olmemeli */
+  dogru('bos kareye gidince olmez', !yilanAdim(d).bitti);
+  const e = yilanKur([[6,5],[5,5],[5,6],[6,6]], 'asagi', [0,0]);
+  /* asagi: (6,6) govdenin son elemani AMA yemiyor -> kuyruk cekiliyor, yasal */
+  dogru('halkada kuyruga girmek yasal', !yilanAdim(e).bitti);
+  /* Gövdenin ORTASINA carpma. Kare (4,3) govdede ve KUYRUK DEGIL (kuyruk
+     (5,3)), yani kimse cekilmiyor -> olum. Ilk yazdigim dizilimde (4,3)
+     kuyruktu ve dogru sekilde olum SAYILMIYORDU; sinamanin beklentisi
+     yanlisti, kod degil. */
+  const f = yilanKur([[3,3],[3,4],[4,4],[4,3],[5,3]], 'sag', [0,0]);
+  dogru('govdenin ortasina carpinca olur', yilanAdim(f).bitti);
+  /* Ayni yilan yukari giderse (3,2) bos -> yasamali. */
+  dogru('ayni yilan bos yone gidince yasar',
+        !yilanAdim(yilanKur([[3,3],[3,4],[4,4],[4,3],[5,3]], 'yukari', [0,0])).bitti);
+}
+
+/* ---- 17) yem yerlestirme ---- */
+{
+  /* Tahtanin tamami dolu -> yem konamaz (oyun kazanildi). */
+  const hepsi = [];
+  for (let y = 0; y < 15; y++) for (let x = 0; x < 15; x++) hepsi.push({ x, y });
+  esit('dolu tahtada yem yok', yilanYemKoy(hepsi, 15, () => 0), null);
+  /* Tek bos kare: oraya konmali. */
+  const bir = hepsi.filter(p => !(p.x === 7 && p.y === 9));
+  esit('tek bos kareye kondu', yer(yilanYemKoy(bir, 15, () => 0)), [7, 9]);
+  /* rast=0 ilk bos kareyi verir. */
+  esit('rast=0 ilk bos kare', yer(yilanYemKoy([{x:0,y:0}], 15, () => 0)), [1, 0]);
+}
+
+/* ---- 18) hizlanma ---- */
+{
+  esit('baslangic araligi', yilanAralik(0), YILAN_BASLANGIC_MS);
+  esit('bir yem sonrasi', yilanAralik(YILAN_YEM_PUAN), YILAN_BASLANGIC_MS - YILAN_HIZLANMA);
+  dogru('hiz taban altina inmiyor', yilanAralik(YILAN_YEM_PUAN * 500) === YILAN_ENAZ_MS);
+  dogru('aralik hep pozitif', yilanAralik(YILAN_YEM_PUAN * 5000) > 0);
+}
+
+/* ---- 19) oyuna ozel siralama ---- */
+{
+  globalThis.OYUNLAR = [{ id: 'y', azIyi: false }, { id: 'h', azIyi: true }];
+  globalThis.oyunSkor = { y: { u1: 30, u2: 90 }, h: { u1: 30, u2: 90 } };
+  esit('yuksek iyi siralama', oyunSiralamasi('y'), [{uid:'u2',skor:90},{uid:'u1',skor:30}]);
+  esit('az iyi siralama', oyunSiralamasi('h'), [{uid:'u1',skor:30},{uid:'u2',skor:90}]);
+  esit('bos oyun bos siralama', oyunSiralamasi('yok'), []);
+}
+
 console.log('');
 console.log(kaldi === 0 ? ('TUMU GECTI (' + gecti + ')')
                         : ('BASARISIZ: ' + kaldi + ' / ' + (gecti + kaldi)));
 if (kaldi !== 0) process.exit(1);
 """
+
+
+def satir_cikar(kaynak, onek):
+    """`const X = ...;` biçimindeki tek satırlık bildirimi aynen alır."""
+    i = kaynak.find(onek)
+    if i < 0:
+        sys.exit("HATA: '%s' bulunamadı." % onek)
+    son = kaynak.index(";", i) + 1
+    return kaynak[i:son]
+
+
+def blok_cikar(kaynak, onek):
+    """`const X = {` ile başlayan nesneyi süslü parantez sayarak alır."""
+    i = kaynak.find(onek)
+    if i < 0:
+        sys.exit("HATA: '%s' bulunamadı." % onek)
+    j = kaynak.index("{", i)
+    derinlik = 0
+    for k in range(j, len(kaynak)):
+        if kaynak[k] == "{":
+            derinlik += 1
+        elif kaynak[k] == "}":
+            derinlik -= 1
+            if derinlik == 0:
+                son = kaynak.index(";", k) + 1
+                return kaynak[i:son]
+    sys.exit("HATA: '%s' bloğunun sonu bulunamadı." % onek)
 
 
 def islev_cikar(kaynak, ad):
@@ -287,7 +437,16 @@ def main():
 
     parcalar = [islev_cikar(html, ad) for ad in ISLEVLER]
     # o48Sayac, o48TasYap'ın dışında tanımlı; sınama için burada veriyoruz.
-    kod = "let o48Sayac = 0;\n" + "\n\n".join(parcalar) + "\n" + SURUCU
+    # Yılanın sabitleri fonksiyonların dışında; sınamada gerçek değerleri
+    # kullanmak için onları da aynı dosyadan çıkarıyoruz (elle kopyalasaydık
+    # sabit değişince sınama sessizce yanlış şeyi doğrulardı).
+    sabitler = []
+    for ad in ("YILAN_BOYUT", "YILAN_YEM_PUAN", "YILAN_BASLANGIC_MS",
+               "YILAN_ENAZ_MS", "YILAN_HIZLANMA"):
+        sabitler.append(satir_cikar(html, "const " + ad + " ="))
+    sabitler.append(blok_cikar(html, "const YILAN_YONLER = {"))
+    kod = ("let o48Sayac = 0;\n" + "\n".join(sabitler) + "\n" +
+           "\n\n".join(parcalar) + "\n" + SURUCU)
 
     gecici = tempfile.mkdtemp(prefix="meridyen-oyun-")
     yol = os.path.join(gecici, "sinama.js")
