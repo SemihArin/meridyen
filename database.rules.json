@@ -85,6 +85,22 @@
         ".write": "auth != null && $sid.contains(auth.uid)"
       }
     },
+    "oyun": {
+      "skor": {
+        ".read": "auth != null",
+        "$oyun": { "$hafta": { "$uid": {
+          ".write": "auth.uid === $uid",
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000"
+        } } }
+      },
+      "enIyi": {
+        ".read": "auth != null",
+        "$oyun": { "$uid": {
+          ".write": "auth.uid === $uid",
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000"
+        } }
+      }
+    },
     "yildiz": {
       "$sid": {
         ".read": "auth != null && $sid.contains(auth.uid)",

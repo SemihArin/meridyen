@@ -121,6 +121,14 @@ jobs:
       - name: Biriken bildirim kurallarını sına
         run: python3 scripts/test_biriken_bildirim.py
 
+      # Oyun ekranı: 2048'in kaydırma kuralları ve haftalık skor tablosu.
+      # Kaydırmanın "gözle doğru görünen" ama yanlış varyantları çok — en
+      # sinsisi zincirleme birleşme ([4,2,2] sola 4-4 olmalı, 8 değil). Oyun
+      # yanlış kuralla da "çalışıyor" göründüğü için elle fark edilmiyor.
+      # Sınama gerçek fonksiyonları index.html'den çıkarıp Node'da koşturuyor.
+      - name: Oyun mantığını sına (2048 + skor tablosu)
+        run: python3 scripts/test_oyun.py
+
       # İşleyici süreci (WebView renderer) ÖLÜMÜ: Android bellek sıkışınca
       # uygulamayı öldürmeden yalnız onu öldürebiliyor. Capacitor'un bu olaya
       # öntanımlı karşılığı "ilgilenmiyorum" ve bunun Android'deki anlamı

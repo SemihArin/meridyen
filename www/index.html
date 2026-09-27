@@ -98,6 +98,14 @@
       "aramalar":        { "$sid": { ".read": "auth != null && $sid.contains(auth.uid)", ".write": "auth != null && $sid.contains(auth.uid)" } },
       "izle":            { "$sid": { ".read": "auth != null && $sid.contains(auth.uid)", ".write": "auth != null && $sid.contains(auth.uid)" } },
       "yildiz":          { "$sid": { ".read": "auth != null && $sid.contains(auth.uid)", ".write": "auth != null && $sid.contains(auth.uid)" } },
+      "oyun": {
+        "skor":  { ".read": "auth != null", "$oyun": { "$hafta": { "$uid": {
+                     ".write": "auth.uid === $uid",
+                     ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000" } } } },
+        "enIyi": { ".read": "auth != null", "$oyun": { "$uid": {
+                     ".write": "auth.uid === $uid",
+                     ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000" } } }
+      },
       "akis":            { ".read": "auth != null", "$id": {
                              ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid))",
                              "metin": { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 2000)" } } },
@@ -3970,6 +3978,111 @@ mark.arama-vurgu{
 .alt-oge.aktif::before{transform:translateX(-50%) scaleX(1)}
 .alt-rozet{position:absolute;top:7px;right:calc(50% - 22px);width:8px;height:8px;border-radius:50%;background:var(--vurgu)}
 
+/* ============ OYUN EKRANI ============
+   İki parça: üstte haftalık tablo kartı, altında oyun kartları listesi.
+   Oyunun kendisi ayrı bir yığın katmanında (.oyun-ekrani) çiziliyor. */
+.oyun-tablo-kart{
+  background:var(--gece-2);border:1px solid #232733;border-radius:var(--r);
+  padding:14px 16px;margin:2px 0 16px;
+}
+.oyun-tablo-ust{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px}
+.oyun-tablo-ust h3{font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:.09em;font-weight:400}
+.oyun-tablo-ust span{font-family:'DM Mono',monospace;font-size:.62rem;letter-spacing:.06em;color:var(--gri)}
+.oyun-tablo{list-style:none;display:flex;flex-direction:column;gap:2px}
+.oyun-tablo li{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:.9rem}
+.oyun-tablo li+li{border-top:1px solid rgba(255,255,255,.05)}
+.oyun-tablo .sira{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--gri);width:20px;flex:none}
+.oyun-tablo li.benim .sira,.oyun-tablo li.benim .ad{color:var(--vurgu)}
+/* İlk üçe madalya: dört kişilik bir tabloda "3." olmak da bir yer olsun. */
+.oyun-tablo li:nth-child(1) .sira{color:#ffd479}
+.oyun-tablo li:nth-child(2) .sira{color:#cfd4de}
+.oyun-tablo li:nth-child(3) .sira{color:#d9a06b}
+.oyun-tablo .ad{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.oyun-tablo .puan{font-family:'DM Mono',monospace;font-size:.78rem;color:var(--kar);flex:none}
+.oyun-tablo .bos{color:var(--gri);font-size:.85rem;padding:6px 0}
+
+.oyun-liste{display:flex;flex-direction:column;gap:10px}
+.oyun-kart{
+  display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+  background:var(--gece-2);border:1px solid #232733;border-radius:var(--r);
+  padding:14px 16px;transition:border-color var(--gecis),background var(--gecis);
+}
+.oyun-kart:hover{border-color:rgba(124,156,255,.45);background:#171a21}
+.oyun-kart .ok-ikon{
+  flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
+  background:rgba(124,156,255,.12);color:var(--vurgu);font-family:'Bebas Neue',sans-serif;
+  font-size:1.05rem;letter-spacing:.04em;
+}
+.oyun-kart .ok-orta{flex:1;min-width:0}
+.oyun-kart .ok-orta b{display:block;font-family:'Syne',sans-serif;font-size:1rem;margin-bottom:3px}
+.oyun-kart .ok-orta span{display:block;font-size:.78rem;color:var(--gri);line-height:1.35}
+.oyun-kart .ok-skor{flex:none;text-align:right;font-family:'DM Mono',monospace}
+.oyun-kart .ok-skor b{display:block;font-size:.95rem;color:var(--kar)}
+.oyun-kart .ok-skor span{display:block;font-size:.6rem;letter-spacing:.06em;color:var(--gri);margin-top:2px}
+
+/* ---- oyunun oynandığı katman ---- */
+.oyun-sahne{
+  flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));
+  /* Oyun içinde sayfa kaydırması/zoom istemiyoruz: dokunuş oyuna ait. */
+  touch-action:manipulation;
+}
+.oyun-ust-satir{display:flex;align-items:center;gap:10px;width:100%;max-width:420px}
+.oyun-kutu{
+  background:var(--gece-2);border:1px solid #232733;border-radius:12px;
+  padding:8px 12px;text-align:center;flex:1;
+}
+.oyun-kutu span{display:block;font-family:'DM Mono',monospace;font-size:.58rem;letter-spacing:.08em;color:var(--gri)}
+.oyun-kutu b{display:block;font-family:'Syne',sans-serif;font-size:1.15rem;margin-top:2px}
+.oyun-dugme{
+  border:1px solid #2b3040;background:var(--gece-3);color:var(--kar);
+  border-radius:11px;padding:10px 16px;font-size:.82rem;
+}
+.oyun-dugme:hover{border-color:rgba(124,156,255,.5)}
+.oyun-dugme.ana{background:var(--vurgu);border-color:var(--vurgu);color:#0f1420;font-weight:600}
+.oyun-ipucu{font-size:.76rem;color:var(--gri);text-align:center;max-width:420px;line-height:1.45}
+
+/* ---- 2048 ---- */
+.o48-tahta{
+  position:relative;width:min(92vw,420px);aspect-ratio:1;
+  background:#1b1f28;border:1px solid #232733;border-radius:14px;padding:8px;
+  display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:8px;
+  touch-action:none;   /* kaydırma hareketi oyunun, sayfanın değil */
+  user-select:none;-webkit-user-select:none;
+}
+.o48-hucre{background:rgba(255,255,255,.04);border-radius:9px}
+/* Taşlar ızgaranın üstünde ayrı bir katmanda ve KONUMLARI KENDİ BOYUTLARINDAN
+   türetiliyor: translate içindeki 100% taşın genişliği, +8px de aralık. Sabit
+   piksel hesabı yok, o yüzden tahta boyu değişince (dar ekran, döndürme,
+   masaüstü) hizalama kendiliğinden doğru kalıyor.
+   Taşı saran katman `inset:8px` ile tahtanın İÇ alanına oturuyor; böylece
+   buradaki 100% doğrudan iç genişlik oluyor ve dolgu hesaba girmiyor. */
+.o48-tas{
+  position:absolute;left:0;top:0;
+  width:calc((100% - 24px) / 4);height:calc((100% - 24px) / 4);
+  transform:translate(calc(var(--s,0) * (100% + 8px)), calc(var(--r,0) * (100% + 8px)));
+  display:grid;place-items:center;border-radius:9px;
+  font-family:'Syne',sans-serif;font-weight:700;
+  background:#2c3242;color:var(--kar);
+  transition:transform .13s ease-out;
+  will-change:transform;
+}
+/* Sayı İÇ BİR SPAN'da: transform taşın konumu için kullanıldığı için
+   büyüme/küçülme animasyonunu taşın kendisine veremiyoruz — verirsek taş
+   yerinden oynuyor. Animasyon span'a ait, konum taşa. */
+.o48-tas>span{display:block;line-height:1}
+.o48-tas.yeni>span{animation:o48Bel .16s ease-out}
+.o48-tas.birlesti>span{animation:o48Vur .17s ease-out}
+@keyframes o48Bel{from{transform:scale(.4);opacity:.25}to{transform:scale(1);opacity:1}}
+@keyframes o48Vur{0%{transform:scale(1)}45%{transform:scale(1.22)}100%{transform:scale(1)}}
+.o48-bitti{
+  position:absolute;inset:0;border-radius:14px;display:grid;place-items:center;
+  background:rgba(12,13,16,.82);backdrop-filter:blur(2px);text-align:center;padding:20px;gap:12px;
+}
+.o48-bitti b{font-family:'Bebas Neue',sans-serif;font-size:1.7rem;letter-spacing:.08em;display:block;margin-bottom:6px}
+.o48-bitti p{font-size:.85rem;color:var(--gri);margin-bottom:14px}
+
 /* ============ DUYARLI DÜZEN ============
    Sıra önemli: geniş → dar. Aynı seçici birden çok blokta varsa
    dar olan sonda kaldığı için kazanır.                              */
@@ -4983,6 +5096,42 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
     </div>
   </div>
 
+  <!-- ================= OYUN =================
+       Mini oyunların yaşadığı ekran. Oyunlar SOHBETİN İÇİNDE değil: burada
+       tek başına oynanıyor, skor haftalık sezona yazılıyor.
+
+       Sezon neden haftalık: küçük bir çevrede tüm zamanların tablosu bir
+       haftada kararını verir ve sonra ölür — aynı kişi hep birinci olur,
+       kalanlar bakmayı bırakır. Her pazartesi sıfırlanınca herkesin yeniden
+       başlama sebebi oluyor. Kalıcı kayıt ayrı duruyor (tüm zamanların
+       en iyisi) ve hiç sıfırlanmıyor.
+
+       Genel tablo puanları TOPLAMIYOR: 2048'de skor on binlerde, bir tepki
+       oyununda milisaniyede — toplamak anlamsız olurdu. Onun yerine her
+       oyunda DERECEYE göre puan veriliyor (1. 3, 2. 2, 3. 1). Böylece
+       birbirine hiç benzemeyen oyunlar aynı tabloda adil toplanabiliyor. -->
+  <div class="sayfa" data-sayfa="oyun">
+    <div class="sayfa-ic">
+      <div class="sayfa-ust">
+        <button class="ust-avatar" data-profilim title="Profilim"><span class="avatar" id="benAvatarOyun"></span></button>
+        <h2 class="sayfa-baslik">Oyun</h2>
+        <span class="izleyen" id="oyunHaftaEtiket"></span>
+      </div>
+
+      <div class="sayfa-govde" id="oyunGovde">
+        <section class="oyun-tablo-kart">
+          <div class="oyun-tablo-ust">
+            <h3>Bu haftanın tablosu</h3>
+            <span id="oyunTabloNot"></span>
+          </div>
+          <ol class="oyun-tablo" id="oyunTablo"></ol>
+        </section>
+
+        <div class="oyun-liste" id="oyunListe"></div>
+      </div>
+    </div>
+  </div>
+
       <!-- ================= YÖNETİM =================
            Yalnız profilinde yonetici:true olan hesapta görünür. Gizlilik
            gereği başkalarının SOHBETLERİ burada da okunmaz (veritabanı
@@ -5405,6 +5554,19 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
         <div class="yildiz-liste" id="yildizListe"></div>
       </aside>
 
+      <!-- ================= OYUN OYNANIYOR =================
+           Mini oyunların çizildiği tek katman. Her oyun buraya kendi
+           arayüzünü kuruyor; katman oyuna özel hiçbir şey bilmiyor. Yeni
+           oyun eklemek = OYUNLAR dizisine bir nesne koymak (bkz. JS). -->
+      <aside class="yigin-ekran oyun-ekrani" id="oyunEkrani" data-derinlik="1" data-ekran="oyunOyna" aria-label="Oyun">
+        <div class="ke-ust">
+          <button class="ikon-btn yigin-geri" aria-label="Geri"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <h3 id="oyunOynaBaslik">Oyun</h3>
+          <span class="yigin-sayac" id="oyunOynaSkor"></span>
+        </div>
+        <div class="oyun-sahne" id="oyunSahne"></div>
+      </aside>
+
       <!-- ÇIKARTMA YAPICI: fotoğraftan arkaplanı otomatik silen, üstüne yazı
            eklenebilen ve sonucu kişisel çıkartma kitaplığına kaydeden ekran. -->
       <!-- ================= HİKAYE OLUŞTUR =================
@@ -5738,6 +5900,10 @@ html.tam-ekran .sohbet-ust{padding-top:max(10px,env(safe-area-inset-top))}
     <button class="alt-oge" data-sayfa="akis">
       <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6M7 13h10M7 17h8"/></svg>
       <span>Akış</span>
+    </button>
+    <button class="alt-oge" data-sayfa="oyun">
+      <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="4"/><path d="M7 10v4M5 12h4"/><circle cx="16" cy="11" r="1.1" fill="currentColor" stroke="none"/><circle cx="18.5" cy="13.5" r="1.1" fill="currentColor" stroke="none"/></svg>
+      <span>Oyun</span>
     </button>
   </nav>
 
@@ -7379,7 +7545,7 @@ function benSatiriCiz(){
   const ad = p.ad || benimAdim;
   $('#benAd').textContent = ad;
   $('#benKullanici').textContent = p.durum ? p.durum : '@' + (p.kullanici || kullaniciAdi(ben));
-  ['#benAvatar', '#benAvatarIzle', '#benAvatarAkis'].forEach(s => {
+  ['#benAvatar', '#benAvatarIzle', '#benAvatarAkis', '#benAvatarOyun'].forEach(s => {
     const el = $(s); if (el) avatarKur(el, ben.uid, ad);
   });
 }
@@ -8337,6 +8503,7 @@ function sayfaUygula(ad){
   menuKapat(); benMenuKapat();
   if (ad === 'izle') izleAkisiniYenile();
   if (ad === 'akis') akisAkisiniYenile();
+  if (ad === 'oyun') oyunSayfasiYenile();
   if (ad === 'sohbet') requestAnimationFrame(() => { if (aktifSohbet) akisiDibeAl(); });
 }
 /* Sekme değişimi de geri tuşuyla dönülebilir olmalı: Akış'a geçip geri
@@ -8358,6 +8525,521 @@ function sayfaSec(ad){
 }
 document.querySelectorAll('.alt-oge').forEach(b =>
   b.addEventListener('click', () => sayfaSec(b.dataset.sayfa)));
+
+/* ================= OYUN EKRANI =================
+ *
+ * Mini oyunlar SOHBETİN İÇİNDE değil, kendi sekmesinde. Buradaki kod oyunlara
+ * dair hiçbir şey bilmiyor: bir kayıt defteri (OYUNLAR), bir sahne katmanı ve
+ * skor/tablo işleri. Yeni oyun eklemek = OYUNLAR dizisine bir nesne koymak.
+ *
+ * Bir oyun nesnesi:
+ *   id       — veritabanı anahtarı. ASLA değişmemeli, skorlar buna bağlı.
+ *   ad       — kartta ve başlıkta görünen ad
+ *   ozet     — kartın altındaki tek satır
+ *   ikon     — kart ikonundaki kısa metin
+ *   azIyi    — true ise KÜÇÜK skor daha iyidir (süre/tepki oyunları)
+ *   birim    — skorun yanında görünen birim ('' ya da 'ms' gibi)
+ *   baslat(sahne, bitir) — arayüzünü `sahne` içine kurar; bir tur bitince
+ *              `bitir(skor)` çağırır. İsterse bir TEMİZLEME işlevi döndürür;
+ *              ekran kapanınca o çağrılıyor (zamanlayıcı/dinleyici kalmasın).
+ *
+ * SKOR DÜRÜSTLÜĞÜ: skoru istemci bildiriyor. Konsolu açan biri sahte skor
+ * yazabilir. Kapalı bir çevrede oyunun kuralı olarak yeterli, güvenlik
+ * iddiası değil. Sağlamı hamle listesini de saklayıp sunucuda oynatmak;
+ * kurallar buna hazır (yalnız kendi skorunu yazabiliyorsun), gerekirse
+ * üstüne eklenir.
+ */
+
+/* Haftanın anahtarı = o haftanın PAZARTESİSİNİN tarihi (20260921 gibi).
+   ISO hafta numarası yerine bunu seçtim: yıl sonu kıvrımları yok, sıralaması
+   doğal ve okunduğunda ne olduğu belli. */
+function oyunHaftasi(t){
+  const d = new Date(t || Date.now());
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // pazartesiye çek
+  return '' + d.getFullYear() +
+         String(d.getMonth() + 1).padStart(2, '0') +
+         String(d.getDate()).padStart(2, '0');
+}
+const OYUN_AYLAR = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran',
+                    'Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+function oyunHaftaEtiketi(){
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const b = new Date(d); b.setDate(b.getDate() + 6);
+  return d.getDate() + (d.getMonth() === b.getMonth() ? '' : ' ' + OYUN_AYLAR[d.getMonth()]) +
+         '–' + b.getDate() + ' ' + OYUN_AYLAR[b.getMonth()];
+}
+
+let oyunSkor = {};      // {oyunId: {uid: bu haftanın en iyisi}}
+let oyunEnIyi = {};     // {oyunId: {uid: tüm zamanların en iyisi}}
+let oyunDinlendi = false;
+let oyunCalisan = null; // {id, temizle}
+
+/* Skorları ilk kez Oyun sekmesine girildiğinde dinlemeye başlıyoruz:
+   açılışta bağlanmanın anlamı yok, açılış hızı zaten dar boğaz. */
+function oyunDinleyicileriKur(){
+  if (oyunDinlendi || !db || !ben) return;
+  oyunDinlendi = true;
+  const hafta = oyunHaftasi();
+  OYUNLAR.forEach(o => {
+    db.ref('oyun/skor/' + o.id + '/' + hafta).on('value', (s) => {
+      oyunSkor[o.id] = s.val() || {};
+      oyunSayfasiCiz();
+    }, () => {});
+    db.ref('oyun/enIyi/' + o.id).on('value', (s) => {
+      oyunEnIyi[o.id] = s.val() || {};
+      oyunSayfasiCiz();
+    }, () => {});
+  });
+}
+
+/* Skoru yazar. İşlem (transaction) ile: yalnız DAHA İYİYSE geçiyor, böylece
+   iki sekmede oynarken ya da eski bir yazım geç gelirken kayıt düşmüyor. */
+async function oyunSkoruBildir(oyunId, skor){
+  if (!db || !ben || typeof skor !== 'number' || !isFinite(skor) || skor < 0) return;
+  const oyun = OYUNLAR.find(o => o.id === oyunId);
+  if (!oyun) return;
+  const dahaIyi = (a, b) => (oyun.azIyi ? a < b : a > b);
+  const yaz = (yol) => db.ref(yol).transaction(
+    (mevcut) => (mevcut == null || dahaIyi(skor, mevcut)) ? skor : undefined);
+  try {
+    await Promise.all([
+      yaz('oyun/skor/' + oyunId + '/' + oyunHaftasi() + '/' + ben.uid),
+      yaz('oyun/enIyi/' + oyunId + '/' + ben.uid)
+    ]);
+  } catch (e) {
+    bildir('Skor kaydedilemedi — bağlantı yok.');
+  }
+}
+
+/* Genel tablo: oyunlar arası puanları TOPLAMIYOR (2048'de on binler, bir
+   tepki oyununda milisaniyeler — toplamı anlamsız olurdu). Her oyunda
+   dereceye puan veriyor: 1. üç, 2. iki, 3. bir. Eşitlikte ikisi de yüksek
+   olanı alıyor; dört kişilik bir çevrede "berabere kaldık ama o daha çok
+   aldı" tartışması oyunu bitirir. */
+function oyunGenelTablo(){
+  const puan = {};
+  OYUNLAR.forEach(o => {
+    const skorlar = oyunSkor[o.id] || {};
+    const uidler = Object.keys(skorlar)
+      .sort((a, b) => o.azIyi ? skorlar[a] - skorlar[b] : skorlar[b] - skorlar[a]);
+    let sira = 0;
+    while (sira < uidler.length && sira < 3) {
+      const deger = skorlar[uidler[sira]];
+      let j = sira;
+      const grup = [];
+      while (j < uidler.length && skorlar[uidler[j]] === deger) { grup.push(uidler[j]); j++; }
+      const p = 3 - sira;
+      grup.forEach(u => { puan[u] = (puan[u] || 0) + p; });
+      sira = j;
+    }
+  });
+  return Object.keys(puan)
+    .sort((a, b) => puan[b] - puan[a])
+    .map(uid => ({ uid, puan: puan[uid] }));
+}
+
+function oyunSkorYaz(oyun, deger){
+  if (deger == null) return '—';
+  return deger.toLocaleString('tr-TR') + (oyun.birim ? ' ' + oyun.birim : '');
+}
+
+/* Tabloda görünecek kişilerin adları önbellekte yoksa çekip yeniden çiziyoruz.
+   Tek seferlik: profilGetir kendi önbelleğini tutuyor, döngüye girmiyor. */
+function oyunProfilleriGetir(uidler){
+  const eksik = uidler.filter(u => u && !profilKesi[u]);
+  if (!eksik.length) return;
+  Promise.all(eksik.map(u => profilGetir(u).catch(() => null)))
+    .then(() => oyunSayfasiCiz());
+}
+
+function oyunSayfasiCiz(){ _erteleCiz('oyun', oyunSayfasiCizGercek); }
+
+function oyunSayfasiCizGercek(){
+  const etiket = $('#oyunHaftaEtiket');
+  if (etiket) etiket.textContent = oyunHaftaEtiketi();
+
+  /* ---- haftalık tablo ---- */
+  const tablo = $('#oyunTablo');
+  if (tablo) {
+    const sirali = oyunGenelTablo();
+    oyunProfilleriGetir(sirali.map(r => r.uid));
+    tablo.innerHTML = '';
+    if (!sirali.length) {
+      const li = document.createElement('li');
+      li.className = 'bos';
+      li.textContent = 'Bu hafta kimse oynamadı. İlk skoru sen koy.';
+      tablo.appendChild(li);
+    } else {
+      sirali.forEach((r, i) => {
+        const li = document.createElement('li');
+        if (ben && r.uid === ben.uid) li.classList.add('benim');
+        const ad = (profilKesi[r.uid] || {}).ad || 'Bilinmeyen';
+        li.innerHTML = '<span class="sira">' + (i + 1) + '.</span>' +
+                       '<span class="ad">' + kacir(ad) + '</span>' +
+                       '<span class="puan">' + r.puan + '</span>';
+        tablo.appendChild(li);
+      });
+    }
+    const not = $('#oyunTabloNot');
+    if (not) not.textContent = sirali.length ? 'pazartesi sıfırlanır' : '';
+  }
+
+  /* ---- oyun kartları ---- */
+  const liste = $('#oyunListe');
+  if (!liste) return;
+  liste.innerHTML = '';
+  OYUNLAR.forEach(o => {
+    const skorlar = oyunSkor[o.id] || {};
+    const benimki = ben ? skorlar[ben.uid] : null;
+    const uidler = Object.keys(skorlar);
+    let lider = null;
+    uidler.forEach(u => {
+      if (lider == null || (o.azIyi ? skorlar[u] < skorlar[lider] : skorlar[u] > skorlar[lider])) lider = u;
+    });
+    oyunProfilleriGetir([lider]);
+
+    const kart = document.createElement('button');
+    kart.type = 'button';
+    kart.className = 'oyun-kart';
+    kart.innerHTML =
+      '<span class="ok-ikon">' + kacir(o.ikon) + '</span>' +
+      '<span class="ok-orta"><b>' + kacir(o.ad) + '</b><span>' + kacir(o.ozet) +
+        (lider ? ' · lider ' + kacir((profilKesi[lider] || {}).ad || '?') : '') +
+      '</span></span>' +
+      '<span class="ok-skor"><b>' + oyunSkorYaz(o, benimki == null ? null : benimki) +
+        '</b><span>BU HAFTA</span></span>';
+    kart.addEventListener('click', () => oyunAc(o.id));
+    liste.appendChild(kart);
+  });
+}
+
+/* Sekmeye girildiğinde çağrılıyor (bkz. sayfaUygula). */
+function oyunSayfasiYenile(){
+  oyunDinleyicileriKur();
+  oyunSayfasiCiz();
+}
+
+/* ---- oyunu aç / durdur ---- */
+function oyunAc(oyunId){
+  const oyun = OYUNLAR.find(o => o.id === oyunId);
+  if (!oyun) return;
+  oyunuDurdur();                       // önceki tur arkada kalmasın
+  const sahne = $('#oyunSahne');
+  const baslik = $('#oyunOynaBaslik');
+  const skorEl = $('#oyunOynaSkor');
+  if (!sahne) return;
+  sahne.innerHTML = '';
+  if (baslik) baslik.textContent = oyun.ad;
+  if (skorEl) {
+    const b = (oyunEnIyi[oyun.id] || {})[ben && ben.uid];
+    skorEl.textContent = b == null ? '' : 'rekor ' + oyunSkorYaz(oyun, b);
+  }
+  let temizle = null;
+  try {
+    temizle = oyun.baslat(sahne, (skor) => oyunSkoruBildir(oyun.id, skor));
+  } catch (e) {
+    sahne.textContent = 'Oyun açılamadı.';
+  }
+  oyunCalisan = { id: oyun.id, temizle: typeof temizle === 'function' ? temizle : null };
+  yiginAc('oyunOyna');
+}
+
+/* Ekran kapanınca çağrılıyor: zamanlayıcı ve dinleyiciler arkada kalırsa pil
+   yakar, ikinci açılışta iki oyun üst üste biner (aynı hatayı video
+   oynatıcıda bir kez yaşadık). */
+function oyunuDurdur(){
+  if (!oyunCalisan) return;
+  const t = oyunCalisan.temizle;
+  oyunCalisan = null;
+  if (t) { try { t(); } catch (e) {} }
+}
+
+/* ---------------- MİNİ OYUN: 2048 ----------------
+ *
+ * Mantık SAF tutuldu (o48Hamle, o48BosKareler, o48Bitti): Android ve DOM
+ * olmadan sınanabiliyor — bu dosyanın sınaması gerçek fonksiyonları çıkarıp
+ * Node'da koşturuyor. Kaydırma kuralları gözle "doğru görünen" ama yanlış
+ * olan çok sayıda varyantı olan bir şey; birleşmenin tek turda bir kez
+ * olması, 2-2-4'ün 4-4 değil 4-4 vermesi gibi ayrıntılar elle denemeyle
+ * yakalanmıyor.
+ *
+ * Taşlar KİMLİKLİ ({id, deger, r, s}) tutuluyor, ızgara dizisi olarak değil.
+ * Sebep: kimlik olmadan kayma animasyonu yazılamıyor — her hamlede taşlar
+ * yeniden çizilir ve oyun "zıplıyor" gibi görünür. Kimlikle CSS transform
+ * geçişi taşı yeni yerine kaydırıyor.
+ */
+let o48Sayac = 0;
+function o48TasYap(deger, r, s){
+  return { id: ++o48Sayac, deger, r, s, yeni: true, birlesti: false };
+}
+
+/* Bir hamlenin SONUCU. Girdiyi değiştirmiyor; yeni taş dizisi döndürüyor.
+   yon: 'sol' | 'sag' | 'yukari' | 'asagi' */
+function o48Hamle(taslar, yon){
+  const yatay = (yon === 'sol' || yon === 'sag');
+  const ters = (yon === 'sag' || yon === 'asagi');
+  const sonuc = [];
+  let puan = 0, degisti = false;
+
+  for (let hat = 0; hat < 4; hat++) {
+    /* Hedef kenara en yakın taş başta olacak şekilde sırala: birleşmenin
+       hangi taşta olacağını bu sıra belirliyor. */
+    const dizi = taslar
+      .filter(t => (yatay ? t.r : t.s) === hat)
+      .sort((a, b) => (yatay ? a.s - b.s : a.r - b.r));
+    if (ters) dizi.reverse();
+
+    const cikti = [];
+    for (let i = 0; i < dizi.length; i++) {
+      const t = dizi[i], sonraki = dizi[i + 1];
+      if (sonraki && sonraki.deger === t.deger) {
+        /* Tek turda bir kez birleşme: i++ ile yutulan taşı atlıyoruz, yoksa
+           4-2-2 dizisi zincirleme birleşip 8 verirdi (yanlış). */
+        cikti.push({ id: t.id, deger: t.deger * 2, birlesti: true });
+        puan += t.deger * 2;
+        i++;
+      } else {
+        cikti.push({ id: t.id, deger: t.deger, birlesti: false });
+      }
+    }
+
+    cikti.forEach((c, i) => {
+      const k = ters ? 3 - i : i;
+      const r = yatay ? hat : k;
+      const s = yatay ? k : hat;
+      const eski = taslar.find(x => x.id === c.id);
+      if (eski.r !== r || eski.s !== s || eski.deger !== c.deger) degisti = true;
+      sonuc.push({ id: c.id, deger: c.deger, r, s, yeni: false, birlesti: c.birlesti });
+    });
+  }
+  return { taslar: sonuc, puan, degisti };
+}
+
+function o48BosKareler(taslar){
+  const dolu = new Set(taslar.map(t => t.r + ',' + t.s));
+  const bos = [];
+  for (let r = 0; r < 4; r++) for (let s = 0; s < 4; s++) {
+    if (!dolu.has(r + ',' + s)) bos.push({ r, s });
+  }
+  return bos;
+}
+
+/* rast: 0..1 arası sayı üreten işlev (sınamada sabitlenebiliyor). */
+function o48TasEkle(taslar, rast){
+  const bos = o48BosKareler(taslar);
+  if (!bos.length) return null;
+  const rnd = rast || Math.random;
+  const yer = bos[Math.floor(rnd() * bos.length)];
+  const tas = o48TasYap(rnd() < 0.9 ? 2 : 4, yer.r, yer.s);
+  taslar.push(tas);
+  return tas;
+}
+
+/* Hiçbir yöne hamle kalmadıysa oyun bitti. */
+function o48Bitti(taslar){
+  if (o48BosKareler(taslar).length) return false;
+  return !['sol', 'sag', 'yukari', 'asagi'].some(y => o48Hamle(taslar, y).degisti);
+}
+
+/* ---- arayüz ---- */
+/* Değer büyüdükçe mavi → amber. 128'den sonra zemin açıldığı için yazı
+   koyuya dönüyor (aşağıda), yoksa okunmuyordu. */
+const O48_RENK = {
+  2:'#2c3242', 4:'#343d52', 8:'#3a5c86', 16:'#3f6fa3', 32:'#4383bd',
+  64:'#4897d3', 128:'#c9a35a', 256:'#d0a24a', 512:'#d79b34',
+  1024:'#dd9024', 2048:'#e58314'
+};
+
+function o48Baslat(sahne, bitir){
+  let taslar = [], puan = 0, bittiMi = false, bildirildi = false;
+
+  /* ---- iskelet ---- */
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>PUAN</span><b id="o48Puan">0</b></div>' +
+    '<div class="oyun-kutu"><span>EN BÜYÜK</span><b id="o48Enb">0</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const tahta = document.createElement('div');
+  tahta.className = 'o48-tahta';
+  for (let i = 0; i < 16; i++) {
+    const h = document.createElement('div');
+    h.className = 'o48-hucre';
+    tahta.appendChild(h);
+  }
+  /* Taş katmanı tahtanın İÇ alanına oturuyor (dolgu 8px): taş genişliği
+     buradaki %100'den türetildiği için dolgu hesaba girmiyor (bkz. CSS). */
+  const katman = document.createElement('div');
+  katman.style.position = 'absolute';
+  katman.style.inset = '8px';
+  katman.style.pointerEvents = 'none';
+  tahta.appendChild(katman);
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = 'Parmağını kaydır (bilgisayarda yön tuşları). ' +
+                      'Aynı sayılar birleşir; haftanın en yüksek puanı tabloya yazılıyor.';
+
+  sahne.appendChild(ust);
+  sahne.appendChild(tahta);
+  sahne.appendChild(ipucu);
+
+  /* ---- çizim ----
+     Taş elemanları KİMLİĞE göre yeniden kullanılıyor, her hamlede baştan
+     yaratılmıyor. Sebebi animasyon: yeniden yaratılan elemanın CSS geçişi
+     çalışmaz, taşlar kayacak yerde ışınlanır. Aynı elemanın --r/--s
+     değişkenleri değişince transform geçişi taşı yeni yerine kaydırıyor. */
+  const elemanlar = new Map();   // tas id -> DOM elemanı
+
+  function ciz(){
+    let enb = 0;
+    const gorulen = new Set();
+    taslar.forEach(t => {
+      if (t.deger > enb) enb = t.deger;
+      gorulen.add(t.id);
+      let el = elemanlar.get(t.id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'o48-tas';
+        el.appendChild(document.createElement('span'));
+        /* Konumu eklemeden ÖNCE veriyoruz: yeni taş doğduğu karede
+           görünsün, sol üstten kayarak gelmesin. */
+        el.style.setProperty('--r', String(t.r));
+        el.style.setProperty('--s', String(t.s));
+        katman.appendChild(el);
+        elemanlar.set(t.id, el);
+      }
+      el.style.setProperty('--r', String(t.r));
+      el.style.setProperty('--s', String(t.s));
+      el.classList.toggle('yeni', !!t.yeni);
+      el.classList.toggle('birlesti', !!t.birlesti);
+      const span = el.firstChild;
+      if (span.textContent !== String(t.deger)) span.textContent = t.deger;
+      /* Basamak arttıkça yazı küçülsün: 4 haneli sayı kutuya sığmıyordu. */
+      const bas = String(t.deger).length;
+      el.style.fontSize = bas <= 2 ? '1.55rem' : bas === 3 ? '1.25rem' : '1rem';
+      el.style.background = O48_RENK[t.deger] || '#e58314';
+      el.style.color = t.deger >= 128 ? '#161a22' : 'var(--kar)';
+      t.yeni = false;
+      t.birlesti = false;
+    });
+    /* Birleşmede yutulan taşlar: artık listede yok, elemanları da gitsin. */
+    elemanlar.forEach((el, id) => {
+      if (!gorulen.has(id)) { el.remove(); elemanlar.delete(id); }
+    });
+    const p = sahne.querySelector('#o48Puan');
+    const e = sahne.querySelector('#o48Enb');
+    if (p) p.textContent = puan.toLocaleString('tr-TR');
+    if (e) e.textContent = enb.toLocaleString('tr-TR');
+  }
+
+  function bittiPerdesi(){
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    ic.innerHTML = '<b>Bitti</b><p>Puan: ' + puan.toLocaleString('tr-TR') + '</p>';
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+  }
+
+  function hamle(yon){
+    if (bittiMi) return;
+    const s = o48Hamle(taslar, yon);
+    if (!s.degisti) return;
+    taslar = s.taslar;
+    puan += s.puan;
+    o48TasEkle(taslar);
+    ciz();
+    if (o48Bitti(taslar)) {
+      bittiMi = true;
+      /* Skoru BİR KEZ bildiriyoruz: aynı turun skoru iki kez gitmesin. */
+      if (!bildirildi) { bildirildi = true; bitir(puan); }
+      bittiPerdesi();
+    }
+  }
+
+  function yeniOyun(){
+    /* Yarıda bırakılan tur da sayılsın: yoksa iyi giden bir oyunu bitirmeden
+       "Yeniden"e basmak puanı çöpe atıyordu. */
+    if (!bittiMi && puan > 0 && !bildirildi) { bildirildi = true; bitir(puan); }
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    elemanlar.forEach(el => el.remove());
+    elemanlar.clear();
+    taslar = []; puan = 0; bittiMi = false; bildirildi = false;
+    o48TasEkle(taslar);
+    o48TasEkle(taslar);
+    ciz();
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+
+  /* ---- girdi ---- */
+  const tusIsle = (e) => {
+    const h = { ArrowLeft:'sol', ArrowRight:'sag', ArrowUp:'yukari', ArrowDown:'asagi',
+                a:'sol', d:'sag', w:'yukari', s:'asagi' }[e.key];
+    if (!h) return;
+    e.preventDefault();
+    hamle(h);
+  };
+  document.addEventListener('keydown', tusIsle);
+
+  let bx = 0, by = 0, dokunuyor = false;
+  const basla = (e) => {
+    const n = e.touches ? e.touches[0] : e;
+    bx = n.clientX; by = n.clientY; dokunuyor = true;
+  };
+  const bitirDokunus = (e) => {
+    if (!dokunuyor) return;
+    dokunuyor = false;
+    const n = (e.changedTouches && e.changedTouches[0]) || e;
+    const dx = n.clientX - bx, dy = n.clientY - by;
+    /* 24 piksel eşiği: bunun altındaki hareket dokunma sayılıyor, yoksa
+       tahtaya her dokunuşta istemsiz hamle oluyordu. */
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+    hamle(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'sag' : 'sol') : (dy > 0 ? 'asagi' : 'yukari'));
+  };
+  tahta.addEventListener('touchstart', basla, { passive: true });
+  tahta.addEventListener('touchend', bitirDokunus);
+  tahta.addEventListener('mousedown', basla);
+  tahta.addEventListener('mouseup', bitirDokunus);
+
+  yeniOyun();
+
+  /* Temizleme: ekran kapanınca belge dinleyicisi kalmasın. Yarıda bırakılan
+     turun puanı da burada kaydediliyor — kullanıcı geri tuşuna basıp çıkınca
+     iyi bir oyunun puanı kaybolmasın. */
+  return function temizle(){
+    document.removeEventListener('keydown', tusIsle);
+    if (!bittiMi && puan > 0 && !bildirildi) { bildirildi = true; bitir(puan); }
+  };
+}
+
+/* ---------------- KAYIT DEFTERİ ----------------
+   Yeni oyun eklemek: aşağıya bir nesne. id ASLA değişmemeli — skorlar ona
+   bağlı. */
+const OYUNLAR = [
+  {
+    id: '2048',
+    ad: '2048',
+    ozet: 'Aynı sayıları birleştir, 2048’e çık',
+    ikon: '2048',
+    azIyi: false,
+    birim: '',
+    baslat: o48Baslat
+  }
+];
 
 /* Aynı karede birden çok kez tetiklenen yeniden çizimleri tek seferde topla.
    Fonksiyon bildirimi olarak yazılıyor ki dosyanın her yerinden çağrılabilsin. */
@@ -21144,6 +21826,10 @@ function ayarNavKur(el){
 function yiginCiz(){
   /* Detay kapandıysa açık gönderi de düşsün: kapalı ekrana çizim yapmayalım. */
   if (typeof acikGonderi !== 'undefined' && !ekranYigini.includes('gonderi')) acikGonderi = null;
+  /* Oyun katmanı kapandıysa çalışan oyunu durdur: zamanlayıcı ve belge
+     dinleyicileri arkada kalırsa pil yakar, ikinci açılışta iki oyun üst üste
+     biner (aynı hatayı video oynatıcıda bir kez yaşadık). */
+  if (typeof oyunuDurdur === 'function' && !ekranYigini.includes('oyunOyna')) oyunuDurdur();
   document.querySelectorAll('.yigin-ekran').forEach(el => {
     const ad = el.dataset.ekran;
     const acik = ekranYigini.includes(ad);

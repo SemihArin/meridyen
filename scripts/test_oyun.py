@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""Meridyen — oyun ekranının mantığını sınar (2048 kuralları + skor tablosu).
+
+NE SINANIYOR: www/index.html'in İÇİNDEKİ gerçek fonksiyonlar. Kopyası değil:
+betik dosyayı okuyup adı verilen fonksiyonları süslü parantez sayarak
+çıkarıyor ve Node'un vm'inde koşturuyor. Kopyalasaydık sınama kopyayı
+doğrular, uygulamayı değil.
+
+NİÇİN GEREKLİ: 2048'in kaydırma kuralları "gözle doğru görünen" ama yanlış
+olan bir sürü varyanta sahip. En sinsisi zincirleme birleşme: [4,2,2] sola
+kaydırıldığında 4-4 olmalı, 8 DEĞİL. Elle denemeyle bu yakalanmıyor, çünkü
+oyun yine "çalışıyor" gibi görünüyor — sadece kuralları yanlış.
+
+Skor tablosu da burada: dereceye göre puanlama ve EŞİTLİK durumu. Dört
+kişilik bir çevrede "berabere kaldık ama o daha çok puan aldı" tartışması
+oyunu bitirir, o yüzden eşitlikte ikisinin de yüksek puanı alması sınanıyor.
+"""
+import io
+import os
+import subprocess
+import sys
+import tempfile
+
+KAYNAK = "www/index.html"
+
+# Çıkarılacak fonksiyonlar. Saf olanlar: DOM ve Firebase'e dokunmuyorlar.
+ISLEVLER = [
+    "o48TasYap",
+    "o48Hamle",
+    "o48BosKareler",
+    "o48TasEkle",
+    "o48Bitti",
+    "oyunHaftasi",
+    "oyunGenelTablo",
+]
+
+SURUCU = r"""
+let gecti = 0, kaldi = 0;
+function esit(ad, bulunan, beklenen){
+  const a = JSON.stringify(bulunan), b = JSON.stringify(beklenen);
+  if (a === b) gecti++;
+  else { kaldi++; console.log('KALDI: ' + ad + '\n  beklenen ' + b + '\n  bulunan  ' + a); }
+}
+function dogru(ad, k){ esit(ad, !!k, true); }
+
+/* Izgarayi okunur yazmak icin: satir satir sayilar, 0 = bos. */
+function kur(izgara){
+  const t = [];
+  izgara.forEach((satir, r) => satir.forEach((d, s) => { if (d) t.push(o48TasYap(d, r, s)); }));
+  t.forEach(x => { x.yeni = false; });
+  return t;
+}
+function goster(taslar){
+  const g = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+  taslar.forEach(t => { g[t.r][t.s] = t.deger; });
+  return g;
+}
+
+/* ---- 1) temel kaydirma ---- */
+{
+  const t = kur([[0,0,2,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const s = o48Hamle(t, 'sol');
+  esit('sola kayiyor', goster(s.taslar), [[2,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  esit('kaymada puan yok', s.puan, 0);
+  dogru('degisti', s.degisti);
+}
+{
+  const t = kur([[2,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const s = o48Hamle(t, 'sol');
+  dogru('yerinde duran tas degismedi sayilmiyor', !s.degisti);
+}
+
+/* ---- 2) ZİNCİRLEME BİRLEŞME OLMAMALI (asil tuzak) ---- */
+{
+  const t = kur([[4,2,2,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const s = o48Hamle(t, 'sol');
+  esit('4-2-2 sola: 4-4 olur (8 DEGIL)', goster(s.taslar), [[4,4,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  esit('4-2-2 puani', s.puan, 4);
+}
+{
+  const t = kur([[2,2,2,2],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const s = o48Hamle(t, 'sol');
+  esit('2-2-2-2 sola: 4-4', goster(s.taslar), [[4,4,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  esit('2-2-2-2 puani', s.puan, 8);
+}
+{
+  const t = kur([[2,2,4,4],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const s = o48Hamle(t, 'sol');
+  esit('2-2-4-4 sola: 4-8', goster(s.taslar), [[4,8,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  esit('2-2-4-4 puani', s.puan, 12);
+}
+{
+  const t = kur([[2,2,2,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const s = o48Hamle(t, 'sol');
+  esit('2-2-2 sola: 4-2 (hedefe yakin ikili birlesir)',
+       goster(s.taslar), [[4,2,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+}
+{
+  const t = kur([[2,2,2,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const s = o48Hamle(t, 'sag');
+  esit('2-2-2 saga: 2-4 (hedef kenar degisti)',
+       goster(s.taslar), [[0,0,2,4],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+}
+
+/* ---- 3) birlesme hareket olmadan da degisiklik ---- */
+{
+  const t = kur([[2,2,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const s = o48Hamle(t, 'sol');
+  dogru('yer degismese de birlesme degisikliktir', s.degisti);
+  esit('birlesme sonucu', goster(s.taslar), [[4,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+}
+
+/* ---- 4) dikey yonler ---- */
+{
+  const t = kur([[2,0,0,0],[2,0,0,0],[0,0,0,0],[4,0,0,0]]);
+  const s = o48Hamle(t, 'yukari');
+  esit('yukari: 2-2-4 -> 4-4', goster(s.taslar), [[4,0,0,0],[4,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  esit('yukari puani', s.puan, 4);
+}
+{
+  const t = kur([[2,0,0,0],[2,0,0,0],[0,0,0,0],[4,0,0,0]]);
+  const s = o48Hamle(t, 'asagi');
+  esit('asagi: alta yigiliyor', goster(s.taslar), [[0,0,0,0],[0,0,0,0],[4,0,0,0],[4,0,0,0]]);
+}
+
+/* ---- 5) kimlik: hedefe yakin tas hayatta kalir (kayma animasyonunun sarti) ---- */
+{
+  const t = kur([[2,2,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const solKimlik = t.find(x => x.s === 0).id;
+  const s = o48Hamle(t, 'sol');
+  esit('sola birlesmede soldaki tas yasar', s.taslar[0].id, solKimlik);
+  dogru('birlesen tas isaretli', s.taslar[0].birlesti);
+}
+
+/* ---- 6) tas sayisi ve sinirlar ---- */
+{
+  const t = kur([[2,2,4,8],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const s = o48Hamle(t, 'sol');
+  esit('bir birlesme bir tas eksiltir', s.taslar.length, 3);
+  dogru('tum taslar tahta icinde',
+        s.taslar.every(x => x.r >= 0 && x.r < 4 && x.s >= 0 && x.s < 4));
+  const yerler = new Set(s.taslar.map(x => x.r + ',' + x.s));
+  esit('iki tas ayni karede degil', yerler.size, s.taslar.length);
+}
+
+/* ---- 7) bos kareler ve tas ekleme ---- */
+{
+  esit('bos tahtada 16 bos kare', o48BosKareler([]).length, 16);
+  const t = kur([[2,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,4]]);
+  esit('iki tasli tahtada 14 bos', o48BosKareler(t).length, 14);
+
+  /* Sabit rastgele: ilk bos kareye 2 koyar. */
+  const taslar = kur([[2,2,2,2],[2,2,2,2],[2,2,2,2],[2,2,2,0]]);
+  const eklendi = o48TasEkle(taslar, () => 0);
+  esit('tek bos kareye eklendi', [eklendi.r, eklendi.s], [3, 3]);
+  esit('0.9 altinda 2 gelir', eklendi.deger, 2);
+  esit('tahta doldu', o48BosKareler(taslar).length, 0);
+  esit('dolu tahtaya eklenemez', o48TasEkle(taslar, () => 0), null);
+}
+{
+  const taslar = kur([[2,2,2,2],[2,2,2,2],[2,2,2,2],[2,2,2,0]]);
+  /* 0.95: kare secimi icin de 0.95 kullanilir ama tek kare var; deger 4 olur. */
+  const eklendi = o48TasEkle(taslar, () => 0.95);
+  esit('0.9 ustunde 4 gelir', eklendi.deger, 4);
+}
+
+/* ---- 8) oyun bitti mi ---- */
+{
+  dogru('bos tahtada bitmedi', !o48Bitti([]));
+  /* Dolu ama komsu esitler var -> bitmedi. */
+  const bir = kur([[2,2,4,8],[4,8,16,32],[2,4,8,16],[4,8,16,32]]);
+  dogru('birlesme varsa bitmedi', !o48Bitti(bir));
+  /* Dolu ve hicbir komsu esit degil -> bitti. */
+  const iki = kur([[2,4,2,4],[4,2,4,2],[2,4,2,4],[4,2,4,2]]);
+  dogru('hamle kalmadiysa bitti', o48Bitti(iki));
+}
+
+/* ---- 9) hafta anahtari ---- */
+{
+  /* 2026-09-27 pazar; o haftanin pazartesisi 2026-09-21. */
+  const pazar = new Date(2026, 8, 27, 23, 30).getTime();
+  const pazartesi = new Date(2026, 8, 21, 0, 5).getTime();
+  const cuma = new Date(2026, 8, 25, 12, 0).getTime();
+  esit('pazartesi anahtari', oyunHaftasi(pazartesi), '20260921');
+  esit('ayni haftanin cumasi ayni anahtar', oyunHaftasi(cuma), '20260921');
+  esit('ayni haftanin pazari ayni anahtar', oyunHaftasi(pazar), '20260921');
+  /* Bir sonraki pazartesi yeni sezon. */
+  esit('sonraki hafta yeni anahtar',
+       oyunHaftasi(new Date(2026, 8, 28, 0, 1).getTime()), '20260928');
+  /* Ay/yil siniri. */
+  esit('yil siniri', oyunHaftasi(new Date(2027, 0, 1, 12, 0).getTime()), '20261228');
+}
+
+/* ---- 10) genel tablo: dereceye gore puan ---- */
+{
+  globalThis.OYUNLAR = [{ id: 'a', azIyi: false }, { id: 'b', azIyi: true }];
+  globalThis.oyunSkor = {
+    a: { u1: 100, u2: 50, u3: 10, u4: 5 },   // yuksek iyi
+    b: { u3: 200, u1: 900 }                   // az iyi (sure gibi)
+  };
+  const t = oyunGenelTablo();
+  /* a: u1=3, u2=2, u3=1 (u4 ilk ucte degil)   b: u3=3, u1=2 */
+  esit('toplam puanlar', t, [
+    { uid: 'u1', puan: 5 },
+    { uid: 'u3', puan: 4 },
+    { uid: 'u2', puan: 2 }
+  ]);
+  dogru('ilk ucun disi puan almaz', !t.some(r => r.uid === 'u4'));
+}
+{
+  globalThis.OYUNLAR = [{ id: 'a', azIyi: false }];
+  globalThis.oyunSkor = { a: { u1: 100, u2: 100, u3: 40 } };
+  const t = oyunGenelTablo();
+  esit('esitlikte ikisi de yuksek puani alir', t, [
+    { uid: 'u1', puan: 3 },
+    { uid: 'u2', puan: 3 },
+    { uid: 'u3', puan: 1 }
+  ]);
+}
+{
+  globalThis.OYUNLAR = [{ id: 'a', azIyi: false }];
+  globalThis.oyunSkor = {};
+  esit('kimse oynamadiysa tablo bos', oyunGenelTablo(), []);
+}
+
+console.log('');
+console.log(kaldi === 0 ? ('TUMU GECTI (' + gecti + ')')
+                        : ('BASARISIZ: ' + kaldi + ' / ' + (gecti + kaldi)));
+if (kaldi !== 0) process.exit(1);
+"""
+
+
+def islev_cikar(kaynak, ad):
+    """`function <ad>(` ile başlayan bildirimi süslü parantez sayarak çıkarır.
+
+    Regex bunu güvenilir yapamaz: gövdede süslü parantez, dizge ve yorum var.
+    Sayarken dizge ve yorum içindekileri atlıyoruz.
+    """
+    imza = "function " + ad + "("
+    i = kaynak.find(imza)
+    if i < 0:
+        sys.exit("HATA: %s fonksiyonu index.html içinde bulunamadı." % ad)
+    if kaynak.find(imza, i + 1) >= 0:
+        sys.exit("HATA: %s birden çok kez tanımlanmış." % ad)
+    j = kaynak.index("{", i)
+    derinlik = 0
+    dizge = None        # açık dizgenin kapatma karakteri
+    yorum = None        # '//' ya da '/*'
+    k = j
+    while k < len(kaynak):
+        c = kaynak[k]
+        iki = kaynak[k:k + 2]
+        if yorum == "//":
+            if c == "\n":
+                yorum = None
+        elif yorum == "/*":
+            if iki == "*/":
+                yorum = None
+                k += 1
+        elif dizge:
+            if c == "\\":
+                k += 1
+            elif c == dizge:
+                dizge = None
+        elif iki == "//":
+            yorum = "//"
+            k += 1
+        elif iki == "/*":
+            yorum = "/*"
+            k += 1
+        elif c in "\"'`":
+            dizge = c
+        elif c == "{":
+            derinlik += 1
+        elif c == "}":
+            derinlik -= 1
+            if derinlik == 0:
+                return kaynak[i:k + 1]
+        k += 1
+    sys.exit("HATA: %s fonksiyonunun sonu bulunamadı." % ad)
+
+
+def main():
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with io.open(os.path.join(kok, KAYNAK), encoding="utf-8") as f:
+        html = f.read()
+
+    parcalar = [islev_cikar(html, ad) for ad in ISLEVLER]
+    # o48Sayac, o48TasYap'ın dışında tanımlı; sınama için burada veriyoruz.
+    kod = "let o48Sayac = 0;\n" + "\n\n".join(parcalar) + "\n" + SURUCU
+
+    gecici = tempfile.mkdtemp(prefix="meridyen-oyun-")
+    yol = os.path.join(gecici, "sinama.js")
+    with io.open(yol, "w", encoding="utf-8") as f:
+        f.write(kod)
+
+    c = subprocess.run(["node", yol], capture_output=True, text=True)
+    sys.stdout.write(c.stdout)
+    sys.stderr.write(c.stderr)
+    if c.returncode != 0:
+        sys.exit("HATA: oyun sınaması başarısız.")
+
+
+if __name__ == "__main__":
+    main()
