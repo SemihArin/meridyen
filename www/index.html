@@ -4072,15 +4072,26 @@ mark.arama-vurgu{
   flex:1;min-height:0;width:100%;
   display:flex;align-items:center;justify-content:center;
 }
-.o48-tahta,.yl-tahta{max-width:560px;flex:none}
+.oyun-tahta{max-width:560px;flex:none;aspect-ratio:1}
 /* Yedek: kapsayıcı sorgusu olmayan eski bir motorda makul bir değer. */
-.o48-tahta,.yl-tahta{width:min(100%, 58vh)}
+.oyun-tahta{width:min(100%, 58vh)}
 @supports (container-type: size){
   .oyun-tahta-sar{container-type:size}
-  .o48-tahta,.yl-tahta{width:min(100cqw, 100cqh)}
+  .oyun-tahta{width:min(100cqw, 100cqh)}
 }
-/* Çok kısa ekranda (yatay çevrilmiş telefon) ipucu metni yer kaplamasın. */
-@media (max-height:520px){ .oyun-ipucu{display:none} }
+/* Çok kısa ekranda (yatay çevrilmiş telefon) her piksel tahtaya gitsin:
+   ipucu gizleniyor, üst şerit ve boşluklar daraltılıyor. Ölçüm bunu
+   gerektirdi — süre çubuğu olan oyunda tahta dar kenarın %57'sine düşmüştü,
+   ötekiler %60'ın üstündeydi. */
+@media (max-height:520px){
+  .oyun-ipucu{display:none}
+  .oyun-sahne{gap:6px;padding-top:2px}
+  .oyun-kutu{padding:4px 10px}
+  .oyun-kutu b{font-size:.95rem}
+  .oyun-kutu span{font-size:.52rem}
+  .oyun-dugme{padding:7px 12px;font-size:.76rem}
+  .oyun-ekrani .ke-ust{padding-top:2px;padding-bottom:2px}
+}
 .oyun-ust-satir{display:flex;align-items:center;gap:10px;width:100%;max-width:560px;flex:none}
 .oyun-kutu{
   background:var(--gece-2);border:1px solid #232733;border-radius:12px;
@@ -4096,9 +4107,36 @@ mark.arama-vurgu{
 .oyun-dugme.ana{background:var(--vurgu);border-color:var(--vurgu);color:#0f1420;font-weight:600}
 .oyun-ipucu{font-size:.74rem;color:var(--gri);text-align:center;max-width:560px;line-height:1.4;flex:none}
 
+/* ---- farklı kare ---- */
+.fk-tahta{
+  position:relative;
+  background:#1b1f28;border:1px solid #232733;border-radius:14px;padding:8px;
+  display:grid;gap:6px;
+  grid-template-columns:repeat(var(--fk-boyut,2),1fr);
+  grid-template-rows:repeat(var(--fk-boyut,2),1fr);
+  touch-action:manipulation;user-select:none;-webkit-user-select:none;
+}
+.fk-kare{border-radius:8px;transition:transform .09s}
+.fk-kare:active{transform:scale(.94)}
+/* Yanlış dokunuşta kısa kırmızı titreme: ceza görünür olmalı, yoksa
+   oyuncu neden süresinin azaldığını anlamıyor. */
+.fk-tahta.yanlis{animation:fkSars .22s}
+@keyframes fkSars{
+  0%,100%{transform:translateX(0)}
+  25%{transform:translateX(-5px)}
+  75%{transform:translateX(5px)}
+}
+.fk-sure-cubuk{
+  width:100%;max-width:560px;height:5px;border-radius:100px;
+  background:rgba(255,255,255,.08);overflow:hidden;flex:none;
+}
+.fk-sure-cubuk i{display:block;height:100%;background:var(--vurgu);
+  border-radius:100px;transition:width .1s linear}
+.fk-sure-cubuk.az i{background:var(--hata)}
+
 /* ---- yılan ---- */
 .yl-tahta{
-  position:relative;aspect-ratio:1;
+  position:relative;
   background:#1b1f28;border:1px solid #232733;border-radius:14px;padding:6px;
   display:grid;gap:1px;
   grid-template-columns:repeat(var(--yl-boyut,15),1fr);
@@ -4113,7 +4151,7 @@ mark.arama-vurgu{
 
 /* ---- 2048 ---- */
 .o48-tahta{
-  position:relative;aspect-ratio:1;
+  position:relative;
   background:#1b1f28;border:1px solid #232733;border-radius:14px;padding:8px;
   display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:8px;
   touch-action:none;   /* kaydırma hareketi oyunun, sayfanın değil */
@@ -9042,7 +9080,7 @@ function o48Baslat(sahne, bitir){
   ust.appendChild(yeniBtn);
 
   const tahta = document.createElement('div');
-  tahta.className = 'o48-tahta';
+  tahta.className = 'oyun-tahta o48-tahta';
   for (let i = 0; i < 16; i++) {
     const h = document.createElement('div');
     h.className = 'o48-hucre';
@@ -9316,7 +9354,7 @@ function yilanBaslat(sahne, bitir){
   ust.appendChild(yeniBtn);
 
   const tahta = document.createElement('div');
-  tahta.className = 'yl-tahta';
+  tahta.className = 'oyun-tahta yl-tahta';
   tahta.style.setProperty('--yl-boyut', boyut);
   const kareler = [];
   for (let i = 0; i < boyut * boyut; i++) {
@@ -9458,6 +9496,190 @@ function yilanBaslat(sahne, bitir){
   };
 }
 
+
+/* ---------------- MİNİ OYUN: FARKLI KARE ----------------
+ *
+ * Izgaradaki bir kare ötekilerden biraz farklı; onu bul. Bulunca ızgara
+ * büyüyor ve fark küçülüyor. Otuz saniye.
+ *
+ * Neden bu oyun üçüncü: elimizdeki ikisi de uzun soluklu ve kaydırmalı.
+ * Bu kısa (her tur 30 sn), dokunmalı ve "bir daha" dedirtiyor — asıl istenen
+ * şey tekrar oynanması. Sabit süre aynı zamanda skorları birebir
+ * karşılaştırılabilir kılıyor: herkes aynı bütçeyle oynuyor.
+ *
+ * FARK PARLAKLIKTA, RENKTE DEĞİL. İki sebep: parlaklık farkı renk körlüğünün
+ * her türünde ayırt edilebiliyor, ve telefon ekranında güneş altında bile
+ * en dayanıklı sinyal o. Ton rastgele seçiliyor ama iki kare arasındaki tek
+ * ayrım parlaklık.
+ *
+ * Yanlış dokunuşun bedeli SÜREDEN düşülüyor, puandan değil: puan cezası
+ * skoru negatife çekip tabloyu anlamsızlaştırıyor, süre cezası ise ekrana
+ * rastgele basmayı doğrudan cezalandırıyor.
+ */
+const FK_SURE_MS = 30000;
+const FK_CEZA_MS = 1500;
+const FK_ENBUYUK = 7;      // ızgara en çok 7×7
+const FK_ENAZ_FARK = 4;    // yüzde puan; altına inince fark görünmez oluyor
+
+/* Izgara her iki seviyede bir büyüyor: 2,2,3,3,4,4… ve 7'de duruyor.
+   Her seviyede büyütmek oyunu üç turda oynanmaz hâle getiriyordu. */
+function farkliBoyut(seviye){
+  return Math.min(FK_ENBUYUK, 2 + Math.floor(seviye / 2));
+}
+
+/* Parlaklık farkı seviyeyle azalıyor ama bir TABANIN altına inmiyor: taban
+   olmasa oyun birkaç seviye sonra tahmin oyununa dönüyor. */
+function farkliFark(seviye){
+  return Math.max(FK_ENAZ_FARK, 26 - seviye * 1.6);
+}
+
+/* Bir turun tahtası. rast: 0..1 üreten işlev (sınamada sabitlenebiliyor). */
+function farkliTur(seviye, rast){
+  const rnd = rast || Math.random;
+  const boyut = farkliBoyut(seviye);
+  const adet = boyut * boyut;
+  /* Math.min: rnd() 1'e çok yaklaşırsa indeks taşmasın. */
+  const hedef = Math.min(adet - 1, Math.floor(rnd() * adet));
+  const ton = Math.floor(rnd() * 360);
+  const doygun = 46 + Math.floor(rnd() * 18);
+  const parlak = 38 + Math.floor(rnd() * 16);
+  const fark = farkliFark(seviye);
+  return {
+    boyut, adet, hedef, fark,
+    zemin: 'hsl(' + ton + ',' + doygun + '%,' + parlak + '%)',
+    ayri: 'hsl(' + ton + ',' + doygun + '%,' + (parlak + fark) + '%)'
+  };
+}
+
+function farkliBaslat(sahne, bitir){
+  let seviye = 0, puan = 0, bitisTs = 0, tur = null;
+  let sayac = null, bittiMi = false, bildirildi = false;
+
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>PUAN</span><b id="fkPuan">0</b></div>' +
+    '<div class="oyun-kutu"><span>SÜRE</span><b id="fkSure">30</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const cubuk = document.createElement('div');
+  cubuk.className = 'fk-sure-cubuk';
+  const dolgu = document.createElement('i');
+  cubuk.appendChild(dolgu);
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = 'Ötekilerden farklı olan kareye dokun. ' +
+                      'Her doğruda ızgara büyür, fark küçülür; yanlışta süreden düşer.';
+
+  const tahta = document.createElement('div');
+  tahta.className = 'oyun-tahta fk-tahta';
+
+  sahne.appendChild(ust);
+  sahne.appendChild(cubuk);
+  sahne.appendChild(ipucu);
+  oyunTahtaYerlestir(sahne, tahta);
+
+  function turCiz(){
+    tur = farkliTur(seviye);
+    tahta.style.setProperty('--fk-boyut', tur.boyut);
+    tahta.innerHTML = '';
+    for (let i = 0; i < tur.adet; i++) {
+      const k = document.createElement('div');
+      k.className = 'fk-kare';
+      k.style.background = (i === tur.hedef) ? tur.ayri : tur.zemin;
+      k.addEventListener('click', () => dokun(i));
+      tahta.appendChild(k);
+    }
+  }
+
+  function dokun(i){
+    if (bittiMi || !tur) return;
+    if (i === tur.hedef) {
+      puan++; seviye++;
+      turCiz();
+    } else {
+      /* Ceza süreden. Titreme olmadan oyuncu süresinin neden azaldığını
+         anlamıyordu. */
+      bitisTs -= FK_CEZA_MS;
+      tahta.classList.remove('yanlis');
+      void tahta.offsetWidth;          // animasyonu yeniden tetikle
+      tahta.classList.add('yanlis');
+    }
+    yaz();
+  }
+
+  function yaz(){
+    const kalan = Math.max(0, bitisTs - Date.now());
+    const p = sahne.querySelector('#fkPuan');
+    const sr = sahne.querySelector('#fkSure');
+    if (p) p.textContent = puan;
+    if (sr) sr.textContent = Math.ceil(kalan / 1000);
+    const oran = Math.max(0, Math.min(1, kalan / FK_SURE_MS));
+    dolgu.style.width = (oran * 100) + '%';
+    cubuk.classList.toggle('az', kalan <= 5000);
+  }
+
+  function bittiPerdesi(sozu){
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>Süre doldu</b><p>Bulunan: ' + puan + '</p>';
+    ic.appendChild(baslik);
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
+  }
+
+  function durdur(){
+    if (sayac) { clearInterval(sayac); sayac = null; }
+  }
+
+  function tik(){
+    yaz();
+    if (Date.now() < bitisTs) return;
+    bittiMi = true;
+    durdur();
+    let sozu = null;
+    if (!bildirildi) { bildirildi = true; sozu = bitir(puan); }
+    bittiPerdesi(sozu);
+  }
+
+  function yeniOyun(){
+    /* Yarıda bırakılan tur da sayılsın. */
+    if (!bittiMi && puan > 0 && !bildirildi) { bildirildi = true; bitir(puan); }
+    durdur();
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    seviye = 0; puan = 0; bittiMi = false; bildirildi = false;
+    bitisTs = Date.now() + FK_SURE_MS;
+    turCiz();
+    yaz();
+    /* Kalan süre SAATTEN hesaplanıyor, sayaçtan değil: zamanlayıcı
+       seyreltilse bile süre doğru kalıyor. */
+    sayac = setInterval(tik, 100);
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+
+  yeniOyun();
+
+  return function temizle(){
+    durdur();
+    if (!bittiMi && puan > 0 && !bildirildi) { bildirildi = true; bitir(puan); }
+  };
+}
+
 /* ---------------- KAYIT DEFTERİ ----------------
    Yeni oyun eklemek: aşağıya bir nesne. id ASLA değişmemeli — skorlar ona
    bağlı. */
@@ -9479,6 +9701,15 @@ const OYUNLAR = [
     azIyi: false,
     birim: '',
     baslat: yilanBaslat
+  },
+  {
+    id: 'farkli',
+    ad: 'Farklı Kare',
+    ozet: '30 saniyede kaç tanesini bulabilirsin?',
+    ikon: 'FRK',
+    azIyi: false,
+    birim: '',
+    baslat: farkliBaslat
   }
 ];
 

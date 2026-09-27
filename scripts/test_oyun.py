@@ -37,6 +37,9 @@ ISLEVLER = [
     "yilanYemKoy",
     "yilanAdim",
     "yilanAralik",
+    "farkliBoyut",
+    "farkliFark",
+    "farkliTur",
 ]
 
 SURUCU = r"""
@@ -346,6 +349,76 @@ const yer = (p) => [p.x, p.y];
   esit('bos oyun bos siralama', oyunSiralamasi('yok'), []);
 }
 
+
+/* ================= FARKLI KARE ================= */
+
+/* ---- 20) izgara buyume egrisi ---- */
+{
+  esit('ilk seviye 2x2', farkliBoyut(0), 2);
+  esit('iki seviyede bir buyuyor', [0,1,2,3,4,5].map(farkliBoyut), [2,2,3,3,4,4]);
+  esit('tavanda duruyor', farkliBoyut(500), FK_ENBUYUK);
+  /* Azalmamali: her seviye oncekinden kucuk olmayan bir izgara. */
+  let onceki = 0, azaldi = false;
+  for (let i = 0; i < 300; i++) { const b = farkliBoyut(i); if (b < onceki) azaldi = true; onceki = b; }
+  dogru('boyut hic kucumuyor', !azaldi);
+}
+
+/* ---- 21) fark egrisi ve TABAN ---- */
+{
+  dogru('ilk seviyede fark buyuk', farkliFark(0) > 20);
+  dogru('fark azaliyor', farkliFark(5) < farkliFark(0));
+  esit('taban altina inmiyor', farkliFark(1000), FK_ENAZ_FARK);
+  let onceki = 1e9, artti = false;
+  for (let i = 0; i < 300; i++) { const f = farkliFark(i); if (f > onceki) artti = true; onceki = f; }
+  dogru('fark hic artmiyor', !artti);
+  dogru('fark her zaman tabanin ustunde',
+        [0,1,5,20,50,999].every(i => farkliFark(i) >= FK_ENAZ_FARK));
+}
+
+/* ---- 22) tur uretimi ---- */
+{
+  const t = farkliTur(0, () => 0);
+  esit('2x2 dort kare', t.adet, 4);
+  esit('hedef gecerli', t.hedef, 0);
+  dogru('iki renk farkli', t.zemin !== t.ayri);
+  dogru('ton ve doygunluk ayni, yalniz parlaklik farkli',
+        t.zemin.split(',')[0] === t.ayri.split(',')[0] &&
+        t.zemin.split(',')[1] === t.ayri.split(',')[1]);
+}
+{
+  /* rnd 1'e cok yaklassa bile hedef izgaranin DISINA tasmamali. */
+  const t = farkliTur(6, () => 0.9999999);
+  dogru('hedef izgara icinde', t.hedef >= 0 && t.hedef < t.adet);
+  esit('hedef son kare', t.hedef, t.adet - 1);
+}
+{
+  /* Parlaklik hicbir seviyede %100'u asmamali (asarsa renk beyaza kirpilir
+     ve iki kare AYNI gorunur — oyun sessizce oynanamaz olurdu). */
+  let tasan = 0, esit_renk = 0;
+  for (let sev = 0; sev < 60; sev++) {
+    for (const r of [0, 0.25, 0.5, 0.75, 0.999]) {
+      const t = farkliTur(sev, () => r);
+      const p = Number(t.ayri.split(',')[2].replace('%)', ''));
+      if (p > 100) tasan++;
+      if (t.zemin === t.ayri) esit_renk++;
+      if (t.hedef < 0 || t.hedef >= t.adet) tasan++;
+    }
+  }
+  esit('hicbir seviyede parlaklik tasmiyor', tasan, 0);
+  esit('iki renk hicbir seviyede ayni degil', esit_renk, 0);
+}
+{
+  /* Ayni rastgele -> ayni tahta (belirlenimci). */
+  esit('belirlenimci', farkliTur(3, () => 0.4), farkliTur(3, () => 0.4));
+}
+
+/* ---- 23) sabitler makul ---- */
+{
+  dogru('sure yarim dakika', FK_SURE_MS === 30000);
+  dogru('ceza sureden dusuluyor ve sureden kucuk', FK_CEZA_MS > 0 && FK_CEZA_MS < FK_SURE_MS);
+  dogru('izgara tavani oynanabilir', FK_ENBUYUK >= 4 && FK_ENBUYUK <= 10);
+}
+
 console.log('');
 console.log(kaldi === 0 ? ('TUMU GECTI (' + gecti + ')')
                         : ('BASARISIZ: ' + kaldi + ' / ' + (gecti + kaldi)));
@@ -442,7 +515,8 @@ def main():
     # sabit değişince sınama sessizce yanlış şeyi doğrulardı).
     sabitler = []
     for ad in ("YILAN_BOYUT", "YILAN_YEM_PUAN", "YILAN_BASLANGIC_MS",
-               "YILAN_ENAZ_MS", "YILAN_HIZLANMA"):
+               "YILAN_ENAZ_MS", "YILAN_HIZLANMA",
+               "FK_SURE_MS", "FK_CEZA_MS", "FK_ENBUYUK", "FK_ENAZ_FARK"):
         sabitler.append(satir_cikar(html, "const " + ad + " ="))
     sabitler.append(blok_cikar(html, "const YILAN_YONLER = {"))
     kod = ("let o48Sayac = 0;\n" + "\n".join(sabitler) + "\n" +
