@@ -15,6 +15,7 @@ import android.webkit.WebView;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.JSObject;
@@ -335,6 +336,43 @@ public class MeridyenIlerleme extends Plugin {
                         WindowCompat.getInsetsController(p, p.getDecorView());
                     d.setAppearanceLightStatusBars(koyuSimge);
                     d.setAppearanceLightNavigationBars(koyuSimge);
+                } catch (Exception e) {}
+            }
+        });
+        call.resolve();
+    }
+
+    /**
+     * GERÇEK TAM EKRAN — oyun açıkken sistem çubuklarını gizler.
+     *
+     * Web tarafı katmanı kendi arayüzünün üstüne alabiliyor ama durum ve
+     * gezinme çubuklarına dokunamıyor: onlar uygulamanın değil sistemin.
+     * Oyunda ikisi de hem yer yiyor hem de tahtanın dibindeki gezinme
+     * çubuğuna yanlışlıkla basmak oyunu bölüyor.
+     *
+     * Davranış olarak "kaydırınca geçici görün" seçiliyor: kullanıcı kenardan
+     * kaydırdığında çubuklar kısa süre görünüp kendiliğinden kayboluyor.
+     * Tümden kilitlemek (STICKY_IMMERSIVE'in eski katı hâli) geri dönüşü
+     * zorlaştırıyor ve Android 15'te zaten önerilmiyor.
+     */
+    @PluginMethod
+    public void tamEkran(PluginCall call) {
+        final boolean acik = !Boolean.FALSE.equals(call.getBoolean("acik", Boolean.TRUE));
+        if (getActivity() == null) { call.resolve(); return; }
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Window p = getActivity().getWindow();
+                    WindowInsetsControllerCompat d =
+                        WindowCompat.getInsetsController(p, p.getDecorView());
+                    if (acik) {
+                        d.setSystemBarsBehavior(
+                            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                        d.hide(WindowInsetsCompat.Type.systemBars());
+                    } else {
+                        d.show(WindowInsetsCompat.Type.systemBars());
+                    }
                 } catch (Exception e) {}
             }
         });

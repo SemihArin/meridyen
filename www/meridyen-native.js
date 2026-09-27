@@ -763,6 +763,15 @@
   };
   K.arkaPlanKipiVar = yerli && typeof IP.arkaPlanKipi === 'function';
 
+  /* Oyun açıkken sistem çubuklarını gizler. Eski APK'da metot yoksa sessizce
+     hiçbir şey yapmıyor — web tarafı zaten katmanı kendi arayüzünün üstüne
+     alıyor, çubuklar görünür kalıyor, oyun yine oynanıyor. */
+  K.tamEkran = function (acik) {
+    if (!yerli || typeof IP.tamEkran !== 'function') return Promise.resolve(false);
+    return IP.tamEkran({ acik: !!acik }).then(function () { return true; })
+                                        .catch(function () { return false; });
+  };
+
   /* Yan etkisiz durum sorgusu: ayar satırı "muaf mıyız" diye buna bakıyor,
      pencereyi boşuna açmadan. */
   K.pilDurumu = function () {
