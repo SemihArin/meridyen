@@ -4107,6 +4107,59 @@ mark.arama-vurgu{
 .oyun-dugme.ana{background:var(--vurgu);border-color:var(--vurgu);color:#0f1420;font-weight:600}
 .oyun-ipucu{font-size:.74rem;color:var(--gri);text-align:center;max-width:560px;line-height:1.4;flex:none}
 
+/* ---- nişan ---- */
+.ns-tahta{
+  position:relative;background:#1b1f28;border:1px solid #232733;border-radius:14px;
+  touch-action:manipulation;cursor:crosshair;overflow:hidden;
+}
+.ns-daire{
+  position:absolute;border-radius:50%;
+  background:radial-gradient(circle at 35% 32%, #ffd9a8, var(--vurgu-2) 62%, #d98a2c);
+  box-shadow:0 0 18px rgba(255,179,92,.35);
+  transition:opacity .1s;
+}
+.ns-daire.gizli{opacity:0;pointer-events:none}
+
+/* ---- zamanlama ---- */
+.zm-tahta{
+  position:relative;background:#1b1f28;border:1px solid #232733;border-radius:14px;
+  display:grid;place-items:center;touch-action:manipulation;cursor:pointer;
+}
+.zm-serit{
+  position:relative;width:86%;height:44px;border-radius:12px;
+  background:#252b38;border:1px solid #2e3648;overflow:hidden;
+}
+.zm-bolge{position:absolute;top:0;bottom:0;background:rgba(111,209,154,.32);
+  border-left:1px solid #6fd19a;border-right:1px solid #6fd19a}
+.zm-ibre{position:absolute;top:-4px;bottom:-4px;width:4px;margin-left:-2px;
+  border-radius:3px;background:#fff;box-shadow:0 0 10px rgba(255,255,255,.5)}
+.zm-tahta.vurdu .zm-serit{animation:zmParla .22s}
+@keyframes zmParla{0%{box-shadow:0 0 0 0 rgba(111,209,154,.55)}100%{box-shadow:0 0 0 14px rgba(111,209,154,0)}}
+
+/* ---- sayı ---- */
+/* Ölçüler vw ile değil vmin ile: geniş ama KISA ekranda (yatay çevrilmiş
+   telefon) 12vw devasa bir yazı veriyor, içerik tahtayı uzatıyor ve kare
+   bozuluyordu. vmin ekranın kısa kenarına bağlı, o yüzden her iki yönde de
+   makul kalıyor. min-height:0 + overflow:hidden ise içeriğin en-boy oranını
+   ezmesini engelliyor. */
+.sy-tahta{
+  position:relative;background:#1b1f28;border:1px solid #232733;border-radius:14px;
+  padding:min(3.5vmin,16px);display:flex;flex-direction:column;justify-content:center;
+  gap:min(3.4vmin,18px);min-height:0;overflow:hidden;touch-action:manipulation;
+}
+.sy-soru{
+  font-family:'Syne',sans-serif;font-weight:700;text-align:center;
+  font-size:min(11vmin,2.6rem);letter-spacing:.02em;
+}
+.sy-secenekler{display:grid;grid-template-columns:repeat(2,1fr);gap:min(2.2vmin,10px)}
+.sy-sec{
+  border:1px solid #2e3648;background:#252b38;border-radius:12px;
+  padding:min(2.8vmin,14px) 8px;font-family:'DM Mono',monospace;
+  font-size:min(3.4vmin,1.1rem);color:var(--kar);
+}
+.sy-sec:hover{border-color:rgba(124,156,255,.5)}
+.sy-tahta.yanlis{animation:fkSars .22s}
+
 /* ---- tepki ---- */
 .tp-tahta{
   position:relative;border-radius:14px;border:1px solid #232733;
@@ -4119,7 +4172,7 @@ mark.arama-vurgu{
 .tp-tahta.ara{background:#242a37}
 .tp-yazi{
   font-family:'Bebas Neue',sans-serif;letter-spacing:.09em;
-  font-size:min(9vw,2.2rem);color:#fff;text-align:center;padding:0 16px;
+  font-size:min(9vmin,2.2rem);color:#fff;text-align:center;padding:0 16px;
 }
 
 /* ---- sıra ---- */
@@ -4178,7 +4231,7 @@ mark.arama-vurgu{
 }
 .hf-on{
   transform:rotateY(180deg);background:#20252f;border:1px solid #2f3648;
-  font-size:min(8vw,2rem);line-height:1;
+  font-size:min(8vmin,2rem);line-height:1;
 }
 /* Eşleşen çift sönükleşsin: kalanlara odaklanmak kolaylaşıyor. */
 .hf-kart.eslesti .hf-on{opacity:.45;border-color:#242a37}
@@ -10456,6 +10509,535 @@ function isikBaslat(sahne, bitir){
   return function temizle(){};
 }
 
+
+/* ---------------- MİNİ OYUN: NİŞAN ----------------
+ *
+ * Rastgele bir yerde daire beliriyor; kaybolmadan üstüne dokun. Her isabette
+ * daire küçülüyor ve ömrü kısalıyor. Bir kere ıskalarsan bitiyor.
+ *
+ * Neden bu: elimizdeki oyunlarda UZAMSAL İSABET ölçen yok. Farklı Kare
+ * arama ölçüyor (hangisi?), bu nişan alma ölçüyor (tam oraya dokunabiliyor
+ * musun?). İkisi farklı beceriler.
+ *
+ * ISKA OYUNU BİTİRİYOR — hem ömür dolarsa hem de boşa dokunursan. Boşa
+ * dokunuş serbest olsaydı ekrana rastgele basmak işe yarardı ve oyun nişan
+ * almayı değil hızlı basmayı ölçerdi.
+ *
+ * Konum ORANLA tutuluyor (0..1), pikselle değil: tahta her ekranda farklı
+ * boyutta ve oran sayesinde mantık ekran boyutundan tümüyle bağımsız —
+ * sınanabilir de oluyor.
+ */
+const NISAN_BASLANGIC_ORAN = 0.26;   // dairenin çapı / tahta kenarı
+const NISAN_ENAZ_ORAN = 0.10;
+const NISAN_KUCULME = 0.012;         // her isabette çaptan düşen oran
+const NISAN_BASLANGIC_MS = 1400;
+const NISAN_ENAZ_MS = 450;
+const NISAN_KISALMA = 55;            // her isabette ömürden düşen ms
+
+function nisanOran(vurus){
+  return Math.max(NISAN_ENAZ_ORAN, NISAN_BASLANGIC_ORAN - vurus * NISAN_KUCULME);
+}
+function nisanOmur(vurus){
+  return Math.max(NISAN_ENAZ_MS, NISAN_BASLANGIC_MS - vurus * NISAN_KISALMA);
+}
+
+/* Merkez konumu 0..1 aralığında ama dairenin TAMAMI tahtanın içinde kalacak
+   şekilde sınırlı: yarıçap kadar kenarlardan içeride. Sınırlamasak daire
+   kenardan taşar ve dokunulamayan bir hedef çıkardı. */
+function nisanKonum(oran, rast){
+  const rnd = rast || Math.random;
+  const y = oran / 2;
+  return { x: y + rnd() * (1 - oran), y: y + rnd() * (1 - oran) };
+}
+
+/* Dokunuş daireye isabet etti mi? Hepsi oran biriminde. */
+function nisanVurdumu(dokunusX, dokunusY, hedef, oran){
+  const dx = dokunusX - hedef.x, dy = dokunusY - hedef.y;
+  return Math.sqrt(dx * dx + dy * dy) <= oran / 2;
+}
+
+function nisanBaslat(sahne, bitir){
+  let vurus = 0, hedef = null, oran = 0, zaman = null;
+  let bittiMi = false, bildirildi = false;
+
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>İSABET</span><b id="nsVurus">0</b></div>' +
+    '<div class="oyun-kutu"><span>HEDEF</span><b id="nsOmur">—</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = 'Daire kaybolmadan üstüne dokun. Her isabette küçülüp ' +
+                      'hızlanıyor; bir ıska oyunu bitirir.';
+
+  const tahta = document.createElement('div');
+  tahta.className = 'oyun-tahta ns-tahta';
+  const daire = document.createElement('div');
+  daire.className = 'ns-daire gizli';
+  tahta.appendChild(daire);
+
+  sahne.appendChild(ust);
+  sahne.appendChild(ipucu);
+  oyunTahtaYerlestir(sahne, tahta);
+
+  function yaz(){
+    const v = sahne.querySelector('#nsVurus');
+    const o = sahne.querySelector('#nsOmur');
+    if (v) v.textContent = vurus;
+    if (o) o.textContent = bittiMi ? '—' : nisanOmur(vurus) + ' ms';
+  }
+
+  function durdur(){ if (zaman) { clearTimeout(zaman); zaman = null; } }
+
+  function hedefKoy(){
+    oran = nisanOran(vurus);
+    hedef = nisanKonum(oran);
+    daire.classList.remove('gizli');
+    daire.style.width = (oran * 100) + '%';
+    daire.style.height = (oran * 100) + '%';
+    daire.style.left = ((hedef.x - oran / 2) * 100) + '%';
+    daire.style.top = ((hedef.y - oran / 2) * 100) + '%';
+    yaz();
+    durdur();
+    zaman = setTimeout(() => bitirTur('Süre doldu'), nisanOmur(vurus));
+  }
+
+  function dokun(olay){
+    if (bittiMi || !hedef) return;
+    const k = tahta.getBoundingClientRect();
+    const n = (olay.touches && olay.touches[0]) || olay;
+    const x = (n.clientX - k.left) / k.width;
+    const y = (n.clientY - k.top) / k.height;
+    if (nisanVurdumu(x, y, hedef, oran)) {
+      vurus++;
+      hedefKoy();
+    } else {
+      bitirTur('Iska');
+    }
+  }
+
+  function bitirTur(sebep){
+    bittiMi = true;
+    durdur();
+    daire.classList.add('gizli');
+    hedef = null;
+    yaz();
+    let sozu = null;
+    if (!bildirildi && vurus > 0) { bildirildi = true; sozu = bitir(vurus); }
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>' + sebep + '</b><p>İsabet: ' + vurus + '</p>';
+    ic.appendChild(baslik);
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
+  }
+
+  function yeniOyun(){
+    if (!bittiMi && vurus > 0 && !bildirildi) { bildirildi = true; bitir(vurus); }
+    durdur();
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    vurus = 0; bittiMi = false; bildirildi = false;
+    hedefKoy();
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+  tahta.addEventListener('click', dokun);
+
+  yeniOyun();
+
+  return function temizle(){
+    durdur();
+    if (!bittiMi && vurus > 0 && !bildirildi) { bildirildi = true; bitir(vurus); }
+  };
+}
+
+/* ---------------- MİNİ OYUN: ZAMANLAMA ----------------
+ *
+ * Bir gösterge şeridin üstünde gidip geliyor; yeşil bölgenin içindeyken
+ * dokun. Her başarıda bölge daralıyor ve gösterge hızlanıyor. Bir kaçırma
+ * oyunu bitiriyor. Skor: üst üste kaç kez tutturduğun.
+ *
+ * Neden bu: Nişan UZAMSAL isabet ölçüyor (tam oraya), bu ZAMANSAL isabet
+ * ölçüyor (tam o anda). Elimizdeki hiçbir oyunda saf zamanlama yoktu —
+ * Tepki'de bile "gördüğün an bas" var, burada hareketi ÖNCEDEN kestirmek
+ * gerekiyor.
+ *
+ * Göstergenin konumu ÜÇGEN DALGA: saatten hesaplanıyor, kare kare
+ * biriktirilmiyor. Biriktirseydik kare atlandığında gösterge zıplardı ve
+ * dokunduğun an gördüğün yerde olmazdı — zamanlama oyununda bu ölümcül.
+ */
+const ZM_BOLGE_BASLANGIC = 0.30;   // bölge genişliği / şerit uzunluğu
+const ZM_BOLGE_ENAZ = 0.055;
+const ZM_BOLGE_DARALMA = 0.026;
+/* Hız = TAM TUR (gidiş + dönüş) / saniye. Başlangıçta tur 2 saniye,
+   tavanda ~0,7 saniye: bölge %5,5'e daraldığında hâlâ tutturulabilir olmalı.
+   Daha hızlısında oyun beceriyi değil şansı ölçmeye başlıyor. */
+const ZM_HIZ_BASLANGIC = 0.5;
+const ZM_HIZ_ENCOK = 1.4;
+const ZM_HIZ_ARTIS = 0.075;
+
+function zamanBolgeGenislik(skor){
+  return Math.max(ZM_BOLGE_ENAZ, ZM_BOLGE_BASLANGIC - skor * ZM_BOLGE_DARALMA);
+}
+function zamanHiz(skor){
+  return Math.min(ZM_HIZ_ENCOK, ZM_HIZ_BASLANGIC + skor * ZM_HIZ_ARTIS);
+}
+
+/* Bölgenin merkezi: bölgenin TAMAMI şeridin içinde kalacak şekilde. */
+function zamanBolgeMerkez(genislik, rast){
+  const rnd = rast || Math.random;
+  const y = genislik / 2;
+  return y + rnd() * (1 - genislik);
+}
+
+/* Göstergenin konumu (0..1). Üçgen dalga: gidip geliyor, uçlarda sekiyor.
+   gecenMs ve hız veriliyor, durum tutulmuyor — bu yüzden sınanabilir. */
+function zamanKonum(gecenMs, hiz){
+  /* Bir TAM TUR iki birimlik evre: gidiş 0→1, dönüş 1→0. Bu yüzden hız
+     ikiyle çarpılıyor. Çarpmayı unutmuştum ve oyun tasarlananın yarı
+     hızında koşuyordu — dışarıdan hata gibi görünmüyordu, sınama yakaladı. */
+  const evre = ((gecenMs / 1000) * hiz * 2) % 2;
+  const p = evre < 0 ? evre + 2 : evre;
+  return p <= 1 ? p : 2 - p;
+}
+
+function zamanVurdumu(konum, merkez, genislik){
+  return Math.abs(konum - merkez) <= genislik / 2;
+}
+
+function zamanBaslat(sahne, bitir){
+  let skor = 0, merkez = 0.5, genislik = ZM_BOLGE_BASLANGIC;
+  let t0 = 0, cerceve = null, bittiMi = false, bildirildi = false;
+
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>SERİ</span><b id="zmSkor">0</b></div>' +
+    '<div class="oyun-kutu"><span>BÖLGE</span><b id="zmBolge">—</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = 'Gösterge yeşil bölgedeyken dokun. Her isabette bölge ' +
+                      'daralır ve hızlanır; bir kaçırma oyunu bitirir.';
+
+  const tahta = document.createElement('div');
+  tahta.className = 'oyun-tahta zm-tahta';
+  const serit = document.createElement('div');
+  serit.className = 'zm-serit';
+  const bolge = document.createElement('i');
+  bolge.className = 'zm-bolge';
+  const ibre = document.createElement('b');
+  ibre.className = 'zm-ibre';
+  serit.appendChild(bolge);
+  serit.appendChild(ibre);
+  tahta.appendChild(serit);
+
+  sahne.appendChild(ust);
+  sahne.appendChild(ipucu);
+  oyunTahtaYerlestir(sahne, tahta);
+
+  function yaz(){
+    const s = sahne.querySelector('#zmSkor');
+    const b = sahne.querySelector('#zmBolge');
+    if (s) s.textContent = skor;
+    if (b) b.textContent = bittiMi ? '—' : Math.round(genislik * 100) + '%';
+  }
+
+  function durdur(){
+    if (cerceve) { cancelAnimationFrame(cerceve); cerceve = null; }
+  }
+
+  function konumSimdi(){ return zamanKonum(Date.now() - t0, zamanHiz(skor)); }
+
+  function ciz(){
+    ibre.style.left = (konumSimdi() * 100) + '%';
+    cerceve = requestAnimationFrame(ciz);
+  }
+
+  function turKur(){
+    genislik = zamanBolgeGenislik(skor);
+    merkez = zamanBolgeMerkez(genislik);
+    bolge.style.width = (genislik * 100) + '%';
+    bolge.style.left = ((merkez - genislik / 2) * 100) + '%';
+    t0 = Date.now();
+    yaz();
+    durdur();
+    cerceve = requestAnimationFrame(ciz);
+  }
+
+  function dokun(){
+    if (bittiMi) return;
+    if (zamanVurdumu(konumSimdi(), merkez, genislik)) {
+      skor++;
+      tahta.classList.remove('vurdu');
+      void tahta.offsetWidth;
+      tahta.classList.add('vurdu');
+      turKur();
+    } else {
+      bitirTur();
+    }
+  }
+
+  function bitirTur(){
+    bittiMi = true;
+    durdur();
+    yaz();
+    let sozu = null;
+    if (!bildirildi && skor > 0) { bildirildi = true; sozu = bitir(skor); }
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>Kaçtı</b><p>Seri: ' + skor + '</p>';
+    ic.appendChild(baslik);
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
+  }
+
+  function yeniOyun(){
+    if (!bittiMi && skor > 0 && !bildirildi) { bildirildi = true; bitir(skor); }
+    durdur();
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    skor = 0; bittiMi = false; bildirildi = false;
+    turKur();
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+  tahta.addEventListener('click', dokun);
+
+  yeniOyun();
+
+  return function temizle(){
+    durdur();
+    if (!bittiMi && skor > 0 && !bildirildi) { bildirildi = true; bitir(skor); }
+  };
+}
+
+/* ---------------- MİNİ OYUN: SAYI ----------------
+ *
+ * Otuz saniye, arka arkaya işlem. Dört seçenekten doğruyu seç.
+ *
+ * Neden bu: elimizdeki dokuz oyunun hiçbiri SAYISAL İŞLEM ölçmüyordu.
+ * Ayrıca "kaç yaptın" sorusu bir arkadaş çevresinde en çok konuşulan skor
+ * türü — herkes kendini matematikte iyi sanıyor.
+ *
+ * ÜRETİMİN GARANTİLERİ (hepsi sınanıyor): sonuç asla negatif değil (çıkarma
+ * her zaman büyükten küçüğü çıkarıyor), doğru cevap seçeneklerin İÇİNDE,
+ * seçenekler birbirinden farklı, ve çeldiriciler doğruya YAKIN — uzak
+ * çeldirici soruyu hesap yapmadan elemeyle çözdürüyordu.
+ */
+const SY_SURE_MS = 30000;
+const SY_CEZA_MS = 2000;
+const SY_SECENEK = 4;
+
+/* Seviyeye göre işlem ve sayı aralığı. Basitten zora: toplama, çıkarma,
+   sonra çarpım da giriyor. */
+function sayiSoru(seviye, rast){
+  const rnd = rast || Math.random;
+  const zor = Math.min(6, Math.floor(seviye / 3));      // 0..6
+  const islemler = zor < 1 ? ['+'] : zor < 2 ? ['+', '-'] : ['+', '-', '×'];
+  const islem = islemler[Math.min(islemler.length - 1, Math.floor(rnd() * islemler.length))];
+
+  let a, b, dogru;
+  if (islem === '×') {
+    a = 2 + Math.floor(rnd() * (4 + zor * 2));
+    b = 2 + Math.floor(rnd() * (4 + zor * 2));
+    dogru = a * b;
+  } else {
+    const ust = 10 + zor * 14;
+    a = 1 + Math.floor(rnd() * ust);
+    b = 1 + Math.floor(rnd() * ust);
+    if (islem === '-') {
+      /* Büyükten küçüğü çıkarıyoruz: negatif sonuç hem oyunu zorlaştırıyor
+         hem de çeldirici üretimini bozuyordu. */
+      if (b > a) { const g = a; a = b; b = g; }
+      dogru = a - b;
+    } else {
+      dogru = a + b;
+    }
+  }
+
+  /* Çeldiriciler doğruya yakın ve BİRBİRİNDEN farklı. Sapma 1..4 arası;
+     sonuç negatife düşerse yukarı çeviriyoruz. */
+  const kume = [dogru];
+  let emniyet = 0;
+  while (kume.length < SY_SECENEK && emniyet < 60) {
+    emniyet++;
+    const sapma = 1 + Math.floor(rnd() * 4);
+    const yon = rnd() < 0.5 ? -1 : 1;
+    let aday = dogru + yon * sapma;
+    if (aday < 0) aday = dogru + sapma;
+    if (aday !== dogru && kume.indexOf(aday) < 0) kume.push(aday);
+  }
+  /* Emniyet dolduysa (çok küçük sayılarda olabiliyor) kalanı yukarıdan
+     tamamlıyoruz; seçenek sayısı her zaman dolu olmalı. */
+  let ek = 1;
+  while (kume.length < SY_SECENEK) {
+    const aday = dogru + SY_SECENEK + ek;
+    if (kume.indexOf(aday) < 0) kume.push(aday);
+    ek++;
+  }
+
+  /* Doğrunun yeri rastgele: hep aynı yerde olsaydı ezberlenirdi. */
+  const secenekler = kume.slice();
+  for (let i = secenekler.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const g = secenekler[i]; secenekler[i] = secenekler[j]; secenekler[j] = g;
+  }
+  return { metin: a + ' ' + islem + ' ' + b, dogru, secenekler };
+}
+
+function sayiBaslat(sahne, bitir){
+  let puan = 0, seviye = 0, soru = null, bitisTs = 0;
+  let sayac = null, bittiMi = false, bildirildi = false;
+
+  const ust = document.createElement('div');
+  ust.className = 'oyun-ust-satir';
+  ust.innerHTML =
+    '<div class="oyun-kutu"><span>DOĞRU</span><b id="syPuan">0</b></div>' +
+    '<div class="oyun-kutu"><span>SÜRE</span><b id="sySure">30</b></div>';
+  const yeniBtn = document.createElement('button');
+  yeniBtn.className = 'oyun-dugme';
+  yeniBtn.textContent = 'Yeniden';
+  ust.appendChild(yeniBtn);
+
+  const cubuk = document.createElement('div');
+  cubuk.className = 'fk-sure-cubuk';
+  const dolgu = document.createElement('i');
+  cubuk.appendChild(dolgu);
+
+  const ipucu = document.createElement('p');
+  ipucu.className = 'oyun-ipucu';
+  ipucu.textContent = '30 saniyede kaç işlem çözebilirsin? Yanlışta süreden düşer.';
+
+  const tahta = document.createElement('div');
+  tahta.className = 'oyun-tahta sy-tahta';
+  const soruEl = document.createElement('div');
+  soruEl.className = 'sy-soru';
+  const secEl = document.createElement('div');
+  secEl.className = 'sy-secenekler';
+  tahta.appendChild(soruEl);
+  tahta.appendChild(secEl);
+
+  sahne.appendChild(ust);
+  sahne.appendChild(cubuk);
+  sahne.appendChild(ipucu);
+  oyunTahtaYerlestir(sahne, tahta);
+
+  function yaz(){
+    const kalan = Math.max(0, bitisTs - Date.now());
+    const p = sahne.querySelector('#syPuan');
+    const s = sahne.querySelector('#sySure');
+    if (p) p.textContent = puan;
+    if (s) s.textContent = Math.ceil(kalan / 1000);
+    const o = Math.max(0, Math.min(1, kalan / SY_SURE_MS));
+    dolgu.style.width = (o * 100) + '%';
+    cubuk.classList.toggle('az', kalan <= 5000);
+  }
+
+  function soruCiz(){
+    soru = sayiSoru(seviye);
+    soruEl.textContent = soru.metin;
+    secEl.innerHTML = '';
+    soru.secenekler.forEach(v => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sy-sec';
+      b.textContent = v;
+      b.addEventListener('click', () => sec(v));
+      secEl.appendChild(b);
+    });
+  }
+
+  function sec(v){
+    if (bittiMi) return;
+    if (v === soru.dogru) {
+      puan++; seviye++;
+      soruCiz();
+    } else {
+      bitisTs -= SY_CEZA_MS;
+      tahta.classList.remove('yanlis');
+      void tahta.offsetWidth;
+      tahta.classList.add('yanlis');
+    }
+    yaz();
+  }
+
+  function durdur(){ if (sayac) { clearInterval(sayac); sayac = null; } }
+
+  function tik(){
+    yaz();
+    if (Date.now() < bitisTs) return;
+    bittiMi = true;
+    durdur();
+    let sozu = null;
+    if (!bildirildi) { bildirildi = true; sozu = bitir(puan); }
+    const perde = document.createElement('div');
+    perde.className = 'o48-bitti';
+    const ic = document.createElement('div');
+    const rozetYeri = document.createElement('div');
+    ic.appendChild(rozetYeri);
+    const baslik = document.createElement('div');
+    baslik.innerHTML = '<b>Süre doldu</b><p>Doğru: ' + puan + '</p>';
+    ic.appendChild(baslik);
+    const btn = document.createElement('button');
+    btn.className = 'oyun-dugme ana';
+    btn.textContent = 'Yeniden oyna';
+    btn.addEventListener('click', yeniOyun);
+    ic.appendChild(btn);
+    perde.appendChild(ic);
+    tahta.appendChild(perde);
+    oyunRekorRozeti(rozetYeri, sozu);
+  }
+
+  function yeniOyun(){
+    if (!bittiMi && puan > 0 && !bildirildi) { bildirildi = true; bitir(puan); }
+    durdur();
+    const perde = tahta.querySelector('.o48-bitti');
+    if (perde) perde.remove();
+    puan = 0; seviye = 0; bittiMi = false; bildirildi = false;
+    bitisTs = Date.now() + SY_SURE_MS;
+    soruCiz();
+    yaz();
+    sayac = setInterval(tik, 100);
+  }
+  yeniBtn.addEventListener('click', yeniOyun);
+
+  yeniOyun();
+
+  return function temizle(){
+    durdur();
+    if (!bittiMi && puan > 0 && !bildirildi) { bildirildi = true; bitir(puan); }
+  };
+}
+
 /* ---------------- KAYIT DEFTERİ ----------------
    Yeni oyun eklemek: aşağıya bir nesne. id ASLA değişmemeli — skorlar ona
    bağlı. */
@@ -10524,6 +11106,33 @@ const OYUNLAR = [
     azIyi: true,
     birim: 'hamle',
     baslat: isikBaslat
+  },
+  {
+    id: 'nisan',
+    ad: 'Nişan',
+    ozet: 'Daire kaybolmadan üstüne dokun',
+    ikon: 'NSN',
+    azIyi: false,
+    birim: '',
+    baslat: nisanBaslat
+  },
+  {
+    id: 'zaman',
+    ad: 'Zamanlama',
+    ozet: 'Göstergeyi yeşil bölgede durdur',
+    ikon: 'ZMN',
+    azIyi: false,
+    birim: '',
+    baslat: zamanBaslat
+  },
+  {
+    id: 'sayi',
+    ad: 'Sayı',
+    ozet: '30 saniyede kaç işlem çözersin?',
+    ikon: 'SAY',
+    azIyi: false,
+    birim: '',
+    baslat: sayiBaslat
   }
 ];
 

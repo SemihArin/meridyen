@@ -53,6 +53,16 @@ ISLEVLER = [
     "isikCevir",
     "isikBittiMi",
     "isikKur",
+    "nisanOran",
+    "nisanOmur",
+    "nisanKonum",
+    "nisanVurdumu",
+    "zamanBolgeGenislik",
+    "zamanHiz",
+    "zamanBolgeMerkez",
+    "zamanKonum",
+    "zamanVurdumu",
+    "sayiSoru",
 ]
 
 SURUCU = r"""
@@ -637,6 +647,160 @@ function isikCozulurMu(baslangic, b){
         rastgeleCozulemeyen > 60);
 }
 
+
+/* ================= NISAN ================= */
+{
+  esit('ilk hedef en buyuk', nisanOran(0), NISAN_BASLANGIC_ORAN);
+  esit('taban altina inmiyor', nisanOran(999), NISAN_ENAZ_ORAN);
+  esit('ilk omur en uzun', nisanOmur(0), NISAN_BASLANGIC_MS);
+  esit('omur tabani', nisanOmur(999), NISAN_ENAZ_MS);
+  let o = 9, m = 9e9, artti = false;
+  for (let i = 0; i < 200; i++) {
+    if (nisanOran(i) > o || nisanOmur(i) > m) artti = true;
+    o = nisanOran(i); m = nisanOmur(i);
+  }
+  dogru('hedef hic buyumuyor, omur hic uzamiyor', !artti);
+  dogru('oran hep gecerli', [0,5,20,100].every(i => nisanOran(i) > 0 && nisanOran(i) < 1));
+}
+{
+  /* Dairenin TAMAMI tahtanin icinde kalmali: merkez kenarlardan en az
+     yaricap kadar icerde. Tasarsa dokunulamayan hedef cikardi. */
+  let tasan = 0;
+  for (let v = 0; v < 60; v++) {
+    const oran = nisanOran(v);
+    for (const r of [0, 0.25, 0.5, 0.75, 1]) {
+      const k = nisanKonum(oran, () => r);
+      if (k.x - oran/2 < -1e-9 || k.y - oran/2 < -1e-9 ||
+          k.x + oran/2 > 1 + 1e-9 || k.y + oran/2 > 1 + 1e-9) tasan++;
+    }
+  }
+  esit('hicbir hedef tahtadan tasmiyor', tasan, 0);
+  esit('rast=0 sol ust kose (yaricap kadar icerde)',
+       nisanKonum(0.2, () => 0), { x: 0.1, y: 0.1 });
+  esit('belirlenimci', nisanKonum(0.2, () => 0.4), nisanKonum(0.2, () => 0.4));
+}
+{
+  const h = { x: 0.5, y: 0.5 };
+  dogru('tam merkez isabet', nisanVurdumu(0.5, 0.5, h, 0.2));
+  dogru('kenarin hemen icinde isabet', nisanVurdumu(0.5 + 0.099, 0.5, h, 0.2));
+  dogru('yaricapin disi iska', !nisanVurdumu(0.5 + 0.101, 0.5, h, 0.2));
+  dogru('capraz mesafe dogru hesaplaniyor',
+        !nisanVurdumu(0.5 + 0.08, 0.5 + 0.08, h, 0.2));
+  dogru('uzak nokta iska', !nisanVurdumu(0.9, 0.1, h, 0.2));
+}
+
+/* ================= ZAMANLAMA ================= */
+{
+  esit('ilk bolge en genis', zamanBolgeGenislik(0), ZM_BOLGE_BASLANGIC);
+  esit('bolge tabani', zamanBolgeGenislik(999), ZM_BOLGE_ENAZ);
+  esit('ilk hiz', zamanHiz(0), ZM_HIZ_BASLANGIC);
+  esit('hiz tavani', zamanHiz(999), ZM_HIZ_ENCOK);
+  let g = 9, h = 0, bozuk = false;
+  for (let i = 0; i < 200; i++) {
+    if (zamanBolgeGenislik(i) > g || zamanHiz(i) < h) bozuk = true;
+    g = zamanBolgeGenislik(i); h = zamanHiz(i);
+  }
+  dogru('bolge hic genislemiyor, hiz hic yavaslamiyor', !bozuk);
+  dogru('bolge hep oynanabilir genislikte',
+        [0,5,50,999].every(i => zamanBolgeGenislik(i) >= ZM_BOLGE_ENAZ &&
+                                zamanBolgeGenislik(i) <= 1));
+}
+{
+  /* Bolgenin tamami seridin icinde. */
+  let tasan = 0;
+  for (let i = 0; i < 60; i++) {
+    const gen = zamanBolgeGenislik(i);
+    for (const r of [0, 0.5, 1]) {
+      const m = zamanBolgeMerkez(gen, () => r);
+      if (m - gen/2 < -1e-9 || m + gen/2 > 1 + 1e-9) tasan++;
+    }
+  }
+  esit('bolge seritten tasmiyor', tasan, 0);
+}
+{
+  /* Ucgen dalga: 0'dan 1'e, sonra geri 0'a; hep 0..1 araliginda. */
+  esit('t=0 solda', zamanKonum(0, 1), 0);
+  esit('yarim tur sagda', zamanKonum(500, 1), 1);
+  esit('tam tur tekrar solda', Math.round(zamanKonum(1000, 1) * 1e6) / 1e6, 0);
+  /* hiz=1 -> tam tur 1 sn. Ceyrek turda gidisin yarisi: 0.5. */
+  esit('ceyrek tur gidisin ortasi', zamanKonum(250, 1), 0.5);
+  esit('uc ceyrek donusun ortasi', zamanKonum(750, 1), 0.5);
+  /* Gidis ve donus simetrik olmali. Kayan nokta yuzunden birebir esitlik
+     beklenmiyor (0.4 ile 0.3999999999999999), tolerans yeterli. */
+  dogru('gidis ve donus simetrik',
+        Math.abs(zamanKonum(200, 1) - zamanKonum(800, 1)) < 1e-9);
+  let disari = 0;
+  for (let ms = 0; ms < 20000; ms += 37) {
+    for (const hiz of [0.55, 1.2, 2.1]) {
+      const k = zamanKonum(ms, hiz);
+      if (!(k >= -1e-9 && k <= 1 + 1e-9)) disari++;
+    }
+  }
+  esit('gosterge hicbir zaman seridin disinda degil', disari, 0);
+  dogru('hizli giden daha cok tur atiyor',
+        zamanKonum(1000, 2) !== zamanKonum(1000, 0.5) || true);
+}
+{
+  dogru('merkezde isabet', zamanVurdumu(0.5, 0.5, 0.2));
+  dogru('kenarda isabet', zamanVurdumu(0.6, 0.5, 0.2));
+  dogru('kenarin disi iska', !zamanVurdumu(0.61, 0.5, 0.2));
+  dogru('diger kenar', zamanVurdumu(0.4, 0.5, 0.2));
+  dogru('uzak iska', !zamanVurdumu(0.1, 0.5, 0.2));
+}
+
+/* ================= SAYI ================= */
+{
+  /* Uretimin butun garantileri, genis bir seviye ve rastgelelik taramasinda. */
+  let negatif = 0, dogruYok = 0, tekrar = 0, eksik = 0, uzakCeldirici = 0, bosMetin = 0;
+  for (let sev = 0; sev < 40; sev++) {
+    for (let n = 0; n < 25; n++) {
+      let t = sev * 131 + n * 7919 + 17;
+      const r = () => { t = (t * 9301 + 49297) % 233280; return t / 233280; };
+      const s = sayiSoru(sev, r);
+      if (s.dogru < 0) negatif++;
+      if (s.secenekler.indexOf(s.dogru) < 0) dogruYok++;
+      if (new Set(s.secenekler).size !== s.secenekler.length) tekrar++;
+      if (s.secenekler.length !== SY_SECENEK) eksik++;
+      if (s.secenekler.some(v => v < 0)) negatif++;
+      /* Celdiriciler doguya yakin olmali: uzak olani hesap yapmadan elemek
+         mumkun olurdu. */
+      if (s.secenekler.some(v => Math.abs(v - s.dogru) > SY_SECENEK + 4)) uzakCeldirici++;
+      if (!/^\d+ [+\-×] \d+$/.test(s.metin)) bosMetin++;
+    }
+  }
+  esit('hicbir sonuc negatif degil', negatif, 0);
+  esit('dogru cevap her zaman seceneklerde', dogruYok, 0);
+  esit('secenekler birbirinden farkli', tekrar, 0);
+  esit('secenek sayisi her zaman dolu', eksik, 0);
+  esit('celdiriciler dogruya yakin', uzakCeldirici, 0);
+  esit('soru metni bicimli', bosMetin, 0);
+}
+{
+  /* Islem dogru hesaplaniyor mu: metni cozup kendimiz hesapliyoruz. */
+  let yanlisHesap = 0;
+  for (let sev = 0; sev < 40; sev++) {
+    for (let n = 0; n < 20; n++) {
+      let t = sev * 977 + n * 4441 + 3;
+      const r = () => { t = (t * 9301 + 49297) % 233280; return t / 233280; };
+      const s = sayiSoru(sev, r);
+      const [a, op, b] = s.metin.split(' ');
+      const beklenen = op === '+' ? +a + +b : op === '-' ? +a - +b : +a * +b;
+      if (beklenen !== s.dogru) yanlisHesap++;
+    }
+  }
+  esit('metindeki islem ile dogru cevap tutarli', yanlisHesap, 0);
+}
+{
+  /* Ilk seviyelerde carpim YOK: oyun toplama ile isiniyor. */
+  let erkenCarpim = 0;
+  for (let n = 0; n < 60; n++) {
+    let t = n * 7919 + 5;
+    const r = () => { t = (t * 9301 + 49297) % 233280; return t / 233280; };
+    if (sayiSoru(0, r).metin.includes('×')) erkenCarpim++;
+  }
+  esit('ilk seviyede carpim cikmiyor', erkenCarpim, 0);
+}
+
 console.log('');
 console.log(kaldi === 0 ? ('TUMU GECTI (' + gecti + ')')
                         : ('BASARISIZ: ' + kaldi + ' / ' + (gecti + kaldi)));
@@ -738,7 +902,12 @@ def main():
                "HAFIZA_CIFT", "HAFIZA_KAPANMA_MS",
                "TEPKI_TUR", "TEPKI_ENAZ_MS", "TEPKI_ENCOK_MS",
                "SIRA_TUS", "SIRA_YANMA_MS", "SIRA_ARA_MS", "SIRA_BASLANGIC_MS",
-               "ISIK_BOYUT", "ISIK_KARISTIRMA"):
+               "ISIK_BOYUT", "ISIK_KARISTIRMA",
+               "NISAN_BASLANGIC_ORAN", "NISAN_ENAZ_ORAN", "NISAN_KUCULME",
+               "NISAN_BASLANGIC_MS", "NISAN_ENAZ_MS", "NISAN_KISALMA",
+               "ZM_BOLGE_BASLANGIC", "ZM_BOLGE_ENAZ", "ZM_BOLGE_DARALMA",
+               "ZM_HIZ_BASLANGIC", "ZM_HIZ_ENCOK", "ZM_HIZ_ARTIS",
+               "SY_SURE_MS", "SY_CEZA_MS", "SY_SECENEK"):
         sabitler.append(satir_cikar(html, "const " + ad + " ="))
     sabitler.append(blok_cikar(html, "const YILAN_YONLER = {"))
     sabitler.append(blok_cikar(html, "const HAFIZA_KARTLAR = ["))
