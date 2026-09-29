@@ -88,7 +88,8 @@
                              ".validate": "!newData.hasChild('sonGonderen') || newData.child('sonGonderen').val() === auth.uid" } } },
       "okundu":          { "$uid": { ".read": "auth != null", ".write": "auth.uid === $uid" } },
       "medya":           { ".read": "root.child('profil').child(auth.uid).child('yonetici').val() === true",
-                             "$id": { ".read": "auth != null", ".write": "auth != null" } },
+                             "$id": { ".read": "auth != null",
+                               ".write": "auth != null && (!data.child('bilgi/uid').exists() || data.child('bilgi/uid').val() === auth.uid)" } },
       "cagri":           { "$uid": { ".read": "auth.uid === $uid",
                              ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('arayan').val() === auth.uid) || (newData.exists() && newData.child('arayan').val() === auth.uid))" } },
       "bildirimler":     { "$uid": { ".read": "auth.uid === $uid", "$id": {
@@ -7640,20 +7641,44 @@ function avatarKur(el, uid, ad){
   el.classList.toggle('cevrimici', !!varlikSeti[uid]);
 }
 
+/* Süren istekler ve son başarısızlık zamanları. İkisi de SONSUZ İSTEK
+   DÖNGÜSÜNÜ kesmek için: başarısız okuma önbelleğe yazılmadığı için (bilerek,
+   bkz. aşağıdaki catch) çağıranlar her yeniden çizimde aynı profili yeniden
+   soruyordu. Ulaşılamayan tek bir profil — silinmiş hesap, kural reddi, ağ
+   arızası — ekranı kalıcı bir "iste, çiz, yine iste" döngüsüne sokuyordu.
+   Ölçüldü: 20 ms gecikmeli bir taklitte saniyede 98 istek, 48 yeniden çizim;
+   gerçekte 6 saniyelik zaman aşımıyla saatlerce süren bir istek akışı. */
+const profilIstekBekleyen = {};   // uid -> süren istek (aynı anda tek istek)
+const profilSonHata = {};         // uid -> son başarısızlığın zamanı
+const PROFIL_YENIDEN_MS = 30000;  // başarısızlıktan sonra bu kadar bekle
+
 async function profilGetir(uid){
   if (profilKesi[uid]) return profilKesi[uid];
-  try {
-    /* Süre sınırı ŞART: sohbet açılışı bu okumayı bekliyor ve ağ askıdayken
-       get() dakikalarca dönmeyebiliyor — sohbet hiç açılmıyordu. */
-    const s = await sureliSoz(db.ref('profil/' + uid).get(), 6000);
-    profilKesi[uid] = s.exists() ? s.val() : { ad: 'Bilinmeyen' };
-  } catch (e) {
-    /* Başarısız okumayı önbelleğe YAZMIYORUZ: eskiden bir kerelik ağ
-       arızası o kişiyi sayfa yenilenene kadar "Bilinmeyen" bırakıyordu.
-       Geçici cevap dönüyoruz, bir dahaki sefere yeniden denenir. */
+  /* Aynı profil için ikinci bir istek açmıyoruz; bekleyene katılıyoruz. */
+  if (profilIstekBekleyen[uid]) return profilIstekBekleyen[uid];
+  if (Date.now() - (profilSonHata[uid] || 0) < PROFIL_YENIDEN_MS) {
     return { ad: 'Bilinmeyen', gecici: true };
   }
-  return profilKesi[uid];
+  const soz = (async () => {
+    try {
+      /* Süre sınırı ŞART: sohbet açılışı bu okumayı bekliyor ve ağ askıdayken
+         get() dakikalarca dönmeyebiliyor — sohbet hiç açılmıyordu. */
+      const s = await sureliSoz(db.ref('profil/' + uid).get(), 6000);
+      profilKesi[uid] = s.exists() ? s.val() : { ad: 'Bilinmeyen' };
+      delete profilSonHata[uid];
+      return profilKesi[uid];
+    } catch (e) {
+      /* Başarısız okumayı önbelleğe YAZMIYORUZ: eskiden bir kerelik ağ
+         arızası o kişiyi sayfa yenilenene kadar "Bilinmeyen" bırakıyordu.
+         Geçici cevap dönüyor ve yeniden denemeyi geciktiriyoruz. */
+      profilSonHata[uid] = Date.now();
+      return { ad: 'Bilinmeyen', gecici: true };
+    } finally {
+      delete profilIstekBekleyen[uid];
+    }
+  })();
+  profilIstekBekleyen[uid] = soz;
+  return soz;
 }
 
 function kanaliBaslat(){
@@ -7805,6 +7830,13 @@ function kanaliDurdur(){
   // bildirimleri "yeni" sayılıp arka arkaya tarayıcı bildirimi olarak patlıyordu.
   ilkBildirimYuklemesi = true; bildirimVerisi = {};
   kisiler = {}; profilKesi = {}; varlikSeti = {}; okunduVerisi = {};
+  Object.keys(profilIstekBekleyen).forEach(k => delete profilIstekBekleyen[k]);
+  Object.keys(profilSonHata).forEach(k => delete profilSonHata[k]);
+  /* Oyun dinleyicileri kendi defterinde; çıkışta sökülmezse oturum kapandıktan
+     sonra da bağlı kalıyor ve bir sonraki hesabın ekranına eski veriyi
+     taşıyordu. */
+  oyunDinleyicileriKapat();
+  oyunSkor = {}; oyunEnIyi = {};
   kisilerIlkYukleme = true;
   // akış durumunu da sıfırla; yoksa yeniden giriş yapıldığında akisBagli
   // hâlâ true kaldığı için dinleyiciler bir daha kurulmuyordu.
@@ -7856,7 +7888,9 @@ function kisiListesiCizGercek(){
   liste.innerHTML = '';
   girdiler.forEach(([uid, veri]) => {
     const profil = profilKesi[uid];
-    if (!profil) { profilGetir(uid).then(kisiListesiCiz); return; }
+    /* Yalnız profil GERÇEKTEN geldiyse yeniden çiziyoruz. Koşulsuz çizim,
+       ulaşılamayan bir profilde sonsuz çizim döngüsü yapıyordu. */
+    if (!profil) { profilGetir(uid).then(p => { if (p && !p.gecici) kisiListesiCiz(); }); return; }
     const ad = profil.ad || veri.ad || 'Bilinmeyen';
     if (filtre && !(ad + ' ' + (profil.kullanici || '')).toLowerCase().includes(filtre)) return;
 
@@ -8817,24 +8851,46 @@ function oyunHaftaEtiketi(){
 
 let oyunSkor = {};      // {oyunId: {uid: bu haftanın en iyisi}}
 let oyunEnIyi = {};     // {oyunId: {uid: tüm zamanların en iyisi}}
-let oyunDinlendi = false;
 let oyunCalisan = null; // {id, temizle}
+/* Kurulu dinleyiciler ve hangi haftaya bağlı oldukları. Uygulamanın genel
+   `dinleyiciler` defterinden AYRI tutuluyor (sohbet dinleyicileri gibi),
+   çünkü hafta değişince yalnız bunları sökmek gerekiyor. */
+let oyunDinleyicileri = [];
+let oyunDinlenenHafta = null;
+
+function oyunDinleyicileriKapat(){
+  oyunDinleyicileri.forEach(([ref, olay, geri]) => {
+    try { ref.off(olay, geri); } catch (e) {}
+  });
+  oyunDinleyicileri.length = 0;
+  oyunDinlenenHafta = null;
+}
 
 /* Skorları ilk kez Oyun sekmesine girildiğinde dinlemeye başlıyoruz:
-   açılışta bağlanmanın anlamı yok, açılış hızı zaten dar boğaz. */
+   açılışta bağlanmanın anlamı yok, açılış hızı zaten dar boğaz.
+
+   HAFTA KONTROLÜ ŞART. Dinleyici o anki haftanın yoluna bağlanıyor. Eskiden
+   bir kez kurulup bir daha bakılmıyordu: uygulama pazartesi gecesini açık
+   geçirdiğinde tablo ESKİ haftada donup kalıyordu — yeni skorlar yeni
+   haftaya yazılırken ekran eskisini gösteriyordu ve hiçbir hata vermiyordu.
+   Artık sekmeye her girişte hafta karşılaştırılıyor, değiştiyse dinleyiciler
+   yeni haftaya taşınıyor. */
 function oyunDinleyicileriKur(){
-  if (oyunDinlendi || !db || !ben) return;
-  oyunDinlendi = true;
+  if (!db || !ben) return;
   const hafta = oyunHaftasi();
+  if (oyunDinlenenHafta === hafta) return;
+  oyunDinleyicileriKapat();
+  oyunSkor = {};                 // eski haftanın verisi ekranda kalmasın
+  oyunDinlenenHafta = hafta;
+  const kur = (yol, isle) => {
+    const ref = db.ref(yol);
+    const geri = (s) => { isle(s.val() || {}); oyunSayfasiCiz(); };
+    ref.on('value', geri, () => {});
+    oyunDinleyicileri.push([ref, 'value', geri]);
+  };
   OYUNLAR.forEach(o => {
-    db.ref('oyun/skor/' + o.id + '/' + hafta).on('value', (s) => {
-      oyunSkor[o.id] = s.val() || {};
-      oyunSayfasiCiz();
-    }, () => {});
-    db.ref('oyun/enIyi/' + o.id).on('value', (s) => {
-      oyunEnIyi[o.id] = s.val() || {};
-      oyunSayfasiCiz();
-    }, () => {});
+    kur('oyun/skor/' + o.id + '/' + hafta, (v) => { oyunSkor[o.id] = v; });
+    kur('oyun/enIyi/' + o.id, (v) => { oyunEnIyi[o.id] = v; });
   });
 }
 
@@ -8953,7 +9009,10 @@ function oyunProfilleriGetir(uidler){
   const eksik = uidler.filter(u => u && !profilKesi[u]);
   if (!eksik.length) return;
   Promise.all(eksik.map(u => profilGetir(u).catch(() => null)))
-    .then(() => oyunSayfasiCiz());
+    /* Yalnız en az biri ÖNBELLEĞE GİRDİYSE yeniden çiziyoruz. Koşulsuz
+       çizseydik ulaşılamayan bir profil sonsuz döngü yapardı (bkz.
+       profilGetir'in başındaki not). */
+    .then(() => { if (eksik.some(u => profilKesi[u])) oyunSayfasiCiz(); });
 }
 
 function oyunSayfasiCiz(){ _erteleCiz('oyun', oyunSayfasiCizGercek); }
@@ -11190,24 +11249,6 @@ function esListesiCiz(hedef, secildi){
       satir.addEventListener('click', async () => { await esSec(uid); secildi(uid); });
       kutu.appendChild(satir);
     });
-}
-
-function seciliEsCiz(hedef, degistir){
-  const kutu = $(hedef);
-  if (!aktifSohbet) { kutu.innerHTML = ''; return; }
-  const p = profilKesi[aktifSohbet.uid] || {};
-  kutu.innerHTML = '';
-  const av = document.createElement('span');
-  av.className = 'avatar';
-  avatarKur(av, aktifSohbet.uid, p.ad || '?');
-  const orta = document.createElement('div');
-  orta.className = 'orta';
-  orta.innerHTML = '<b>' + kacir(p.ad || 'Bilinmeyen') + '</b><span>' +
-    (varlikSeti[aktifSohbet.uid] ? 'çevrimiçi' : 'çevrimdışı') + '</span>';
-  const btn = document.createElement('button');
-  btn.textContent = 'değiştir';
-  btn.addEventListener('click', degistir);
-  kutu.append(av, orta, btn);
 }
 
 /* ================= BİRLİKTE İZLE =================
@@ -14142,8 +14183,6 @@ function uzakDurum(){
   if (!izler.length) return 'bekliyor';
   return izler.some(i => i.readyState === 'live' && !i.muted) ? 'var' : 'bekliyor';
 }
-
-function uzakGoruntuVarMi(){ return uzakDurum() === 'var'; }
 
 function uzakGoruntuTazele(){
   const kat = $('#aramaKatman');

@@ -49,7 +49,7 @@
       ".read": "root.child('profil').child(auth.uid).child('yonetici').val() === true",
       "$id": {
         ".read": "auth != null",
-        ".write": "auth != null"
+        ".write": "auth != null && (!data.child('bilgi/uid').exists() || data.child('bilgi/uid').val() === auth.uid)"
       }
     },
     "cagri": {

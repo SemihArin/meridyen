@@ -45,6 +45,9 @@ ISLEVLER = [
     "hafizaEslesirMi",
     "hafizaSureYaz",
     "oyunSkorYaz",
+    "oyunDinleyicileriKur",
+    "oyunDinleyicileriKapat",
+    "oyunProfilleriGetir",
     "tepkiBekleme",
     "tepkiOrtalama",
     "siraEkle",
@@ -801,10 +804,130 @@ function isikCozulurMu(baslangic, b){
   esit('ilk seviyede carpim cikmiyor', erkenCarpim, 0);
 }
 
-console.log('');
-console.log(kaldi === 0 ? ('TUMU GECTI (' + gecti + ')')
-                        : ('BASARISIZ: ' + kaldi + ' / ' + (gecti + kaldi)));
-if (kaldi !== 0) process.exit(1);
+
+/* ================= DINLEYICILER (hafta siniri + sokum) =================
+   Bu bolum bir HATAYI kalici olarak kapatiyor: dinleyici bir kez kurulup bir
+   daha bakilmiyordu, uygulama pazartesi gecesini acik gecirince tablo ESKI
+   haftada donup kaliyordu. Yeni skorlar yeni haftaya yaziliyor, ekran
+   eskisini gosteriyor, hicbir hata cikmiyordu. */
+{
+  /* Sahte veritabani: acilan/kapanan dinleyicileri sayiyor. */
+  const acik = new Map();     // yol -> adet
+  let acmaSayisi = 0, kapamaSayisi = 0;
+  globalThis.db = {
+    ref(yol){
+      return {
+        yol,
+        on(olay, geri, hata){ acmaSayisi++; acik.set(yol, (acik.get(yol) || 0) + 1); },
+        off(olay, geri){ kapamaSayisi++; acik.set(yol, (acik.get(yol) || 0) - 1); }
+      };
+    }
+  };
+  globalThis.ben = { uid: 'u1' };
+  globalThis.OYUNLAR = [{ id: 'a', azIyi: false }, { id: 'b', azIyi: false }];
+  globalThis.oyunSayfasiCiz = () => {};
+  globalThis.oyunSkor = {}; globalThis.oyunEnIyi = {};
+  globalThis.oyunDinleyicileri = []; globalThis.oyunDinlenenHafta = null;
+
+  /* Zamani biz yonetiyoruz ki hafta sinirini gercekten gecelim. */
+  const gercekSimdi = Date.now;
+  let sahteZaman = new Date(2026, 8, 25, 12, 0).getTime();   // Cuma
+  Date.now = () => sahteZaman;
+
+  oyunDinleyicileriKur();
+  esit('iki oyun icin dort dinleyici acildi', acmaSayisi, 4);
+  esit('hafta kaydedildi', oyunDinlenenHafta, '20260921');
+  esit('defter dolu', oyunDinleyicileri.length, 4);
+
+  /* AYNI hafta icinde tekrar cagirmak yeni dinleyici ACMAMALI. */
+  oyunDinleyicileriKur();
+  oyunDinleyicileriKur();
+  esit('ayni haftada tekrar acilmiyor', acmaSayisi, 4);
+  esit('ayni haftada kapama da yok', kapamaSayisi, 0);
+
+  /* PAZARTESI gecildi: eskiler sokulup yenileri acilmali. */
+  sahteZaman = new Date(2026, 8, 29, 9, 0).getTime();        // Sali (yeni hafta)
+  globalThis.oyunSkor = { a: { u1: 5 } };
+  oyunDinleyicileriKur();
+  esit('yeni haftada dinleyiciler tasindi', acmaSayisi, 8);
+  esit('eski dinleyiciler sokuldu', kapamaSayisi, 4);
+  esit('yeni hafta kaydedildi', oyunDinlenenHafta, '20260928');
+  esit('eski haftanin skorlari temizlendi', globalThis.oyunSkor, {});
+  esit('defterde yalniz yeniler var', oyunDinleyicileri.length, 4);
+  /* Hicbir yol iki kez acik kalmamali. */
+  let sizinti = 0;
+  acik.forEach((v, k) => { if (v > 1) sizinti++; });
+  esit('ayni yola iki dinleyici baglanmadi', sizinti, 0);
+
+  /* Cikis: hepsi sokulmeli. */
+  oyunDinleyicileriKapat();
+  esit('cikista hepsi sokuldu', kapamaSayisi, 8);
+  esit('defter bosaldi', oyunDinleyicileri.length, 0);
+  esit('hafta unutuldu', oyunDinlenenHafta, null);
+  let kalan = 0;
+  acik.forEach(v => { if (v > 0) kalan++; });
+  esit('acik dinleyici kalmadi', kalan, 0);
+
+  /* Oturum yokken kurulmuyor. */
+  globalThis.ben = null;
+  oyunDinleyicileriKur();
+  esit('oturum yokken dinleyici acilmiyor', acmaSayisi, 8);
+
+  Date.now = gercekSimdi;
+  globalThis.ben = { uid: 'u1' };
+}
+
+/* ================= PROFIL DONGUSU =================
+   Ulasilamayan tek bir profil ekrani sonsuz "iste, ciz, yine iste"
+   dongusune sokuyordu (olculdu: saniyede 98 istek, 48 cizim). */
+{
+  globalThis.profilKesi = {};
+  let istek = 0, cizim = 0;
+  globalThis.profilGetir = (uid) => {
+    istek++;
+    return Promise.resolve({ ad: 'Bilinmeyen', gecici: true });  // onbellege YAZMIYOR
+  };
+  /* Ust sinir SART: dongu varsa sinama ASKIDA KALMAMALI, temiz basarisiz
+     olmali. Sinirsiz birakildiginda dongu mikro gorev kuyrugunu doyuruyor ve
+     sinama zaman asimina ugruyor — CI'da bu "neden takildi" diye saatler
+     yediren bir ariza bicimi. */
+  const CIZIM_SINIRI = 20;
+  globalThis.oyunSayfasiCiz = () => {
+    cizim++;
+    if (cizim > CIZIM_SINIRI) return;
+    oyunProfilleriGetir(['u1', 'u2']);
+  };
+
+  oyunProfilleriGetir(['u1', 'u2']);
+  /* Mikro gorevlerin akmasi icin bir tur bekliyoruz. */
+  const bekle = new Promise(c => setTimeout(c, 60));
+  globalThis.__profilSinamasi = bekle.then(() => {
+    esit('ulasilamayan profil icin tek tur istek', istek, 2);
+    esit('sonuc gelmediyse yeniden cizim YOK', cizim, 0);
+
+    /* Profil GERCEKTEN gelirse bir kez cizilmeli. */
+    istek = 0; cizim = 0;
+    globalThis.profilGetir = (uid) => {
+      istek++;
+      profilKesi[uid] = { ad: 'Gelen' };
+      return Promise.resolve(profilKesi[uid]);
+    };
+    globalThis.profilKesi = {};
+    globalThis.oyunSayfasiCiz = () => { cizim++; };
+    oyunProfilleriGetir(['u3']);
+    return new Promise(c => setTimeout(c, 60)).then(() => {
+      esit('profil gelince bir kez ciziliyor', cizim, 1);
+    });
+  });
+}
+
+/* Asenkron bolum (profil dongusu) bitmeden ozet yazilmamali. */
+Promise.resolve(globalThis.__profilSinamasi).then(() => {
+  console.log('');
+  console.log(kaldi === 0 ? ('TUMU GECTI (' + gecti + ')')
+                          : ('BASARISIZ: ' + kaldi + ' / ' + (gecti + kaldi)));
+  if (kaldi !== 0) process.exit(1);
+});
 """
 
 
