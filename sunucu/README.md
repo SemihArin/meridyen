@@ -135,6 +135,11 @@ yanıtlamak anlamsız), metin yine ayara tabi.
 - **Eski kayıtlar** gönderilmiyor: sunucu uzun süre kapalı kaldıysa 30
   dakikadan eski bildirimler sessizce siliniyor (gece yarısı dünkü mesajın
   bildirimi gelmesin). `MERIDYEN_EN_ESKI_DK` ile değiştirilebilir.
+- **Ölü belirteçler** cihaz listesinden siliniyor — ama yalnız gerçekten ölü
+  olanlar. Servis hesabı yanlış projeye aitse FCM her gönderimi reddeder; o
+  hata belirteçle ilgili değil, bu yüzden cihaz kayıtlarına dokunulmuyor ve
+  konsola büyük bir kurulum uyarısı yazılıyor. (Silseydik tek yanlış anahtar
+  veritabanındaki bütün cihaz kayıtlarını uçururdu.)
 - **Geçici hatalarda** artan beklemeyle 5 kez yeniden deneniyor, sonra kayıt
   düşürülüyor ve günlüğe yazılıyor.
 

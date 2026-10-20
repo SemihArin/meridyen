@@ -7,7 +7,10 @@ const fs = require('fs');
 const path = require('path');
 const KAYIT = process.env.SINAMA_KAYIT || path.join(__dirname, '..', '..', 'kayit.json');
 
-const durum = { gonderilen: [], silinen: [], kuyruktanSilinen: [], baslatma: null };
+const durum = { gonderilen: [], silinen: [], kuyruktanSilinen: [], baslatma: null,
+                /* PATLA belirteçli hedefe kaç kez gönderim DENENDİ. Yeniden
+                   deneme sınırının gerçekten işlediğini ölçmek için. */
+                patlayanDeneme: 0 };
 function yaz() { fs.writeFileSync(KAYIT, JSON.stringify(durum, null, 1)); }
 
 /* Sınama verisi: kuyruk + cihazlar */
@@ -52,12 +55,29 @@ module.exports = {
   database: () => ({ ref }),
   messaging: () => ({
     sendEach(mesajlar) {
+      /* PATLA: sendEach'in KENDİSİ reddediyor (mesaj başına hata değil).
+         Yeniden deneme yolu yalnız böyle tetikleniyor — kalıcı bir geçici
+         hatanın sonsuza kadar denenmediğini bu sınıyor. */
+      if (mesajlar.some((m) => /PATLA/.test(m.token))) {
+        durum.patlayanDeneme++;
+        yaz();
+        const h = new Error('sunucu geçici olarak meşgul');
+        h.code = 'messaging/server-unavailable';
+        return Promise.reject(h);
+      }
       durum.gonderilen.push(mesajlar);
       yaz();
       const yanitlar = mesajlar.map((m) => {
         if (/OLU/.test(m.token)) {
           const h = new Error('token yok');
           h.code = 'messaging/registration-token-not-registered';
+          return { success: false, error: h };
+        }
+        if (/YANLISANAHTAR/.test(m.token)) {
+          /* Servis hesabı yanlış projeye ait: belirteçle ilgisi YOK.
+             Sunucu bu hatada cihaz kaydını SİLMEMELİ. */
+          const h = new Error('SenderId mismatch');
+          h.code = 'messaging/mismatched-credential';
           return { success: false, error: h };
         }
         if (/GECICI/.test(m.token)) {

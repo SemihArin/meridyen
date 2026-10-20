@@ -74,8 +74,34 @@ const cihazKapali = { belirtec: 'BELIRTEC_' + 'y'.repeat(30), icerikGoster: fals
   ok('geçerli kayıt kabul', B.kayitGecerliMi(kayitMesaj));
   ok('ölü belirteç tanınıyor',
      B.belirtecOlduMu({ code: 'messaging/registration-token-not-registered' }) &&
-     B.belirtecOlduMu({ errorInfo: { code: 'messaging/invalid-argument' } }));
+     B.belirtecOlduMu({ code: 'messaging/invalid-registration-token' }));
   ok('geçici hata ölü sayılmıyor', !B.belirtecOlduMu({ code: 'messaging/server-unavailable' }));
+
+  /* ---- BELİRTEÇ SİLMEDE AŞIRI CÖMERTLİK TEHLİKESİ ----
+     Yanlış servis hesabıyla kurulumda HER gönderim hata veriyor; o hatada
+     belirteç silinirse veritabanındaki bütün cihaz kayıtları tek seferde
+     uçuyor ve anahtar düzeltilse bile kimse bildirim alamıyor. */
+  ok('kurulum hatası belirteci ÖLDÜ saymıyor',
+     !B.belirtecOlduMu({ code: 'messaging/mismatched-credential' }));
+  ok('kurulum hatası ayrıca tanınıyor',
+     B.kurulumHatasiMi({ code: 'messaging/mismatched-credential' }) &&
+     B.kurulumHatasiMi({ errorInfo: { code: 'app/invalid-credential' } }));
+  ok('kurulum hatası geçici sayılmıyor',
+     !B.geciciHataMi({ code: 'messaging/mismatched-credential' }));
+
+  /* invalid-argument hem bozuk belirteç hem bozuk YÜK için dönüyor:
+     yalnız metin belirteci işaret ediyorsa silinmeli. */
+  ok('invalid-argument + belirteç metni → ölü',
+     B.belirtecOlduMu({ code: 'messaging/invalid-argument',
+                        message: 'The registration token is not a valid FCM registration token' }));
+  ok('invalid-argument + YÜK hatası → ölü DEĞİL',
+     !B.belirtecOlduMu({ code: 'messaging/invalid-argument',
+                         message: 'Invalid value at data.ttl (TYPE_STRING)' }));
+  ok('invalid-argument metinsiz → ölü DEĞİL (emniyetli taraf)',
+     !B.belirtecOlduMu({ code: 'messaging/invalid-argument' }));
+  ok('errorInfo içindeki metin de okunuyor',
+     B.belirtecOlduMu({ errorInfo: { code: 'messaging/invalid-argument',
+                                     message: 'not a valid FCM registration token' } }));
   ok('geçici hata tanınıyor',
      B.geciciHataMi({ code: 'messaging/server-unavailable' }) &&
      B.geciciHataMi({ message: 'socket hang up' }));
@@ -95,14 +121,20 @@ const veri = {
     kEski: { hedef: 'AYSE', gonderen: 'SEMIH', tur: 'mesaj', baslik: 'Semih',
              metin: 'dünkü mesaj', ts: Date.now() - 6 * 60 * 60 * 1000 },
     kBozuk: { gonderen: 'SEMIH', tur: 'mesaj' },
-    kCihazsiz: { hedef: 'KIMSE', gonderen: 'SEMIH', tur: 'mesaj', ts: Date.now() }
+    kCihazsiz: { hedef: 'KIMSE', gonderen: 'SEMIH', tur: 'mesaj', ts: Date.now() },
+    /* Hedefin belirteci sendEach'i FIRLATTIRIYOR: kalıcı geçici hata.
+       Sunucu en çok EN_COK_DENEME kez denemeli, sonra kaydı atmalı. */
+    kPatla: { hedef: 'PATLAYAN', gonderen: 'SEMIH', tur: 'mesaj', ts: Date.now() }
   },
   cihazlar: {
     AYSE: {
       telefon: { belirtec: 'TELEFON_' + 'a'.repeat(30), icerikGoster: true },
       masaustu: { belirtec: 'MASA_' + 'b'.repeat(30), icerikGoster: false },
-      eskiCihaz: { belirtec: 'OLU_' + 'c'.repeat(30), icerikGoster: true }
-    }
+      eskiCihaz: { belirtec: 'OLU_' + 'c'.repeat(30), icerikGoster: true },
+      /* Yanlış servis hesabı hatası veren cihaz: SİLİNMEMELİ. */
+      anahtarsiz: { belirtec: 'YANLISANAHTAR_' + 'e'.repeat(30), icerikGoster: true }
+    },
+    PATLAYAN: { tek: { belirtec: 'PATLA_' + 'd'.repeat(30), icerikGoster: true } }
   }
 };
 fs.mkdirSync(SINAMA, { recursive: true });
@@ -119,7 +151,11 @@ try {
       SINAMA_VERI: veriYolu,
       SINAMA_KAYIT: kayitYolu,
       PORT: '0',
-      MERIDYEN_TEK_SEFER: '1'
+      MERIDYEN_TEK_SEFER: '1',
+      /* Geri çekilme tabanını küçültüyoruz: beş denemenin gerçek beklemesi
+         (2+4+8+16 sn) sınamayı yarım dakika uzatırdı. Mantık aynı, süre
+         kısa. */
+      MERIDYEN_GERI_CEKILME_MS: '20'
     }),
     stdio: 'pipe'
   });
@@ -133,8 +169,11 @@ const tumMesajlar = [].concat.apply([], kayit.gonderilen);
 
 ok('sunucu doğru veritabanına bağlandı',
    /meridyen-830fb/.test((kayit.baslatma || {}).veritabani || ''));
-ok('mesaj bildirimi 3 cihaza gitti',
-   kayit.gonderilen.some((grup) => grup.length === 3));
+/* AYSE'nin dört cihazı var (ikisi bilerek hatalı: ölü belirteç ve yanlış
+   anahtar). Mesaj HEPSİNE birden gönderilmeli — hangisinin başarısız
+   olacağına FCM karar veriyor, biz önceden elemiyoruz. */
+ok('mesaj bildirimi hedefin TÜM cihazlarına gitti',
+   kayit.gonderilen.some((grup) => grup.length === 4));
 ok('içerik açık cihazda metin var',
    tumMesajlar.some((m) => /TELEFON/.test(m.token) && m.data.body === 'gizli metin'));
 ok('içerik kapalı cihaza metin GİTMEDİ',
@@ -145,6 +184,11 @@ ok('ölü belirteç cihaz listesinden silindi',
    kayit.silinen.some((y) => /cihazlar\/AYSE\/eskiCihaz/.test(y)));
 ok('canlı belirteçler silinmedi',
    !kayit.silinen.some((y) => /telefon|masaustu/.test(y)));
+/* FELAKET SENARYOSU: yanlış servis hesabı anahtarıyla kurulumda her gönderim
+   hata veriyor. O hatada cihaz kayıtları silinirse veritabanı tek seferde
+   boşalır ve anahtar düzeltilse bile kimse bildirim alamaz. */
+ok('kurulum hatası veren cihaz SİLİNMEDİ',
+   !kayit.silinen.some((y) => /anahtarsiz/.test(y)));
 ok('işlenen kayıtlar kuyruktan silindi',
    ['k1', 'k2'].every((k) => kayit.kuyruktanSilinen.some((y) => y.endsWith('/' + k))));
 ok('ESKİ kayıt gönderilmeden silindi',
@@ -154,6 +198,14 @@ ok('bozuk kayıt gönderilmeden silindi',
    kayit.kuyruktanSilinen.some((y) => y.endsWith('/kBozuk')));
 ok('cihazı olmayan hedefin kaydı silindi',
    kayit.kuyruktanSilinen.some((y) => y.endsWith('/kCihazsiz')));
+
+/* ---- yeniden deneme SINIRI ----
+   Kalıcı bir geçici hatada sunucu sonsuza kadar denememeli. Sınır
+   index.js'teki EN_COK_DENEME (5). Sayac sahte SDK'dan geliyor. */
+ok('kalıcı geçici hatada deneme sayısı sınırlı (' + kayit.patlayanDeneme + ' ≤ 5)',
+   kayit.patlayanDeneme > 0 && kayit.patlayanDeneme <= 5);
+ok('vazgeçilen kayıt kuyruktan silindi',
+   kayit.kuyruktanSilinen.some((y) => y.endsWith('/kPatla')));
 
 console.log('');
 T.forEach(([a, k]) => console.log((k ? '  ✓ ' : '  ✗ ') + a));

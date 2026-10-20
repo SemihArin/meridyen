@@ -31,6 +31,10 @@ const PORT = Number(process.env.PORT || 8080);
    büyükleri sessizce siliyoruz. */
 const EN_ESKI_DK = Number(process.env.MERIDYEN_EN_ESKI_DK || 30);
 const EN_COK_DENEME = 5;
+/* Geri çekilmenin taban süresi: 2×, 4×, 8×… diye büyüyor. Sınamada küçük bir
+   değer veriliyor, yoksa beş denemenin beklemesi tek başına yarım dakika
+   sürüyor ve sınama anlamsızca uzuyor. */
+const GERI_CEKILME_MS = Number(process.env.MERIDYEN_GERI_CEKILME_MS || 1000);
 /* TEK SEFER kipi: kuyruk boşalınca çık. Sınama için ve "sunucuyu sürekli
    çalıştıramıyorum, zamanlanmış görevle ara ara boşaltayım" senaryosu için. */
 const TEK_SEFER = process.env.MERIDYEN_TEK_SEFER === '1';
@@ -70,6 +74,22 @@ const fcm = admin.messaging();
 
 const sayac = { alinan: 0, gonderilen: 0, basarisiz: 0, atilanBelirtec: 0, eski: 0, hatali: 0 };
 const denemeler = new Map();          // kayıt anahtarı -> deneme sayısı
+
+/* Kurulum hatası uyarısı — aynı mesajı her gönderimde tekrarlamıyoruz. */
+let kurulumUyarildi = false;
+function kurulumUyarisi(hata) {
+  if (kurulumUyarildi) return;
+  kurulumUyarildi = true;
+  console.error('\n========================================================');
+  console.error('[KURULUM HATASI] FCM gönderimi reddedildi: ' +
+                ((hata && (hata.code || hata.message)) || 'bilinmiyor'));
+  console.error('Servis hesabı anahtarı BU Firebase projesine ait değil gibi.');
+  console.error('Firebase konsolu → Proje ayarları → Servis hesapları →');
+  console.error('Yeni özel anahtar oluştur, ve o dosyayı kullan.');
+  console.error('Cihaz kayıtlarına DOKUNULMADI (silseydik herkes yeniden');
+  console.error('kaydolana kadar bildirim alamazdı).');
+  console.error('========================================================\n');
+}
 
 /* ---- tek bir kuyruk kaydını işle ---- */
 async function kaydiIsle(anahtar, kayit) {
@@ -111,6 +131,11 @@ async function kaydiIsle(anahtar, kayit) {
     const hata = yanit.error;
     if (B.belirtecOlduMu(hata)) {
       silinecek.push(isler[i].anahtar);
+    } else if (B.kurulumHatasiMi(hata)) {
+      /* Sunucunun kendi kurulumu bozuk: belirteçlere DOKUNMUYORUZ (yanlış
+         anahtarla bütün cihaz kayıtlarını silerdik). Yüksek sesle söylüyoruz,
+         yoksa "bildirim gelmiyor" diye saatler harcanıyor. */
+      kurulumUyarisi(hata);
     } else {
       gunluk('gönderilemedi (' + (hata && hata.code) + '):', isler[i].anahtar);
     }
@@ -132,22 +157,32 @@ async function kaydiIsle(anahtar, kayit) {
 let zincir = Promise.resolve();
 function sirayaAl(anahtar, kayit) {
   sayac.alinan++;
-  zincir = zincir.then(() => kaydiIsle(anahtar, kayit)).catch(async (hata) => {
-    const sayi = (denemeler.get(anahtar) || 0) + 1;
-    denemeler.set(anahtar, sayi);
-    if (B.geciciHataMi(hata) && sayi < EN_COK_DENEME) {
-      const bekle = Math.min(30000, 1000 * Math.pow(2, sayi));
-      gunluk('geçici hata, ' + Math.round(bekle / 1000) + ' sn sonra yeniden (' +
-             sayi + '/' + EN_COK_DENEME + '):', hata.message);
-      await new Promise((r) => setTimeout(r, bekle));
-      sirayaAl(anahtar, kayit);
-      return;
-    }
-    gunluk('KAYIT İŞLENEMEDİ, atılıyor:', anahtar, '|', hata && hata.message);
-    sayac.hatali++;
-    denemeler.delete(anahtar);
-    await db.ref(KUYRUK + '/' + anahtar).remove().catch(() => {});
-  }).then(() => { denemeler.delete(anahtar); });
+  zincir = zincir
+    .then(() => kaydiIsle(anahtar, kayit))
+    /* Sayacı YALNIZ kayıt gerçekten bittiğinde siliyoruz (başarı ya da
+       vazgeçme). Eskiden silme zincirin SONUNDAYDI ve yeniden deneme
+       dalından sonra da çalışıyordu: sayaç her denemeden önce sıfırlanıyor,
+       `sayi` hep 1 kalıyor ve `sayi < EN_COK_DENEME` hiç bozulmuyordu.
+       Sonuç: kalıcı bir geçici hatada sunucu SONSUZA KADAR deniyordu, üstelik
+       bekleme de 2 saniyede donuyordu (2^1). Ölçüldü: sürekli kipte 25
+       saniyede 13 deneme ve kayıt hiç silinmiyor. */
+    .then(() => { denemeler.delete(anahtar); })
+    .catch(async (hata) => {
+      const sayi = (denemeler.get(anahtar) || 0) + 1;
+      denemeler.set(anahtar, sayi);
+      if (B.geciciHataMi(hata) && sayi < EN_COK_DENEME) {
+        const bekle = Math.min(30000, GERI_CEKILME_MS * Math.pow(2, sayi));
+        gunluk('geçici hata, ' + Math.round(bekle / 1000) + ' sn sonra yeniden (' +
+               sayi + '/' + EN_COK_DENEME + '):', hata.message);
+        await new Promise((r) => setTimeout(r, bekle));
+        sirayaAl(anahtar, kayit);     // sayaç KORUNUYOR: bir sonraki deneme onu görecek
+        return;
+      }
+      gunluk('KAYIT İŞLENEMEDİ, atılıyor:', anahtar, '|', hata && hata.message);
+      sayac.hatali++;
+      denemeler.delete(anahtar);
+      await db.ref(KUYRUK + '/' + anahtar).remove().catch(() => {});
+    });
   return zincir;
 }
 
@@ -185,10 +220,14 @@ gunluk('Meridyen bildirim sunucusu başladı. Kuyruk:', KUYRUK,
 if (TEK_SEFER) {
   const BOSTA_MS = Number(process.env.MERIDYEN_BOSTA_MS || 1500);
   let sonIs = Date.now();
-  const eskiSiraya = sirayaAl;
   const bekce = setInterval(() => {
     if (sayac.alinan !== bekce.sonAlinan) { bekce.sonAlinan = sayac.alinan; sonIs = Date.now(); return; }
     if (Date.now() - sonIs < BOSTA_MS) return;
+    /* BEKLEYEN YENİDEN DENEME VARKEN ÇIKMA. Geri çekilme beklemesi sırasında
+       `zincir` yeni bir söze taşınıyor; nöbetçi eskisini yakalayıp çıkıyordu
+       ve kayıt kuyrukta asılı kalıyordu — üstelik süreç başarıyla çıkmış
+       görünüyordu. Deneme defteri boşalmadan çıkmıyoruz. */
+    if (denemeler.size) return;
     zincir.then(() => {
       gunluk('kuyruk boş, çıkılıyor. sayaç:', JSON.stringify(sayac));
       clearInterval(bekce);

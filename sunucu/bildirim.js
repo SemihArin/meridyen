@@ -116,17 +116,54 @@ function mesajlariKur(kayit, cihazlar) {
 }
 
 /* Bu hata belirtecin ARTIK GEÇERSİZ olduğunu mu söylüyor? Öyleyse kayıt
-   silinmeli: yoksa her mesajda aynı ölü belirtece gönderim denenir. */
+   silinmeli: yoksa her mesajda aynı ölü belirtece gönderim denenir.
+ *
+ * BURADA FAZLA CÖMERT OLMAK TEHLİKELİ. Listede eskiden iki kod daha vardı:
+ *
+ *   - messaging/mismatched-credential: belirteçle ilgisi YOK, servis hesabı
+ *     yanlış projeye ait demek. Yani sunucu yanlış anahtarla kurulduğunda
+ *     HER gönderim bu hatayı veriyor ve kod veritabanındaki BÜTÜN cihaz
+ *     kayıtlarını tek seferde siliyordu. Anahtar düzeltilse bile kimsede
+ *     kayıt kalmadığı için bildirimler gelmemeye devam ederdi — her
+ *     kullanıcı uygulamayı yeniden açıp yeniden kaydolana kadar. Sessiz ve
+ *     geri alınamaz bir veri kaybı.
+ *
+ *   - messaging/invalid-argument: hem bozuk belirteç hem de bozuk YÜK için
+ *     dönüyor. Yükü biz kuruyoruz; yükte bir hata yaptığımızda bütün
+ *     cihazları silmek aynı felaketi verirdi. Artık yalnız hata metni
+ *     belirteci işaret ediyorsa siliyoruz.
+ */
 const ATILACAK_KODLAR = [
   'messaging/registration-token-not-registered',
-  'messaging/invalid-registration-token',
-  'messaging/invalid-argument',
-  'messaging/mismatched-credential'
+  'messaging/invalid-registration-token'
 ];
+const BELIRTEC_METNI = /registration token|not a valid fcm/i;
+
 function belirtecOlduMu(hata) {
   if (!hata) return false;
   const kod = String((hata.errorInfo && hata.errorInfo.code) || hata.code || '');
-  return ATILACAK_KODLAR.indexOf(kod) !== -1;
+  if (ATILACAK_KODLAR.indexOf(kod) !== -1) return true;
+  if (kod === 'messaging/invalid-argument') {
+    const metin = String((hata.errorInfo && hata.errorInfo.message) || hata.message || '');
+    return BELIRTEC_METNI.test(metin);
+  }
+  return false;
+}
+
+/* Sunucunun KENDİ kurulumu bozuk mu? Bu hatalarda belirteç silinmemeli;
+   çözüm kullanıcının anahtarı düzeltmesi. Sessiz kalmıyoruz: index.js bunu
+   gördüğünde yüksek sesle uyarıyor, yoksa "bildirim gelmiyor" diye saatler
+   harcanıyor. */
+const KURULUM_KODLARI = [
+  'messaging/mismatched-credential',
+  'messaging/authentication-error',
+  'messaging/invalid-apns-credential',
+  'app/invalid-credential'
+];
+function kurulumHatasiMi(hata) {
+  if (!hata) return false;
+  const kod = String((hata.errorInfo && hata.errorInfo.code) || hata.code || '');
+  return KURULUM_KODLARI.indexOf(kod) !== -1;
 }
 
 /* Geçici hata mı (tekrar denemeye değer mi)? */
@@ -143,5 +180,5 @@ function geciciHataMi(hata) {
 module.exports = {
   OMUR_CAGRI_SN, OMUR_MESAJ_SN,
   kayitGecerliMi, cagriMi, aramaTuru, metinKur, etiketKur,
-  mesajKur, mesajlariKur, belirtecOlduMu, geciciHataMi
+  mesajKur, mesajlariKur, belirtecOlduMu, kurulumHatasiMi, geciciHataMi
 };
