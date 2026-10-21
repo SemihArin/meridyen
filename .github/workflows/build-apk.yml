@@ -114,6 +114,18 @@ jobs:
       - name: Kural kopyasının aynı olduğunu sına
         run: python3 scripts/test_kurallar_ayni.py
 
+      # Kuralları OKUYARAK doğrulamak yanıltıyor: RTDB'de üst düğümde verilen
+      # yazma izni alt düğümde geri alınamıyor ve "yalnız sahibi değiştirir"
+      # gibi alt kurallar sessizce ölü kalıyor (sohbet kuralı böyleydi). İzin/
+      # ret tablosu burada gerçek RTDB emülatöründe ölçülüyor.
+      - name: Kuralları RTDB emülatöründe sına
+        env:
+          MERIDYEN_ARACLAR: ${{ runner.temp }}/meridyen-araclar
+        run: |
+          npm install --prefix "$MERIDYEN_ARACLAR" --no-audit --no-fund --loglevel=error \
+            firebase-tools@13 @firebase/rules-unit-testing@3 firebase@10
+          scripts/test_kurallar_emulator.sh
+
       # Bildirimler eskiden birbirinin üstüne yazıyordu; artık sohbet başına
       # tek bildirimde BİRİKİYORLAR. Bunun doğrudan gözleneceği tek yer bir
       # telefon, o yüzden biriktirme kuralları Android'e dokunmayan saf

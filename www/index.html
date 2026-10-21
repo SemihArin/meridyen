@@ -89,7 +89,7 @@
       "okundu":          { "$uid": { ".read": "auth != null", ".write": "auth.uid === $uid" } },
       "medya":           { ".read": "root.child('profil').child(auth.uid).child('yonetici').val() === true",
                              "$id": { ".read": "auth != null",
-                               ".write": "auth != null && (!data.child('bilgi/uid').exists() || data.child('bilgi/uid').val() === auth.uid)" } },
+                               ".write": "auth != null && (!data.child('bilgi/uid').exists() || data.child('bilgi/uid').val() === auth.uid || (!newData.exists() && data.child('bilgi/sid').isString() && data.child('bilgi/sid').val().contains(auth.uid)))" } },
       "cagri":           { "$uid": { ".read": "auth.uid === $uid",
                              ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('arayan').val() === auth.uid) || (newData.exists() && newData.child('arayan').val() === auth.uid))" } },
       "bildirimler":     { "$uid": { ".read": "auth.uid === $uid", "$id": {
@@ -118,16 +118,19 @@
                              ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid))",
                              "metin": { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 1000)" } } } },
       "yaziyor":         { "$sid": { ".read": "auth != null && $sid.contains(auth.uid)", "$uid": { ".write": "auth.uid === $uid" } } },
-      "tepkiler":        { "$sid": { ".read": "auth != null && $sid.contains(auth.uid)", ".write": "auth != null && $sid.contains(auth.uid)",
-                             "$mid": { "$uid": { ".write": "auth.uid === $uid",
+      "tepkiler":        { "$sid": { ".read": "auth != null && $sid.contains(auth.uid)",
+                             "$mid": { ".write": "auth != null && $sid.contains(auth.uid) && !newData.exists() && (!root.child('sohbetler').child($sid).child('mesajlar').child($mid).exists() || root.child('sohbetler').child($sid).child('mesajlar').child($mid).child('uid').val() === auth.uid)",
+                               "$uid": { ".write": "auth != null && auth.uid === $uid && $sid.contains(auth.uid)",
                                ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 8 && !newData.val().matches(/[<>&]/)" } } } },
       "sohbetler": {
         "$sid": {
           ".read": "auth != null && ($sid.contains(auth.uid) || root.child('yapay/oda/sid').val() === $sid)",
-          ".write": "auth != null && $sid.contains(auth.uid)",
+          "ayar":    { "kaybolan": { ".write": "auth != null && $sid.contains(auth.uid)",
+                         ".validate": "!newData.exists() || newData.val() === 0 || (newData.child('sure').isNumber() && newData.child('sure').val() > 0 && newData.child('baslangic').val() === now)" } },
+          "okundu":  { "$uid": { ".write": "auth != null && auth.uid === $uid && $sid.contains(auth.uid)" } },
           "mesajlar": {
             ".indexOn": ["tip"],
-            "$mid": { ".write": "auth != null && $sid.contains(auth.uid) && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid))",
+            "$mid": { ".write": "auth != null && $sid.contains(auth.uid) && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid && (!newData.exists() || newData.child('uid').val() === auth.uid)) || (data.exists() && !newData.exists() && root.child('sohbetler').child($sid).child('ayar/kaybolan/sure').isNumber() && root.child('sohbetler').child($sid).child('ayar/kaybolan/sure').val() > 0 && data.child('ts').isNumber() && data.child('ts').val() >= root.child('sohbetler').child($sid).child('ayar/kaybolan/baslangic').val() && data.child('ts').val() < now - root.child('sohbetler').child($sid).child('ayar/kaybolan/sure').val()))",
                       "metin": { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 8000)" } }
           }
         }
@@ -19118,8 +19121,8 @@ async function gonder(){
               yuklemeBildirimi.guncelle(bildirimAnahtari, (biten + o) / gonderilecek.length);
             };
             if (ek.dosya) await medyaYazDosya(medyaId, ek.dosya, ilerlet, gecici.iptalRef,
-                                              { sure: ek.sure, en: ek.en, boy: ek.boy });
-            else await medyaYaz(medyaId, ek.tam, ilerlet, gecici.iptalRef);
+                                              { sure: ek.sure, en: ek.en, boy: ek.boy, sid: hedef.sid });
+            else await medyaYaz(medyaId, ek.tam, ilerlet, gecici.iptalRef, { sid: hedef.sid });
             /* Küçük resim MESAJA DEĞİL, medya kaydının kendi düğümüne
                yazılıyor. Mesajda yalnız bir bayrak kalıyor; galeri ve sohbet
                böylece kayıt başına ~80 KB yerine birkaç yüz bayt indiriyor.
@@ -22155,7 +22158,7 @@ async function sesGonder(blob, sure, hedef){
       o.readAsDataURL(blob);
     });
     const medyaId = db.ref('medya').push().key;
-    await medyaYaz(medyaId, veri);
+    await medyaYaz(medyaId, veri, null, null, { sid: hedef.sid });
     await mesajYaz({
       uid: ben.uid, ad: benimAdim, ts: firebase.database.ServerValue.TIMESTAMP,
       tip: 'ses', medyaId, sure: Math.round(sure), boyut: blob.size
@@ -22462,21 +22465,26 @@ async function rtdbParcaliYaz(medyaId, fm, mime, ilerleme, iptalRef, ekBilgi){
   }, ekBilgi || {})));
 }
 
-async function medyaYaz(medyaId, veri, ilerleme, iptalRef){
+async function medyaYaz(medyaId, veri, ilerleme, iptalRef, ekBilgi){
   if (iptalRef && iptalRef.iptal) throw yuklemeIptalHatasi();
   /* Sıkıştırılmış görseller buraya bir data: URL olarak geliyor ve yeterince
      küçükler: tek düğüme yazıyoruz. Okuma tarafı `veri` düğümünü tek istekte
      alıp doğrudan kaynak olarak kullanıyor, dilim birleştirme maliyeti hiç
-     doğmuyor. */
+     doğmuyor.
+     `bilgi` (sahip + varsa sohbet) aynı yazmada gidiyor: kural sahibi
+     yalnız oradan tanıyor. Eskiden tek düğümlü görsellerde `bilgi` yoktu ve
+     kimliğini bilen herkes görselin üstüne yazabiliyordu. */
   if (typeof veri === 'string' && veri.length <= TEK_DUGUM_SINIR) {
-    await parcaDene(() => db.ref('medya/' + medyaId + '/veri').set(veri));
+    await parcaDene(() => db.ref('medya/' + medyaId).update({
+      veri, bilgi: Object.assign({ uid: ben.uid, ts: Date.now() }, ekBilgi || {})
+    }));
     if (ilerleme) ilerleme(1);
     return;
   }
   const kaynak = await fetch(veri);
   const blob = await kaynak.blob();
   await rtdbMedyaYaz(medyaId, blob, blob.type || 'application/octet-stream',
-                     ilerleme, iptalRef);
+                     ilerleme, iptalRef, ekBilgi);
   if (ilerleme) ilerleme(1);
 }
 
@@ -22488,6 +22496,10 @@ async function medyaYazDosya(medyaId, dosya, ilerleme, iptalRef, ustveri){
      ölçtü); oynatıcı böylece daha ilk anda doğru süreyi ve en-boy oranını
      biliyor. */
   const ek = {};
+  /* Sohbet medyası hangi sohbete ait olduğunu taşıyor: kaybolan mesajda
+     karşı taraf süresi dolan mesajı silerken medyasını da silebilsin
+     (kural katılımcıya yalnız SİLME izni veriyor, üstüne yazma değil). */
+  if (ustveri && ustveri.sid) ek.sid = ustveri.sid;
   if (videoMu) {
     if (ustveri && ustveri.sure) ek.sure = ustveri.sure;
     if (ustveri && ustveri.en)   ek.en   = ustveri.en;

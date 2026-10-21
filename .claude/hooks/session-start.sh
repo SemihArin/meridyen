@@ -113,6 +113,18 @@ else
   gunluk "playwright-core zaten var"
 fi
 
+# Kural sınaması (scripts/test_kurallar_emulator.sh) gerçek RTDB emülatörünü
+# koşturuyor: firebase-tools + rules-unit-testing aynı ayrı klasöre.
+if [ ! -d "$ARACLAR/node_modules/@firebase/rules-unit-testing" ] \
+   || [ ! -x "$ARACLAR/node_modules/.bin/firebase" ]; then
+  gunluk "firebase emülatör araçları kuruluyor"
+  npm install --prefix "$ARACLAR" --no-audit --no-fund --loglevel=error \
+    firebase-tools@13 @firebase/rules-unit-testing@3 firebase@10 \
+    || gunluk "UYARI: emülatör araçları kurulamadı (yalnız kural sınamasını etkiler)"
+else
+  gunluk "firebase emülatör araçları zaten var"
+fi
+
 # ---- 5) Oturum ortamı -------------------------------------------------------
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   {

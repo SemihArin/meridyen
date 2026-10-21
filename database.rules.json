@@ -49,7 +49,7 @@
       ".read": "root.child('profil').child(auth.uid).child('yonetici').val() === true",
       "$id": {
         ".read": "auth != null",
-        ".write": "auth != null && (!data.child('bilgi/uid').exists() || data.child('bilgi/uid').val() === auth.uid)"
+        ".write": "auth != null && (!data.child('bilgi/uid').exists() || data.child('bilgi/uid').val() === auth.uid || (!newData.exists() && data.child('bilgi/sid').isString() && data.child('bilgi/sid').val().contains(auth.uid)))"
       }
     },
     "cagri": {
@@ -155,10 +155,10 @@
     "tepkiler": {
       "$sid": {
         ".read": "auth != null && $sid.contains(auth.uid)",
-        ".write": "auth != null && $sid.contains(auth.uid)",
         "$mid": {
+          ".write": "auth != null && $sid.contains(auth.uid) && !newData.exists() && (!root.child('sohbetler').child($sid).child('mesajlar').child($mid).exists() || root.child('sohbetler').child($sid).child('mesajlar').child($mid).child('uid').val() === auth.uid)",
           "$uid": {
-            ".write": "auth.uid === $uid",
+            ".write": "auth != null && auth.uid === $uid && $sid.contains(auth.uid)",
             ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 8 && !newData.val().matches(/[<>&]/)"
           }
         }
@@ -167,13 +167,23 @@
     "sohbetler": {
       "$sid": {
         ".read": "auth != null && ($sid.contains(auth.uid) || root.child('yapay/oda/sid').val() === $sid)",
-        ".write": "auth != null && $sid.contains(auth.uid)",
+        "ayar": {
+          "kaybolan": {
+            ".write": "auth != null && $sid.contains(auth.uid)",
+            ".validate": "!newData.exists() || newData.val() === 0 || (newData.child('sure').isNumber() && newData.child('sure').val() > 0 && newData.child('baslangic').val() === now)"
+          }
+        },
+        "okundu": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && $sid.contains(auth.uid)"
+          }
+        },
         "mesajlar": {
           ".indexOn": [
             "tip"
           ],
           "$mid": {
-            ".write": "auth != null && $sid.contains(auth.uid) && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid))",
+            ".write": "auth != null && $sid.contains(auth.uid) && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid && (!newData.exists() || newData.child('uid').val() === auth.uid)) || (data.exists() && !newData.exists() && root.child('sohbetler').child($sid).child('ayar/kaybolan/sure').isNumber() && root.child('sohbetler').child($sid).child('ayar/kaybolan/sure').val() > 0 && data.child('ts').isNumber() && data.child('ts').val() >= root.child('sohbetler').child($sid).child('ayar/kaybolan/baslangic').val() && data.child('ts').val() < now - root.child('sohbetler').child($sid).child('ayar/kaybolan/sure').val()))",
             "metin": {
               ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 8000)"
             }
