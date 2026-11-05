@@ -10,7 +10,9 @@ const KAYIT = process.env.SINAMA_KAYIT || path.join(__dirname, '..', '..', 'kayi
 const durum = { gonderilen: [], silinen: [], kuyruktanSilinen: [], baslatma: null,
                 /* PATLA belirteçli hedefe kaç kez gönderim DENENDİ. Yeniden
                    deneme sınırının gerçekten işlediğini ölçmek için. */
-                patlayanDeneme: 0 };
+                patlayanDeneme: 0,
+                /* set() ile yazılan her şey (nabız) yol → son değer. */
+                yazilan: {} };
 function yaz() { fs.writeFileSync(KAYIT, JSON.stringify(durum, null, 1)); }
 
 /* Sınama verisi: kuyruk + cihazlar */
@@ -36,6 +38,11 @@ function ref(yol) {
     once(olay) {
       return Promise.resolve({ val: () => dugumAl(yol) });
     },
+    set(deger) {
+      durum.yazilan[yol] = deger;
+      yaz();
+      return Promise.resolve();
+    },
     remove() {
       if (yol.indexOf('cihazlar/') === 0) durum.silinen.push(yol);
       else durum.kuyruktanSilinen.push(yol);
@@ -52,7 +59,8 @@ module.exports = {
   },
   initializeApp(ayar) { durum.baslatma = { veritabani: ayar.databaseURL }; yaz(); },
   app: () => ({ delete: () => Promise.resolve() }),
-  database: () => ({ ref }),
+  database: Object.assign(() => ({ ref }),
+                         { ServerValue: { TIMESTAMP: { '.sv': 'timestamp' } } }),
   messaging: () => ({
     sendEach(mesajlar) {
       /* PATLA: sendEach'in KENDİSİ reddediyor (mesaj başına hata değil).

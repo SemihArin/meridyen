@@ -141,6 +141,11 @@ jobs:
       - name: Oyun mantığını sına (2048 + skor tablosu)
         run: python3 scripts/test_oyun.py
 
+      # Bildirim sunucusu nabzının uygulamadaki yorumu: "çalışıyor/durmuş"
+      # eşiği iki yönde de yanıltabilir.
+      - name: Sunucu nabzı yorumunu sına
+        run: python3 scripts/test_sunucu_nabzi.py
+
       # İşleyici süreci (WebView renderer) ÖLÜMÜ: Android bellek sıkışınca
       # uygulamayı öldürmeden yalnız onu öldürebiliyor. Capacitor'un bu olaya
       # öntanımlı karşılığı "ilgilenmiyorum" ve bunun Android'deki anlamı

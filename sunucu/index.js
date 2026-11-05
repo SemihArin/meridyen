@@ -38,6 +38,11 @@ const GERI_CEKILME_MS = Number(process.env.MERIDYEN_GERI_CEKILME_MS || 1000);
 /* TEK SEFER kipi: kuyruk boşalınca çık. Sınama için ve "sunucuyu sürekli
    çalıştıramıyorum, zamanlanmış görevle ara ara boşaltayım" senaryosu için. */
 const TEK_SEFER = process.env.MERIDYEN_TEK_SEFER === '1';
+/* Nabız aralığı: sunucu bu sıklıkla `sistem/bildirimSunucusu`na "buradayım"
+   yazıyor. Uygulama tanılaması oradan sunucunun çalışıp çalışmadığını
+   okuyor. */
+const NABIZ_MS = Number(process.env.MERIDYEN_NABIZ_MS || 60000);
+const NABIZ_YOLU = 'sistem/bildirimSunucusu';
 
 /* ---- kimlik ---- */
 function kimlikAl() {
@@ -195,6 +200,28 @@ db.ref(KUYRUK).on('child_added', (an) => sirayaAl(an.key, an.val()),
         '\nServis hesabı doğru projeye mi ait? Veritabanı adresi doğru mu?\n' + VERITABANI);
   });
 
+/* ---- nabız ----
+   "Bildirim gelmedi" şikâyetinin iki ayrı kaynağı var: telefon (izin, pil,
+   belirteç) ya da bu sunucu (hiç kurulmamış, çökmüş, ücretsiz barındırmada
+   uykuya geçmiş). Telefon tarafı uygulamanın tanısında görünüyordu; sunucu
+   tarafı hiç görünmüyordu. Artık sunucu düzenli aralıkla zamanını yazıyor,
+   uygulama "en son X önce görüldü" diyebiliyor. Sırdır diye bir şey yok:
+   yalnız zaman, kip ve sayaçlar. */
+const basladi = Date.now();
+function nabizAt() {
+  return db.ref(NABIZ_YOLU).set({
+    nabiz: admin.database.ServerValue.TIMESTAMP,
+    basladi,
+    kip: TEK_SEFER ? 'tek' : 'surekli',
+    aralikMs: TEK_SEFER ? 0 : NABIZ_MS,
+    gonderilen: sayac.gonderilen,
+    basarisiz: sayac.basarisiz,
+    kurulumHatasi: kurulumUyarildi
+  }).catch((e) => gunluk('nabız yazılamadı:', e && e.message));
+}
+nabizAt();
+if (!TEK_SEFER) setInterval(nabizAt, NABIZ_MS);
+
 db.ref('.info/connected').on('value', (an) => {
   gunluk(an.val() ? 'veritabanına bağlandı' : 'veritabanı bağlantısı koptu (kendiliğinden denenecek)');
 });
@@ -228,7 +255,7 @@ if (TEK_SEFER) {
        ve kayıt kuyrukta asılı kalıyordu — üstelik süreç başarıyla çıkmış
        görünüyordu. Deneme defteri boşalmadan çıkmıyoruz. */
     if (denemeler.size) return;
-    zincir.then(() => {
+    zincir.then(nabizAt).then(() => {
       gunluk('kuyruk boş, çıkılıyor. sayaç:', JSON.stringify(sayac));
       clearInterval(bekce);
       db.ref(KUYRUK).off();

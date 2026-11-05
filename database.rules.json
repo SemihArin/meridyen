@@ -34,8 +34,8 @@
       "$uid": {
         ".read": "auth.uid === $uid",
         "$diger": {
-          ".write": "auth != null && (auth.uid === $uid || auth.uid === $diger)",
-          ".validate": "!newData.hasChild('sonGonderen') || newData.child('sonGonderen').val() === auth.uid"
+          ".write": "auth != null && (auth.uid === $uid || (auth.uid === $diger && newData.exists()))",
+          ".validate": "!newData.hasChild('sonGonderen') || newData.child('sonGonderen').val() === auth.uid || (newData.child('sonGonderen').val() === data.child('sonGonderen').val() && newData.child('sonMesaj').val() === data.child('sonMesaj').val() && newData.child('sonTs').val() === data.child('sonTs').val())"
         }
       }
     },
@@ -55,7 +55,7 @@
     "cagri": {
       "$uid": {
         ".read": "auth.uid === $uid",
-        ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('arayan').val() === auth.uid) || (newData.exists() && newData.child('arayan').val() === auth.uid))"
+        ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('arayan').val() === auth.uid) || (newData.exists() && newData.child('arayan').val() === auth.uid && (!data.exists() || data.child('arayan').val() === auth.uid || !data.child('ts').isNumber() || data.child('ts').val() < now - 90000)))"
       }
     },
     "bildirimler": {
@@ -88,17 +88,23 @@
     "oyun": {
       "skor": {
         ".read": "auth != null",
-        "$oyun": { "$hafta": { "$uid": {
-          ".write": "auth.uid === $uid",
-          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000"
-        } } }
+        "$oyun": {
+          "$hafta": {
+            "$uid": {
+              ".write": "auth.uid === $uid",
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000"
+            }
+          }
+        }
       },
       "enIyi": {
         ".read": "auth != null",
-        "$oyun": { "$uid": {
-          ".write": "auth.uid === $uid",
-          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000"
-        } }
+        "$oyun": {
+          "$uid": {
+            ".write": "auth.uid === $uid",
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000"
+          }
+        }
       }
     },
     "yildiz": {
@@ -120,8 +126,10 @@
       ".read": "auth != null",
       "$pid": {
         "$uid": {
-          ".write": "auth.uid === $uid"
-        }
+          ".write": "auth.uid === $uid",
+          ".validate": "newData.val() === true"
+        },
+        ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"
       }
     },
     "akisOy": {
@@ -130,25 +138,28 @@
         "$uid": {
           ".write": "auth.uid === $uid",
           ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 4"
-        }
+        },
+        ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"
       }
     },
     "akisYorum": {
       ".read": "auth != null",
       "$pid": {
         "$yid": {
-          ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid))",
+          ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && root.child('akis').child($pid).child('uid').val() === auth.uid))",
           "metin": {
             ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 1000)"
           }
-        }
+        },
+        ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"
       }
     },
     "yaziyor": {
       "$sid": {
         ".read": "auth != null && $sid.contains(auth.uid)",
         "$uid": {
-          ".write": "auth.uid === $uid"
+          ".write": "auth != null && auth.uid === $uid && $sid.contains(auth.uid)",
+          ".validate": "newData.isString() && newData.val().length <= 60"
         }
       }
     },
@@ -384,7 +395,8 @@
           "$izleyen": {
             ".write": "auth != null && auth.uid === $izleyen && !data.exists()",
             ".validate": "newData.isNumber()"
-          }
+          },
+          ".write": "auth != null && auth.uid === $sahip && !newData.exists()"
         }
       }
     }

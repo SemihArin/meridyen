@@ -74,7 +74,7 @@
   {
     "rules": {
       "hikaye":         {".read": "auth != null", "$uid": {".write": "auth != null && auth.uid === $uid", ".indexOn": ["ts"], "$id": {".validate": "newData.hasChildren(['tip','ts','bitis'])", "tip": {".validate": "newData.isString() && (newData.val() === 'gorsel' || newData.val() === 'video')"}, "medyaId": {".validate": "newData.isString() && newData.val().length <= 64"}, "kucukVar": {".validate": "newData.isNumber()"}, "ad": {".validate": "newData.isString() && newData.val().length <= 60"}, "metin": {".validate": "newData.isString() && newData.val().length <= 200"}, "metinY": {".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1"}, "metinRenk": {".validate": "newData.isString() && newData.val().length <= 12"}, "metinBoyut": {".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 3"}, "sure": {".validate": "newData.isNumber()"}, "en": {".validate": "newData.isNumber()"}, "boy": {".validate": "newData.isNumber()"}, "ts": {".validate": "newData.isNumber()"}, "bitis": {".validate": "newData.isNumber() && newData.val() <= now + 90000000"}, "$baska": {".validate": false}}}},
-      "hikayeIzlendi":  {"$sahip": {".read": "auth != null && auth.uid === $sahip", "$id": {"$izleyen": {".write": "auth != null && auth.uid === $izleyen && !data.exists()", ".validate": "newData.isNumber()"}}}},
+      "hikayeIzlendi":  {"$sahip": {".read": "auth != null && auth.uid === $sahip", "$id": {"$izleyen": {".write": "auth != null && auth.uid === $izleyen && !data.exists()", ".validate": "newData.isNumber()"}, ".write": "auth != null && auth.uid === $sahip && !newData.exists()"}}},
       "sistem":         {".read": true, "bakim": {".write": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true", ".validate": "newData.hasChild('acik')", "acik": {".validate": "newData.isBoolean()"}, "mesaj": {".validate": "newData.isString() && newData.val().length <= 160"}, "baslangic": {".validate": "newData.isNumber()"}, "kapatan": {".validate": "newData.isString() && newData.val().length <= 64"}, "$baska": {".validate": false}}},
       "bakimGunlugu":   {".read": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true", ".write": "auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true", "$ziyaretci": {"$deneme": {".write": "!data.exists() && newData.exists() && root.child('sistem').child('bakim').child('acik').val() === true", ".validate": "newData.hasChild('ts') && newData.child('ts').val() <= now + 60000 && newData.child('ts').val() > now - 300000", "ts": {".validate": "newData.isNumber()"}, "uid": {".validate": "newData.isString() && newData.val().length <= 64 && (auth == null || newData.val() === auth.uid)"}, "ad": {".validate": "newData.isString() && newData.val().length <= 60"}, "cihaz": {".validate": "newData.isString() && newData.val().length <= 200"}, "$baska": {".validate": false}}}},
       "cihazKomut":     {"$uid": {".read": "(auth != null && auth.uid === $uid) || (auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true)", "$komut": {".write": "(auth != null && root.child('profil').child(auth.uid).child('yonetici').val() === true) || (auth != null && auth.uid === $uid && !newData.exists())", ".validate": "newData.hasChildren(['tur','ts'])", "tur": {".validate": "newData.isString() && newData.val() === 'yenile'"}, "ts": {".validate": "newData.isNumber()"}, "kimden": {".validate": "newData.isString() && newData.val().length <= 64"}, "$baska": {".validate": false}}}},
@@ -83,15 +83,12 @@
       "kullaniciAdlari": { ".read": "auth != null", "$ad": { ".write": "auth != null && (!data.exists() || data.val() === auth.uid) && newData.val() === auth.uid" } },
       "varlik":          { ".read": "auth != null", "$uid": { ".write": "auth.uid === $uid" } },
       "cikartmalar":     { "$uid": { ".read": "auth.uid === $uid", ".write": "auth.uid === $uid", ".indexOn": ["ts"] } },
-      "kisiler":         { "$uid": { ".read": "auth.uid === $uid", "$diger": {
-                             ".write": "auth != null && (auth.uid === $uid || auth.uid === $diger)",
-                             ".validate": "!newData.hasChild('sonGonderen') || newData.child('sonGonderen').val() === auth.uid" } } },
+      "kisiler":         {"$uid": {".read": "auth.uid === $uid", "$diger": {".write": "auth != null && (auth.uid === $uid || (auth.uid === $diger && newData.exists()))", ".validate": "!newData.hasChild('sonGonderen') || newData.child('sonGonderen').val() === auth.uid || (newData.child('sonGonderen').val() === data.child('sonGonderen').val() && newData.child('sonMesaj').val() === data.child('sonMesaj').val() && newData.child('sonTs').val() === data.child('sonTs').val())"}}},
       "okundu":          { "$uid": { ".read": "auth != null", ".write": "auth.uid === $uid" } },
       "medya":           { ".read": "root.child('profil').child(auth.uid).child('yonetici').val() === true",
                              "$id": { ".read": "auth != null",
                                ".write": "auth != null && (!data.child('bilgi/uid').exists() || data.child('bilgi/uid').val() === auth.uid || (!newData.exists() && data.child('bilgi/sid').isString() && data.child('bilgi/sid').val().contains(auth.uid)))" } },
-      "cagri":           { "$uid": { ".read": "auth.uid === $uid",
-                             ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('arayan').val() === auth.uid) || (newData.exists() && newData.child('arayan').val() === auth.uid))" } },
+      "cagri":           {"$uid": {".read": "auth.uid === $uid", ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('arayan').val() === auth.uid) || (newData.exists() && newData.child('arayan').val() === auth.uid && (!data.exists() || data.child('arayan').val() === auth.uid || !data.child('ts').isNumber() || data.child('ts').val() < now - 90000)))"}},
       "bildirimler":     { "$uid": { ".read": "auth.uid === $uid", "$id": {
                              ".write": "auth != null && ((!data.exists() && newData.child('kaynak').val() === auth.uid) || (data.exists() && auth.uid === $uid && newData.child('kaynak').val() === data.child('kaynak').val() && newData.child('ts').val() === data.child('ts').val()))",
                              ".validate": "newData.hasChildren(['tur','kaynak','ts'])" } } },
@@ -110,14 +107,10 @@
       "akis":            { ".read": "auth != null", "$id": {
                              ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid))",
                              "metin": { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 2000)" } } },
-      "akisBegeni":      { ".read": "auth != null", "$pid": { "$uid": { ".write": "auth.uid === $uid" } } },
-      "akisOy":          { ".read": "auth != null", "$pid": { "$uid": {
-                             ".write": "auth.uid === $uid",
-                             ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 4" } } },
-      "akisYorum":       { ".read": "auth != null", "$pid": { "$yid": {
-                             ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid))",
-                             "metin": { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 1000)" } } } },
-      "yaziyor":         { "$sid": { ".read": "auth != null && $sid.contains(auth.uid)", "$uid": { ".write": "auth.uid === $uid" } } },
+      "akisBegeni":      {".read": "auth != null", "$pid": {"$uid": {".write": "auth.uid === $uid", ".validate": "newData.val() === true"}, ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"}},
+      "akisOy":          {".read": "auth != null", "$pid": {"$uid": {".write": "auth.uid === $uid", ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 4"}, ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"}},
+      "akisYorum":       {".read": "auth != null", "$pid": {"$yid": {".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && root.child('akis').child($pid).child('uid').val() === auth.uid))", "metin": {".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 1000)"}}, ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"}},
+      "yaziyor":         {"$sid": {".read": "auth != null && $sid.contains(auth.uid)", "$uid": {".write": "auth != null && auth.uid === $uid && $sid.contains(auth.uid)", ".validate": "newData.isString() && newData.val().length <= 60"}}},
       "tepkiler":        { "$sid": { ".read": "auth != null && $sid.contains(auth.uid)",
                              "$mid": { ".write": "auth != null && $sid.contains(auth.uid) && !newData.exists() && (!root.child('sohbetler').child($sid).child('mesajlar').child($mid).exists() || root.child('sohbetler').child($sid).child('mesajlar').child($mid).child('uid').val() === auth.uid)",
                                "$uid": { ".write": "auth != null && auth.uid === $uid && $sid.contains(auth.uid)",
@@ -8126,6 +8119,42 @@ function ayarKilitDurumuCiz(){
    düğme de gerçek bildirim yolundan bir sınama gönderiyor.               */
 let bildirimTanisiSonucu = null;
 
+/* ---- bildirim sunucusunun nabzı ----
+   Uygulama KAPALIYKEN bildirimi yalnız sunucu gönderebiliyor. Sunucu
+   çalışmıyorsa telefon tarafında her şey yolunda görünse de bildirim
+   gelmiyor ve bunu buradan anlamanın yolu yoktu. Sunucu düzenli aralıkla
+   sistem/bildirimSunucusu'na zamanını yazıyor; buradan okuyoruz.
+   n: o düğümün değeri (yoksa null), simdi: sunucu saati. */
+function sunucuNabziDurumu(n, simdi){
+  if (!n || typeof n.nabiz !== 'number') {
+    return { calisiyor: false, metin: 'hiç görülmedi (kurulmamış ya da eski sürüm)' };
+  }
+  const yas = Math.max(0, simdi - n.nabiz);
+  const once = sureMetni(yas) + ' önce';
+  if (n.kurulumHatasi) {
+    return { calisiyor: false, metin: 'KURULUM HATASI (servis hesabı anahtarı yanlış), son ' + once };
+  }
+  if (n.kip === 'tek') {
+    /* Zamanlanmış görevle (cron) çalışan kurulum: her çalışmada bir kez
+       yazıyor. Dakikada bir çağrıldığı varsayılıyor; 5 dk payla. */
+    const tamam = yas <= 5 * 60000;
+    return { calisiyor: tamam, metin: (tamam ? 'zamanlanmış kipte çalışıyor (anlık değil), son ' : 'zamanlanmış görev DURMUŞ, son ') + once };
+  }
+  /* Sürekli kip: üç nabız kaçırmışsa durmuş sayıyoruz. */
+  const tamam = yas <= 3 * (n.aralikMs || 60000);
+  return { calisiyor: tamam, metin: (tamam ? 'çalışıyor, son nabız ' : 'DURMUŞ, en son ') + once };
+}
+async function sunucuNabziOku(){
+  if (!db) return undefined;
+  try {
+    const an = await Promise.race([
+      db.ref('sistem/bildirimSunucusu').get(),
+      new Promise((_, red) => setTimeout(() => red(new Error('zaman aşımı')), 4000))
+    ]);
+    return an.val();
+  } catch (e) { return undefined; }   // okunamadı: bilinmiyor, "durmuş" değil
+}
+
 async function bildirimTanisiCiz(){
   const el = $('#ayarBildirimTani');
   if (!el) return;
@@ -8136,6 +8165,8 @@ async function bildirimTanisiCiz(){
     try { t = await window.MeridyenKopru.tani(); } catch (e) {}
   }
   bildirimTanisiSonucu = t;
+  const nabiz = await sunucuNabziOku();
+  const sunucu = nabiz === undefined ? null : sunucuNabziDurumu(nabiz, sunucuSaati());
 
   const uygulamada = !!(window.Capacitor &&
     typeof window.Capacitor.isNativePlatform === 'function' &&
@@ -8167,6 +8198,10 @@ async function bildirimTanisiCiz(){
     mesaj = 'Belirteç kaydedilemedi (veritabanı kuralları?): ' + (t.belirtecHatasi || '');
   } else if (t && t.yerli && !t.belirtecVar) {
     mesaj = 'Bildirim belirteci henüz alınmadı; uygulama kapalıyken bildirim gelmeyebilir.';
+  } else if (sunucu && !sunucu.calisiyor) {
+    /* Telefon hazır ama gönderecek kimse yok: uygulama kapalıyken hiçbir
+       bildirim gelmez. Aşağıdaki "arka plan" önerileri bunu çözmez. */
+    mesaj = 'Bildirim sunucusu ' + sunucu.metin + '. Uygulama kapalıyken bildirim gelmez.';
   } else if (t && t.nobet !== undefined && !tercihler.arkaPlanBagli) {
     // Bu, "arka planda bir süre sonra bildirim gelmiyor"un en sık sebebi.
     mesaj = 'Çalışıyor ama "arka planda bağlı kal" kapalı — uygulama bir süre '
@@ -8441,6 +8476,11 @@ async function baglantiTanisiCiz(){
                       : baglantiCanli ? 'BAĞLI' : 'KOPUK'));
   d.push('ağ (tarayıcı): ' + (navigator.onLine === false ? 'yok' : 'var'));
   d.push('arka planda bağlı kal: ' + (tercihler.arkaPlanBagli ? 'açık' : 'kapalı'));
+  {
+    const nabiz = await sunucuNabziOku();
+    d.push('bildirim sunucusu: ' + (nabiz === undefined ? 'okunamadı'
+           : sunucuNabziDurumu(nabiz, sunucuSaati()).metin));
+  }
   /* Eskiden burada yalnız `nobetVar` yazıyordu — o "eklentinin nöbet metodu
      var mı" demek, yani hep APK'da 'var'. Servisin GERÇEKTEN çalışıp
      çalışmadığını hiç göstermiyordu; oysa çalışmıyorsa Android süreci
@@ -14344,6 +14384,7 @@ async function aramaBaslat(tur){
   aramaEkraniAc('arayan', aramaHedef);
   await pcKur();
 
+  let cagriAdimi = false;
   try {
     const teklif = await pc.createOffer();
     await pc.setLocalDescription(teklif);
@@ -14351,6 +14392,7 @@ async function aramaBaslat(tur){
       arayan: ben.uid, tur, durum: 'cagriyor',
       teklif: { type: teklif.type, sdp: teklif.sdp }, ts: Date.now()
     });
+    cagriAdimi = true;
     await db.ref('cagri/' + aramaHedef).set({ sid: aramaSid, arayan: ben.uid, tur, ts: sunucuSaati() });
     bildirimKuyruguna(aramaHedef, 'arama', benimAdim,
       tur === 'goruntu' ? 'Görüntülü arıyor' : 'Sesli arıyor',
@@ -14360,6 +14402,13 @@ async function aramaBaslat(tur){
     db.ref('aramalar/' + aramaSid).onDisconnect().remove().catch(() => {});
   } catch (e) {
     console.error('Arama sinyali yazılamadı:', e);
+    /* Kural, başkasının ÇALAN çağrısının üstüne yazmayı reddediyor (eskiden
+       yeni arayan öncekini sessizce siliyordu). Ret tam o adımdaysa bu bir
+       kural eksikliği değil, karşı taraf meşgul. (Onun çağrı kaydını
+       okuyamıyoruz; hangi yazmanın reddedildiğinden anlıyoruz.) */
+    if (e.code === 'PERMISSION_DENIED' && cagriAdimi) {
+      return aramayiBitir('Karşı taraf şu an başka bir aramada.');
+    }
     return aramayiBitir(e.code === 'PERMISSION_DENIED'
       ? 'Arama başlatılamadı: veritabanı kuralları güncel değil.'
       : 'Arama başlatılamadı: ' + (e.message || ''));

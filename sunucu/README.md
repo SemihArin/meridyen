@@ -73,6 +73,13 @@ Authentication listesinden alabilirsin.
 Sunucu ayrıca bir **sağlık ucu** açıyor: `http://localhost:8080` adresine
 bakınca çalışma süresi ve sayaçlar JSON olarak görünüyor.
 
+**Uygulamadan da görünüyor.** Sunucu dakikada bir (`MERIDYEN_NABIZ_MS`)
+veritabanındaki `sistem/bildirimSunucusu` düğümüne zamanını yazıyor.
+Uygulamada Ayarlar → Bildirimler tanısı ve bağlantı tanısı "bildirim sunucusu:
+çalışıyor, son nabız 30 sn önce" ya da "DURMUŞ, en son 3 saat önce" diyor.
+Ücretsiz barındırmalar boşta kalan sunucuyu uyutuyor; "bildirim gelmedi"
+dendiğinde ilk bakılacak yer bu satır.
+
 ---
 
 ## Nerede çalıştırmalı

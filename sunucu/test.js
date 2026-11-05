@@ -207,6 +207,19 @@ ok('kalıcı geçici hatada deneme sayısı sınırlı (' + kayit.patlayanDeneme
 ok('vazgeçilen kayıt kuyruktan silindi',
    kayit.kuyruktanSilinen.some((y) => y.endsWith('/kPatla')));
 
+/* ---- nabız ----
+   Uygulama tanısı sunucunun çalışıp çalışmadığını buradan okuyor. Tek sefer
+   kipinde de yazılmalı (zamanlanmış görevle çalışan kurulum), sayaçlar
+   çıkıştaki son hâli göstermeli. */
+{
+  const n = (kayit.yazilan || {})['sistem/bildirimSunucusu'];
+  ok('nabız yazıldı', !!n);
+  ok('nabız zamanı SUNUCU saati', n && n.nabiz && n.nabiz['.sv'] === 'timestamp');
+  ok('nabız kipi tek sefer', n && n.kip === 'tek' && n.aralikMs === 0);
+  ok('nabız sayaçları son hâli taşıyor', n && n.gonderilen > 0);
+  ok('nabız kurulum hatasını bildiriyor', n && n.kurulumHatasi === true);
+}
+
 console.log('');
 T.forEach(([a, k]) => console.log((k ? '  ✓ ' : '  ✗ ') + a));
 const kotu = T.filter((x) => !x[1]).length;

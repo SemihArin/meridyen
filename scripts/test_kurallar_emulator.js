@@ -26,6 +26,7 @@ const [host, port] = (process.env.FIREBASE_DATABASE_EMULATOR_HOST || '127.0.0.1:
 const A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const C = 'cccccccccccccccccccccccccccc';
+const Y = 'yyyyyyyyyyyyyyyyyyyyyyyyyyyy';   // yönetici
 const SID = [A, B].sort().join('_');
 const SAAT = 3600000;
 const ZAMAN = { '.sv': 'timestamp' };
@@ -62,7 +63,25 @@ const ret  = (ad, is) => bekle(ad, false, is);
         ['medya/mdSohbet/bilgi']: { uid: A, sid: SID, parca: 1, ts: 1 },
         ['medya/mdAkis/bilgi']:   { uid: A, parca: 1, ts: 1 },
         ['medya/mdKucuk']:        { veri: 'data:image/png;base64,AA', bilgi: { uid: A, ts: 1 } },
-        ['medya/mdEski/veri']:    'data:image/png;base64,AA'
+        ['medya/mdEski/veri']:    'data:image/png;base64,AA',
+        /* akış: A'nın gönderisi, B'nin beğenisi/yorumu/oyu */
+        ['akis/p1']:              { uid: A, metin: 'gönderi', ts: 1 },
+        ['akisBegeni/p1/' + B]:   true,
+        ['akisYorum/p1/y1']:      { uid: B, metin: 'yorum', ts: 1 },
+        ['akisOy/p1/' + B]:       1,
+        /* hikaye: A'nın hikayesini B izledi */
+        ['hikaye/' + A + '/h1']:  { tip: 'gorsel', ts: 1, bitis: 2 },
+        ['hikayeIzlendi/' + A + '/h1/' + B]: 1,
+        /* kişiler: A'nın listesinde B, son mesajı A yazmış */
+        ['kisiler/' + A + '/' + B]: { sonMesaj: 'A yazdı', sonGonderen: A, sonTs: 5, ts: 1 },
+        ['profil/' + A]:          { ad: 'A' },
+        ['profil/' + Y]:          { ad: 'Y', yonetici: true },
+        ['kullaniciAdlari/ali']:  A,
+        /* A'yı şu an C arıyor (çalıyor) */
+        ['cagri/' + A]:           { arayan: C, sid: 'x', tur: 'ses', ts: simdi },
+        ['bildirimler/' + A + '/n1']: { tur: 'akis', kaynak: B, ts: 1 },
+        ['oyun/enIyi/yilan/' + A]: 10,
+        ['cihazlar/' + A + '/tel']: { belirtec: 'gizli' }
       });
     });
   };
@@ -117,11 +136,85 @@ const ret  = (ad, is) => bekle(ad, false, is);
     [ret, "yabancı C, A'nın sohbet medyasını siliyor", () => db(C).ref('medya/mdSohbet').remove()],
     [ret, "B, A'nın sohbet dışı medyasını siliyor", () => db(B).ref('medya/mdAkis').remove()],
     [ret, "B, A'nın tek düğümlü görselinin üstüne yazıyor", () => db(B).ref('medya/mdKucuk/veri').set('data:kotu')],
-    [ret, 'oturumsuz biri medya yazıyor', () => ortam.unauthenticatedContext().database().ref('medya/x/veri').set('x')]
+    [ret, 'oturumsuz biri medya yazıyor', () => ortam.unauthenticatedContext().database().ref('medya/x/veri').set('x')],
+
+    '=== AKIŞ',
+    [izin, 'B, A\'nın gönderisini beğeniyor', () => db(C).ref('akisBegeni/p1/' + C).set(true)],
+    [izin, 'B kendi beğenisini geri alıyor', () => db(B).ref('akisBegeni/p1/' + B).remove()],
+    [izin, 'B kendi yorumunu siliyor', () => db(B).ref('akisYorum/p1/y1').remove()],
+    [izin, "A KENDİ gönderisindeki B'nin yorumunu siliyor", () => db(A).ref('akisYorum/p1/y1').remove()],
+    [izin, 'A gönderisini silince beğeni/yorum/oylar da siliniyor', async () => {
+      const a = db(A);
+      await a.ref('akis/p1').remove();
+      await a.ref('akisBegeni/p1').remove();
+      await a.ref('akisYorum/p1').remove();
+      await a.ref('akisOy/p1').remove();
+    }],
+    [izin, 'B oy veriyor', () => db(C).ref('akisOy/p1/' + C).set(2)],
+    [ret, 'B, A adına beğeni bırakıyor', () => db(B).ref('akisBegeni/p1/' + A).set(true)],
+    [ret, 'beğeniye keyfi büyük veri yazılıyor', () => db(C).ref('akisBegeni/p1/' + C).set('x'.repeat(5000))],
+    [ret, "B, A'nın gönderisini siliyor", () => db(B).ref('akis/p1').remove()],
+    [ret, "B, A'nın (duran) gönderisinin tüm beğenilerini siliyor", () => db(B).ref('akisBegeni/p1').remove()],
+    [ret, "B, A'nın (duran) gönderisinin tüm yorumlarını siliyor", () => db(B).ref('akisYorum/p1').remove()],
+    [ret, "C, B'nin A'nın gönderisindeki yorumunu siliyor", () => db(C).ref('akisYorum/p1/y1').remove()],
+    [ret, "B, A adına yorum yazıyor", () => db(B).ref('akisYorum/p1').push({ uid: A, metin: 'x', ts: 1 })],
+    [ret, 'oy aralık dışı', () => db(C).ref('akisOy/p1/' + C).set(9)],
+
+    '=== HİKAYE',
+    [izin, 'B hikayeyi izlediğini yazıyor', () => db(C).ref('hikayeIzlendi/' + A + '/h1/' + C).set(1)],
+    [izin, 'A hikayesini silince izleyen listesini de siliyor', () => db(A).ref('hikayeIzlendi/' + A + '/h1').remove()],
+    [ret, 'B, C adına izlendi yazıyor', () => db(B).ref('hikayeIzlendi/' + A + '/h1/' + C).set(1)],
+    [ret, "B, A'nın izleyen listesini okuyor", () => db(B).ref('hikayeIzlendi/' + A).get()],
+    [ret, "B, A'nın hikayesini yazıyor", () => db(B).ref('hikaye/' + A + '/h2').set({ tip: 'gorsel', ts: 1, bitis: 2 })],
+
+    '=== KİŞİLER',
+    [izin, 'B mesaj özetini A\'nın listesine yazıyor (kendi adıyla)', () => db(B).ref('kisiler/' + A + '/' + B).update({ sonMesaj: 'B yazdı', sonGonderen: B, sonTs: 9 })],
+    [izin, 'B, A\'yı yeniden ekliyor (yalnız ts)', () => db(B).ref('kisiler/' + A + '/' + B).update({ ts: 9 })],
+    [izin, 'A, B\'yi kendi listesinden siliyor', () => db(A).ref('kisiler/' + A + '/' + B).remove()],
+    [ret, "B kendini A'nın listesinden siliyor", () => db(B).ref('kisiler/' + A + '/' + B).remove()],
+    [ret, "B, A'nın yazdığı özet metnini değiştiriyor", () => db(B).ref('kisiler/' + A + '/' + B).update({ sonMesaj: 'sahte' })],
+    [ret, "B, A'nın listesini okuyor", () => db(B).ref('kisiler/' + A).get()],
+
+    '=== PROFİL / KULLANICI ADI',
+    [izin, 'A adını değiştiriyor', () => db(A).ref('profil/' + A).update({ ad: 'Ali' })],
+    [ret, 'B kendini yönetici yapıyor', () => db(B).ref('profil/' + B + '/yonetici').set(true)],
+    [ret, 'B profilini yönetici bayrağıyla kuruyor', () => db(B).ref('profil/' + B).set({ ad: 'B', yonetici: true })],
+    [ret, "B, A'nın profilini değiştiriyor", () => db(B).ref('profil/' + A).update({ ad: 'x' })],
+    [ret, "B, A'nın kullanıcı adını alıyor", () => db(B).ref('kullaniciAdlari/ali').set(B)],
+    [ret, 'oturumsuz biri profilleri okuyor', () => ortam.unauthenticatedContext().database().ref('profil').get()],
+
+    '=== ÇAĞRI / BİLDİRİM',
+    [izin, 'B, boştaki C\'yi arıyor', () => db(B).ref('cagri/' + C).set({ arayan: B, sid: 'y', tur: 'ses', ts: Date.now() })],
+    [izin, 'A gelen çağrıyı kaldırıyor', () => db(A).ref('cagri/' + A).remove()],
+    [izin, 'arayan C kendi çağrısını kaldırıyor', () => db(C).ref('cagri/' + A).remove()],
+    [ret, "B, A'yı arayan C'nin ÇALAN çağrısının üstüne yazıyor", () => db(B).ref('cagri/' + A).set({ arayan: B, sid: 'z', tur: 'ses', ts: Date.now() })],
+    [ret, "B, C'nin çağrısını kaldırıyor", () => db(B).ref('cagri/' + A).remove()],
+    [izin, 'A kendi bildirimini okundu yapıyor', () => db(A).ref('bildirimler/' + A + '/n1/okundu').set(true)],
+    [izin, 'B, A\'ya kendi adıyla bildirim bırakıyor', () => db(B).ref('bildirimler/' + A).push({ tur: 'akis', kaynak: B, ts: 1 })],
+    [ret, "B, A'ya C adına bildirim bırakıyor", () => db(B).ref('bildirimler/' + A).push({ tur: 'akis', kaynak: C, ts: 1 })],
+    [ret, "B, A'nın bildirimlerini okuyor", () => db(B).ref('bildirimler/' + A).get()],
+    [izin, 'B bildirim kuyruğuna kendi adıyla yazıyor', () => db(B).ref('bildirimKuyrugu').push({ hedef: A, gonderen: B, tur: 'mesaj', ts: 1 })],
+    [ret, 'B bildirim kuyruğuna A adına yazıyor', () => db(B).ref('bildirimKuyrugu').push({ hedef: C, gonderen: A, tur: 'mesaj', ts: 1 })],
+    [ret, 'B bildirim kuyruğunu okuyor', () => db(B).ref('bildirimKuyrugu').get()],
+    [ret, "B, A'nın cihaz belirteçlerini okuyor", () => db(B).ref('cihazlar/' + A).get()],
+    [ret, "B, A'ya cihaz komutu yazıyor", () => db(B).ref('cihazKomut/' + A + '/k').set({ tur: 'yenile', ts: 1 })],
+    [izin, "yönetici A'ya yenile komutu yazıyor", () => db(Y).ref('cihazKomut/' + A + '/k').set({ tur: 'yenile', ts: 1 })],
+
+    '=== SİSTEM / OYUN / YAZIYOR',
+    [ret, 'B sahte sunucu nabzı yazıyor', () => db(B).ref('sistem/bildirimSunucusu').set({ nabiz: Date.now(), kip: 'surekli' })],
+    [ret, 'B bakım kipini açıyor', () => db(B).ref('sistem/bakim').set({ acik: true })],
+    [izin, 'herkes sunucu nabzını okuyabiliyor', () => db(B).ref('sistem/bildirimSunucusu').get()],
+    [izin, 'A kendi rekorunu yazıyor', () => db(A).ref('oyun/enIyi/yilan/' + A).set(20)],
+    [ret, "B, A'nın rekorunu yazıyor", () => db(B).ref('oyun/enIyi/yilan/' + A).set(0)],
+    [ret, 'rekor sayı değil', () => db(A).ref('oyun/enIyi/yilan/' + A).set('çok')],
+    [izin, 'A kendi sohbetinde yazıyor bayrağı', () => db(A).ref('yaziyor/' + SID + '/' + A).set('A')],
+    [ret, 'yabancı C başkasının sohbetine yazıyor bayrağı koyuyor', () => db(C).ref('yaziyor/' + SID + '/' + C).set('x'.repeat(5000))]
   ];
 
   console.log('Kural dosyası: ' + KURAL);
-  for (const [tur, ad, is] of durumlar) {
+  for (const d of durumlar) {
+    if (typeof d === 'string') { console.log('\n' + d); continue; }
+    const [tur, ad, is] = d;
     if (typeof tur === 'string') { console.log(tur); continue; }
     await tohumla();
     await tur(ad, is);
