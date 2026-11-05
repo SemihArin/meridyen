@@ -146,6 +146,11 @@ jobs:
       - name: Sunucu nabzı yorumunu sına
         run: python3 scripts/test_sunucu_nabzi.py
 
+      # Akış: beğen/beğenme geçişi tek atomik yazma olmalı (kural ikisini
+      # birden tutmayı reddediyor), göreli zaman ve uzun metin kesme.
+      - name: Akış mantığını sına
+        run: python3 scripts/test_akis.py
+
       # İşleyici süreci (WebView renderer) ÖLÜMÜ: Android bellek sıkışınca
       # uygulamayı öldürmeden yalnız onu öldürebiliyor. Capacitor'un bu olaya
       # öntanımlı karşılığı "ilgilenmiyorum" ve bunun Android'deki anlamı

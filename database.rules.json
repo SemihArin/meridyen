@@ -127,7 +127,17 @@
       "$pid": {
         "$uid": {
           ".write": "auth.uid === $uid",
-          ".validate": "newData.val() === true"
+          ".validate": "newData.val() === true && !newData.parent().parent().parent().child('akisBegenmeme').child($pid).child($uid).exists()"
+        },
+        ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"
+      }
+    },
+    "akisBegenmeme": {
+      ".read": "auth != null",
+      "$pid": {
+        "$uid": {
+          ".write": "auth.uid === $uid",
+          ".validate": "newData.val() === true && !newData.parent().parent().parent().child('akisBegeni').child($pid).child($uid).exists()"
         },
         ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"
       }

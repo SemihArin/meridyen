@@ -107,7 +107,8 @@
       "akis":            { ".read": "auth != null", "$id": {
                              ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid))",
                              "metin": { ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 2000)" } } },
-      "akisBegeni":      {".read": "auth != null", "$pid": {"$uid": {".write": "auth.uid === $uid", ".validate": "newData.val() === true"}, ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"}},
+      "akisBegeni":      {".read": "auth != null", "$pid": {"$uid": {".write": "auth.uid === $uid", ".validate": "newData.val() === true && !newData.parent().parent().parent().child('akisBegenmeme').child($pid).child($uid).exists()"}, ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"}},
+      "akisBegenmeme": {".read": "auth != null", "$pid": {"$uid": {".write": "auth.uid === $uid", ".validate": "newData.val() === true && !newData.parent().parent().parent().child('akisBegeni').child($pid).child($uid).exists()"}, ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"}},
       "akisOy":          {".read": "auth != null", "$pid": {"$uid": {".write": "auth.uid === $uid", ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 4"}, ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"}},
       "akisYorum":       {".read": "auth != null", "$pid": {"$yid": {".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && data.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && root.child('akis').child($pid).child('uid').val() === auth.uid))", "metin": {".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 1000)"}}, ".write": "auth != null && !newData.exists() && (!root.child('akis').child($pid).exists() || root.child('akis').child($pid).child('uid').val() === auth.uid)"}},
       "yaziyor":         {"$sid": {".read": "auth != null && $sid.contains(auth.uid)", "$uid": {".write": "auth != null && auth.uid === $uid && $sid.contains(auth.uid)", ".validate": "newData.isString() && newData.val().length <= 60"}}},
@@ -3074,16 +3075,19 @@ mark.arama-vurgu{
 .paylas-tetik-arac svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
 /* gönderi */
-.akis-liste{display:flex;flex-direction:column}
+.akis-liste{display:flex;flex-direction:column;gap:10px}
+/* Gönderiler ayrı kartlar. Eskiden yuvarlatılmış köşeli bir kutunun yalnız
+   ÜST kenarı çiziliyordu; çizginin uçları köşeyle birlikte kıvrılıp
+   gönderiler arasında yay gibi görünüyordu. */
 .gonderi{
-  display:grid;grid-template-columns:42px minmax(0,1fr);gap:11px;
-  padding:14px 10px 8px;border-top:1px solid var(--gece-3);
-  cursor:pointer;transition:background .16s;border-radius:12px;
+  display:grid;grid-template-columns:40px minmax(0,1fr);gap:11px;
+  padding:13px 13px 6px;background:var(--gece-2);
+  border:1px solid rgba(255,255,255,.05);border-radius:18px;
+  cursor:pointer;transition:background .16s,border-color .16s;
 }
-.akis-liste > .gonderi:first-of-type{border-top:0}
-.gonderi:hover{background:rgba(255,255,255,.02)}
-.gonderi:active{background:rgba(255,255,255,.035)}
-.gonderi .avatar{width:42px;height:42px;font-size:1rem;grid-row:1/-1;align-self:start}
+.gonderi:hover{border-color:rgba(255,255,255,.09)}
+.gonderi:active{background:#171a20}
+.gonderi .avatar{width:40px;height:40px;font-size:.95rem;grid-row:1/-1;align-self:start}
 .gonderi-ust{display:flex;align-items:baseline;gap:6px;min-width:0}
 .gonderi-kimlik{display:flex;align-items:baseline;gap:6px;flex:1;min-width:0;flex-wrap:wrap}
 .gonderi-kimlik b{font-size:.94rem;font-weight:500;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:58%}
@@ -3100,6 +3104,12 @@ mark.arama-vurgu{
   font-size:.95rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;
   margin-top:2px;color:#e3e6ec;
 }
+/* Uzun metin kartta altı satırda kesiliyor; tamamı detay ekranında. Bir
+   gönderi ekranın tamamını kaplayıp akışı tıkamasın. */
+.gonderi-metin.kisa{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
+.gonderi-devam{
+  display:inline-block;margin-top:3px;font-size:.84rem;color:var(--vurgu);font-weight:500;
+}
 .gonderi-metin a{color:var(--vurgu);text-decoration:underline;text-underline-offset:2px}
 .gonderi-medya{
   margin-top:9px;border-radius:14px;overflow:hidden;border:1px solid var(--gece-3);
@@ -3110,7 +3120,7 @@ mark.arama-vurgu{
 .gonderi-medya .video-kapak{max-height:420px}
 
 /* alt araç satırı */
-.gonderi-alt{display:flex;align-items:center;gap:2px;margin:6px 0 0 -8px}
+.gonderi-alt{display:flex;align-items:center;gap:6px;margin:8px 0 0 -4px;padding-bottom:6px}
 .gonderi-arac{
   display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:100px;
   font-family:'DM Mono',monospace;font-size:.72rem;color:var(--gri);
@@ -3118,9 +3128,35 @@ mark.arama-vurgu{
 }
 .gonderi-arac:hover{background:var(--gece-3);color:var(--kar)}
 .gonderi-arac svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.gonderi-arac.begenili{color:var(--hata)}
-.gonderi-arac.begenili svg{fill:var(--hata);stroke:var(--hata)}
-.gonderi-arac.begenili:hover{background:rgba(255,107,107,.12)}
+.gonderi-arac span:empty{display:none}
+
+/* Beğen | beğenme: tek kapsülde iki yarı. Aynı kapsülde durmaları ikisinin
+   birbirini dışladığını görsel olarak da söylüyor. */
+.tepki-cifti{display:inline-flex;align-items:center;background:var(--gece-3);border-radius:100px}
+.tepki-cifti .gonderi-arac{border-radius:0;padding:7px 11px}
+.tepki-cifti .gonderi-arac:first-child{border-radius:100px 0 0 100px;padding-left:12px}
+.tepki-cifti .gonderi-arac:last-child{border-radius:0 100px 100px 0;padding-right:12px;position:relative}
+.tepki-cifti .gonderi-arac:last-child::before{
+  content:'';position:absolute;left:0;top:9px;bottom:9px;width:1px;background:rgba(255,255,255,.08);
+}
+.tepki-cifti .gonderi-arac:hover{background:#262a33}
+.begeni-dugme.secili{color:var(--hata)}
+.begeni-dugme.secili svg{fill:var(--hata);stroke:var(--hata)}
+.begenmeme-dugme.secili{color:var(--vurgu)}
+.begenmeme-dugme.secili svg{fill:rgba(124,156,255,.25);stroke:var(--vurgu)}
+.tepki-cifti .secili svg{animation:tepkiZipla .32s cubic-bezier(.2,.8,.2,1.4)}
+@keyframes tepkiZipla{0%{transform:scale(.6)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){ .tepki-cifti .secili svg{animation:none} }
+
+/* Kartın altında son yorumun tek satırlık önizlemesi: konuşma olduğunu
+   kart açılmadan gösteriyor. */
+.gonderi-yorum-on{
+  display:block;width:100%;text-align:left;margin:2px 0 6px;padding:8px 11px;
+  background:rgba(255,255,255,.025);border-radius:12px;font-size:.84rem;color:#c9ced8;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.gonderi-yorum-on b{font-weight:500;color:var(--kar);margin-right:5px}
+.gonderi-yorum-on small{display:block;margin-top:3px;font-family:'DM Mono',monospace;font-size:.64rem;color:var(--gri)}
 
 /* ---- anket ---- */
 .anket{display:flex;flex-direction:column;gap:7px;margin-top:10px}
@@ -7838,7 +7874,7 @@ function kanaliDurdur(){
   // hâlâ true kaldığı için dinleyiciler bir daha kurulmuyordu.
   akisBagli = false; akisSayfaYukleniyor = false; akisGecmisBitti = false;
   akisIlkYukleme = true;
-  akisVerisi = {}; begeniVerisi = {}; yorumVerisi = {}; oyVerisi = {}; acikGonderi = null;
+  akisVerisi = {}; begeniVerisi = {}; begenmemeVerisi = {}; yorumVerisi = {}; oyVerisi = {}; acikGonderi = null;
   Object.keys(akisBagliGonderiler).forEach(k => delete akisBagliGonderiler[k]);
   Object.keys(gonderiDugumleri).forEach(k => delete gonderiDugumleri[k]);
   $('#akisListe').innerHTML = '';
@@ -12927,7 +12963,7 @@ document.addEventListener('pointerdown', (e) => {
 /* ================= AKIŞ (SOSYAL) =================
    Kişiye bağlı değil: uygulamadaki herkesin gördüğü ortak akış.
    Gönderi + beğeni + yorum. Görseller sohbetteki medya düğümünü kullanır. */
-let akisVerisi = {}, begeniVerisi = {}, yorumVerisi = {}, oyVerisi = {}, akisEk = null;
+let akisVerisi = {}, begeniVerisi = {}, begenmemeVerisi = {}, yorumVerisi = {}, oyVerisi = {}, akisEk = null;
 let akisBagli = false, akisSayfaYukleniyor = false, akisGecmisBitti = false;
 let akisIlkYukleme = true;   // ilk sayfa gelene kadar "Akış boş" yerine iskelet
 const akisBagliGonderiler = {};   // beğeni/yorum dinleyicisi kurulmuş gönderiler
@@ -12942,6 +12978,7 @@ function gonderiVerisiBagla(id){
      kaydırmalarda yüzlerce canlı dinleyici birikiyordu. */
   const kayitlar = [
     [db.ref('akisBegeni/' + id), (s) => { begeniVerisi[id] = s.val() || {}; akisiCiz(); }],
+    [db.ref('akisBegenmeme/' + id), (s) => { begenmemeVerisi[id] = s.val() || {}; akisiCiz(); }],
     [db.ref('akisYorum/' + id),  (s) => { yorumVerisi[id] = s.val() || {}; akisiCiz(); }],
     [db.ref('akisOy/' + id),     (s) => { oyVerisi[id] = s.val() || {}; akisiCiz(); }]
   ];
@@ -12952,7 +12989,7 @@ function gonderiVerisiCoz(id){
   const kayitlar = akisBagliGonderiler[id];
   if (Array.isArray(kayitlar)) kayitlar.forEach(([ref, geri]) => { try { ref.off('value', geri); } catch (e) {} });
   delete akisBagliGonderiler[id];
-  delete begeniVerisi[id]; delete yorumVerisi[id]; delete oyVerisi[id];
+  delete begeniVerisi[id]; delete begenmemeVerisi[id]; delete yorumVerisi[id]; delete oyVerisi[id];
 }
 
 function gonderiAl(key, veri){
@@ -13360,6 +13397,7 @@ const gonderiDugumleri = {};
 
 function gonderiImza(id, g){
   const b = begeniVerisi[id] || {}, y = yorumVerisi[id] || {}, o = oyVerisi[id] || {};
+  const bm = begenmemeVerisi[id] || {};
   return JSON.stringify([
     g.ts, g.metin || '', g.medyaId || '', g.ad || '', g.tip || '',
     (profilKesi[g.uid] || {}).ad || '',
@@ -13367,13 +13405,46 @@ function gonderiImza(id, g){
     Object.keys(g.etiket || {}).sort(),
     (g.anket && g.anket.secenekler) || null,
     Object.keys(b).sort(),
+    Object.keys(bm).sort(),
     Object.keys(y).length,
+    Object.keys(y).sort().pop() || '',   // kartta son yorumun önizlemesi var
     Object.keys(o).sort().map(k => k + ':' + o[k])
   ]);
 }
 
 const BOT_ROZET = '<span class="bot-rozet"><svg viewBox="0 0 24 24">' +
   '<rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/></svg>yapay</span>';
+
+/* Akış kartındaki zaman: yakın geçmiş göreli ("3 dk", "5 sa") — akışta
+   "21:20" bir gönderinin ne kadar taze olduğunu söylemiyordu. Bir günden
+   eskisi kisaZaman'a (dün / gün adı / tarih) bırakılıyor. */
+function akisZamani(ts, simdi){
+  if (!ts) return '';
+  const fark = (simdi || Date.now()) - ts;
+  if (fark < 60000) return 'şimdi';
+  if (fark < 3600000) return Math.floor(fark / 60000) + ' dk';
+  if (fark < 86400000) return Math.floor(fark / 3600000) + ' sa';
+  return kisaZaman(ts);
+}
+/* Kartlar yalnız verileri değişince yeniden çiziliyor; göreli zaman
+   kendiliğinden eskimesin diye dakikada bir yerinde tazeleniyor. */
+setInterval(() => {
+  if (aktifSayfa !== 'akis' || document.hidden) return;
+  document.querySelectorAll('#akisListe time[data-ts]').forEach(t => {
+    t.textContent = akisZamani(Number(t.dataset.ts));
+  });
+}, 60000);
+
+/* Gönderi metni kartta kesilmeli mi? Satır sınırı CSS'te (6 satır); burada
+   yalnız "devamını gör" bağlantısının gerekip gerekmediğine bakıyoruz.
+   Satır sayısı ekran genişliğine bağlı, ölçmek pahalı: ~45 karakterlik
+   satır ve açık satır sonlarıyla kabaca tahmin ediyoruz. */
+function gonderiMetniUzunMu(metin){
+  if (!metin) return false;
+  const satirlar = String(metin).split('\n');
+  const tahmin = satirlar.reduce((t, s) => t + Math.max(1, Math.ceil(s.length / 45)), 0);
+  return tahmin > 6;
+}
 
 /* Gönderi künyesi (avatar + ad + @kullanıcı + zaman). Kart ve detay aynı
    satırı kullanıyor ki iki yerde iki farklı görünüm olmasın. */
@@ -13402,7 +13473,11 @@ function gonderiKunyesi(g, buyuk){
       kimlik.appendChild(k);
     }
     const t = document.createElement('time');
-    t.textContent = kisaZaman(g.ts);
+    t.textContent = akisZamani(g.ts);
+    if (g.ts) {
+      t.dataset.ts = g.ts;
+      t.title = gunEtiketi(g.ts) + ' · ' + saat(g.ts);
+    }
     kimlik.appendChild(t);
   }
   return { av, kimlik };
@@ -13421,6 +13496,7 @@ function gonderiSilDugmesi(id, g, sonra){
     if (!confirm('Gönderi silinsin mi?')) return;
     db.ref('akis/' + id).remove().catch(() => {});
     db.ref('akisBegeni/' + id).remove().catch(() => {});
+    db.ref('akisBegenmeme/' + id).remove().catch(() => {});
     db.ref('akisYorum/' + id).remove().catch(() => {});
     db.ref('akisOy/' + id).remove().catch(() => {});
     if (g.medyaId) medyaSil(g.medyaId).catch(() => {});
@@ -13429,31 +13505,64 @@ function gonderiSilDugmesi(id, g, sonra){
   return sil;
 }
 
-/* Beğeni düğmesi (kart ve detayda ortak). */
-function begeniDugmesi(id, g){
+/* ---- beğen / beğenme ----
+   İkisi birbirini dışlıyor: aynı gönderiyi hem beğenip hem beğenmemek
+   olmuyor (kural da bunu zorluyor). Biri açıkken öbürüne basmak tek bir
+   ATOMİK yazmayla geçiş yapıyor; iki ayrı yazma olsa arada kural ilkini
+   reddederdi.
+   Geçiş gerekmeyen durumda (yalnız beğen/geri al) eskisi gibi tek yol
+   yazılıyor: beğenmeme kuralı konsola henüz yapıştırılmamışsa bile beğeni
+   çalışmaya devam ediyor.
+   Beğenmeme karşı tarafa BİLDİRİM GÖNDERMİYOR: "biri gönderini beğenmedi"
+   bildirimi kimseye bir şey kazandırmıyor. */
+function akisTepkiVer(id, g, tur){
+  if (!db || !ben) return;
+  /* Durumu tıklama anında okuyoruz: dinleyici veriyi yeni bir nesneyle
+     değiştiriyor, kapanıştaki kopya bayatlayabiliyordu (çift dokunuşta
+     beğeni kalkmıyor, karşıya ikinci bildirim gidiyordu). */
+  const begendi = !!(begeniVerisi[id] || {})[ben.uid];
+  const begenmedi = !!(begenmemeVerisi[id] || {})[ben.uid];
+  const yb = 'akisBegeni/' + id + '/' + ben.uid;
+  const ybm = 'akisBegenmeme/' + id + '/' + ben.uid;
+  const hata = () => bildir('Kaydedilemedi.');
+  if (tur === 'begeni') {
+    if (begendi) db.ref(yb).remove().catch(hata);
+    else if (begenmedi) db.ref().update({ [yb]: true, [ybm]: null }).catch(hata);
+    else db.ref(yb).set(true).catch(hata);
+    if (!begendi && g.uid !== ben.uid) bildirimYaz(g.uid, 'akis', benimAdim + ' gönderini beğendi',
+      (g.metin || 'Görsel').slice(0, 60), { hedefSayfa: 'akis', gonderi: id });
+  } else {
+    if (begenmedi) db.ref(ybm).remove().catch(hata);
+    else if (begendi) db.ref().update({ [ybm]: true, [yb]: null }).catch(hata);
+    else db.ref(ybm).set(true).catch(hata);
+  }
+}
+
+const BEGENI_SVG = '<svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-9a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 4.6-7 9-7 9z"/></svg>';
+const BEGENMEME_SVG = '<svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.7a2 2 0 0 0-2 1.7l-1.4 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>';
+
+/* Beğen + beğenme düğme çifti (kart ve detayda ortak). */
+function tepkiCifti(id, g){
   const begeniler = begeniVerisi[id] || {};
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'gonderi-arac' + (begeniler[ben.uid] ? ' begenili' : '');
-  b.setAttribute('aria-label', 'Beğen');
-  b.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-9a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 4.6-7 9-7 9z"/></svg><span>' +
-    (Object.keys(begeniler).length || '') + '</span>';
-  b.addEventListener('click', (e) => {
-    e.stopPropagation();
-    /* Kapanıştaki `begeniler` bayatlıyor: dinleyici begeniVerisi[id]'ye YENİ
-       bir nesne atıyor, kart yeniden çizilene kadar buradaki kopya eski
-       kalıyordu. Çift dokunuşta beğeni kalkmıyor, karşıya ikinci bildirim
-       gidiyordu. Durumu tıklama anında okuyoruz. */
-    const guncel = begeniVerisi[id] || {};
-    const yol = db.ref('akisBegeni/' + id + '/' + ben.uid);
-    if (guncel[ben.uid]) yol.remove().catch(() => {});
-    else {
-      yol.set(true).catch(() => {});
-      if (g.uid !== ben.uid) bildirimYaz(g.uid, 'akis', benimAdim + ' gönderini beğendi',
-        (g.metin || 'Görsel').slice(0, 60), { hedefSayfa: 'akis', gonderi: id });
-    }
-  });
-  return b;
+  const begenmemeler = begenmemeVerisi[id] || {};
+  const cift = document.createElement('div');
+  cift.className = 'tepki-cifti';
+  const dugme = (tur, svg, etiket, sayi, secili, sinif) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'gonderi-arac ' + sinif + (secili ? ' secili' : '');
+    b.setAttribute('aria-label', etiket);
+    b.setAttribute('aria-pressed', secili ? 'true' : 'false');
+    b.innerHTML = svg + '<span>' + (sayi || '') + '</span>';
+    b.addEventListener('click', (e) => { e.stopPropagation(); akisTepkiVer(id, g, tur); });
+    return b;
+  };
+  cift.append(
+    dugme('begeni', BEGENI_SVG, 'Beğen', Object.keys(begeniler).length,
+          !!begeniler[ben.uid], 'begeni-dugme'),
+    dugme('begenmeme', BEGENMEME_SVG, 'Beğenme', Object.keys(begenmemeler).length,
+          !!begenmemeler[ben.uid], 'begenmeme-dugme'));
+  return cift;
 }
 
 /* Gönderi medyası (görsel ya da video kutusu). */
@@ -13568,12 +13677,22 @@ function gonderiCiz(id, g){
     metin.innerHTML = etiketliMetin(g.metin, g.etiket);
     etiketleriBagla(metin);
     ic.appendChild(metin);
+    if (gonderiMetniUzunMu(g.metin)) {
+      metin.classList.add('kisa');
+      const devam = document.createElement('button');
+      devam.type = 'button';
+      devam.className = 'gonderi-devam';
+      devam.textContent = 'Devamını gör';
+      devam.addEventListener('click', (e) => { e.stopPropagation(); gonderiDetayAc(id); });
+      ic.appendChild(devam);
+    }
   }
   if (g.tip === 'anket' && g.anket) ic.appendChild(anketCiz(id, g));
   const medya = gonderiMedyasi(g);
   if (medya) ic.appendChild(medya);
 
-  const yorumSayi = Object.keys(yorumVerisi[id] || {}).length;
+  const yorumlar = yorumVerisi[id] || {};
+  const yorumSayi = Object.keys(yorumlar).length;
   const alt = document.createElement('div');
   alt.className = 'gonderi-alt';
   const yorumBtn = document.createElement('button');
@@ -13583,8 +13702,27 @@ function gonderiCiz(id, g){
   yorumBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.8-.8L3 21l1.9-5A8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11z"/></svg><span>' +
     (yorumSayi || '') + '</span>';
   yorumBtn.addEventListener('click', (e) => { e.stopPropagation(); gonderiDetayAc(id, true); });
-  alt.append(begeniDugmesi(id, g), yorumBtn);
+  alt.append(tepkiCifti(id, g), yorumBtn);
   ic.appendChild(alt);
+
+  /* Son yorum önizlemesi. Anahtarlar push anahtarı: sözlük sırası = zaman. */
+  const sonAnahtar = Object.keys(yorumlar).sort().pop();
+  const son = sonAnahtar && yorumlar[sonAnahtar];
+  if (son && son.metin) {
+    const on = document.createElement('button');
+    on.type = 'button';
+    on.className = 'gonderi-yorum-on';
+    const ad = document.createElement('b');
+    ad.textContent = (profilKesi[son.uid] || {}).ad || son.ad || '';
+    on.append(ad, document.createTextNode(String(son.metin).replace(/\s+/g, ' ')));
+    if (yorumSayi > 1) {
+      const tumu = document.createElement('small');
+      tumu.textContent = yorumSayi + ' yorumun tümünü gör';
+      on.appendChild(tumu);
+    }
+    on.addEventListener('click', (e) => { e.stopPropagation(); gonderiDetayAc(id, true); });
+    ic.appendChild(on);
+  }
 
   kart.append(av, ic);
   const ac = (e) => {
@@ -13655,6 +13793,7 @@ function gonderiDetayiCiz(zorla){
   const yorumlar = yorumVerisi[id] || {};
   const anahtarlar = Object.keys(yorumlar).sort();
   const begeniSayi = Object.keys(begeniVerisi[id] || {}).length;
+  const begenmemeSayi = Object.keys(begenmemeVerisi[id] || {}).length;
   $('#gdSayac').textContent = anahtarlar.length ? anahtarlar.length + ' yorum' : '';
 
   govde.innerHTML = '';
@@ -13685,10 +13824,11 @@ function gonderiDetayiCiz(zorla){
   tarih.textContent = g.ts ? gunEtiketi(g.ts) + ' · ' + saat(g.ts) : '';
   blok.appendChild(tarih);
 
-  if (begeniSayi || anahtarlar.length) {
+  if (begeniSayi || begenmemeSayi || anahtarlar.length) {
     const sayilar = document.createElement('div');
     sayilar.className = 'gd-sayilar';
     if (begeniSayi) sayilar.insertAdjacentHTML('beforeend', '<span class="gd-sayi"><b>' + begeniSayi + '</b>beğeni</span>');
+    if (begenmemeSayi) sayilar.insertAdjacentHTML('beforeend', '<span class="gd-sayi"><b>' + begenmemeSayi + '</b>beğenmeme</span>');
     if (anahtarlar.length) sayilar.insertAdjacentHTML('beforeend', '<span class="gd-sayi"><b>' + anahtarlar.length + '</b>yorum</span>');
     blok.appendChild(sayilar);
   }
@@ -13700,7 +13840,7 @@ function gonderiDetayiCiz(zorla){
   yorumaGit.className = 'gonderi-arac';
   yorumaGit.innerHTML = '<svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.8-.8L3 21l1.9-5A8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11z"/></svg><span>Yorum yaz</span>';
   yorumaGit.addEventListener('click', () => { try { $('#gdYorumGirdi').focus(); } catch (e) {} });
-  arac.append(begeniDugmesi(id, g), yorumaGit);
+  arac.append(tepkiCifti(id, g), yorumaGit);
   blok.appendChild(arac);
   govde.appendChild(blok);
 

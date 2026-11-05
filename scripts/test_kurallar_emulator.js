@@ -67,6 +67,7 @@ const ret  = (ad, is) => bekle(ad, false, is);
         /* akış: A'nın gönderisi, B'nin beğenisi/yorumu/oyu */
         ['akis/p1']:              { uid: A, metin: 'gönderi', ts: 1 },
         ['akisBegeni/p1/' + B]:   true,
+        ['akisBegenmeme/p1/' + C]: true,
         ['akisYorum/p1/y1']:      { uid: B, metin: 'yorum', ts: 1 },
         ['akisOy/p1/' + B]:       1,
         /* hikaye: A'nın hikayesini B izledi */
@@ -139,7 +140,7 @@ const ret  = (ad, is) => bekle(ad, false, is);
     [ret, 'oturumsuz biri medya yazıyor', () => ortam.unauthenticatedContext().database().ref('medya/x/veri').set('x')],
 
     '=== AKIŞ',
-    [izin, 'B, A\'nın gönderisini beğeniyor', () => db(C).ref('akisBegeni/p1/' + C).set(true)],
+    [izin, "Y, A'nın gönderisini beğeniyor", () => db(Y).ref('akisBegeni/p1/' + Y).set(true)],
     [izin, 'B kendi beğenisini geri alıyor', () => db(B).ref('akisBegeni/p1/' + B).remove()],
     [izin, 'B kendi yorumunu siliyor', () => db(B).ref('akisYorum/p1/y1').remove()],
     [izin, "A KENDİ gönderisindeki B'nin yorumunu siliyor", () => db(A).ref('akisYorum/p1/y1').remove()],
@@ -147,6 +148,7 @@ const ret  = (ad, is) => bekle(ad, false, is);
       const a = db(A);
       await a.ref('akis/p1').remove();
       await a.ref('akisBegeni/p1').remove();
+      await a.ref('akisBegenmeme/p1').remove();
       await a.ref('akisYorum/p1').remove();
       await a.ref('akisOy/p1').remove();
     }],
@@ -159,6 +161,20 @@ const ret  = (ad, is) => bekle(ad, false, is);
     [ret, "C, B'nin A'nın gönderisindeki yorumunu siliyor", () => db(C).ref('akisYorum/p1/y1').remove()],
     [ret, "B, A adına yorum yazıyor", () => db(B).ref('akisYorum/p1').push({ uid: A, metin: 'x', ts: 1 })],
     [ret, 'oy aralık dışı', () => db(C).ref('akisOy/p1/' + C).set(9)],
+
+    '=== BEĞENMEME',
+    [izin, 'Y gönderiyi beğenmiyor', () => db(Y).ref('akisBegenmeme/p1/' + Y).set(true)],
+    [izin, 'C beğenmemesini geri alıyor', () => db(C).ref('akisBegenmeme/p1/' + C).remove()],
+    [izin, 'B beğeniden beğenmemeye TEK yazmayla geçiyor', () => db(B).ref().update({
+      ['akisBegenmeme/p1/' + B]: true, ['akisBegeni/p1/' + B]: null })],
+    [izin, 'C beğenmemeden beğeniye TEK yazmayla geçiyor', () => db(C).ref().update({
+      ['akisBegeni/p1/' + C]: true, ['akisBegenmeme/p1/' + C]: null })],
+    [ret, 'B beğenisi dururken beğenmeme de ekliyor (ikisi birden)', () => db(B).ref('akisBegenmeme/p1/' + B).set(true)],
+    [ret, 'C beğenmemesi dururken beğeni de ekliyor (ikisi birden)', () => db(C).ref('akisBegeni/p1/' + C).set(true)],
+    [ret, 'B, A adına beğenmeme bırakıyor', () => db(B).ref('akisBegenmeme/p1/' + A).set(true)],
+    [ret, 'beğenmemeye keyfi veri yazılıyor', () => db(Y).ref('akisBegenmeme/p1/' + Y).set('x'.repeat(5000))],
+    [ret, "B, A'nın (duran) gönderisinin beğenmemelerini siliyor", () => db(B).ref('akisBegenmeme/p1').remove()],
+    [ret, "B, C'nin beğenmemesini siliyor", () => db(B).ref('akisBegenmeme/p1/' + C).remove()],
 
     '=== HİKAYE',
     [izin, 'B hikayeyi izlediğini yazıyor', () => db(C).ref('hikayeIzlendi/' + A + '/h1/' + C).set(1)],
