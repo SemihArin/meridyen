@@ -8,6 +8,7 @@ soruları tek komutta yanıtlanıyor. Sunucuyla aynı ortam değişkenlerini oku
   python3 dene.py <hedefUid> [mesaj]
   python3 dene.py --cihazlar <hedefUid>     kayıtlı cihazları listeler
   python3 dene.py --durum                   çalışan sunucunun nabzını gösterir
+  python3 dene.py --kontrol                 kurulumu doğrular: anahtar, veritabanı, FCM izni
 """
 import os
 import sys
@@ -15,7 +16,59 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bildirim as B  # noqa: E402
+import ortam  # noqa: E402
 import sunucu as S  # noqa: E402
+
+
+def kontrol(ayar, db, fcm):
+    """Kurulumu bildirim GÖNDERMEDEN doğrular. Her adım ayrı söylüyor ki
+    sorun çıkarsa nerede olduğu belli olsun. Başarıda 0, sorunda 4 döner."""
+    sorun = 0
+    h = ayar.servis_hesabi or {}
+    print('Anahtar      : %s (proje: %s)' % (h.get('client_email', '— emülatör —'), h.get('project_id', ayar.proje)))
+    if h and h.get('project_id') != S.VARSAYILAN_PROJE:
+        print('  ! Bu anahtar "%s" projesinin; Meridyen "%s". Yanlış dosya olabilir.'
+              % (h.get('project_id'), S.VARSAYILAN_PROJE))
+    # 1) Google'dan erişim belirteci: anahtarın kendisi geçerli mi
+    try:
+        db.erisim.baslik()
+        print('Erişim       : ✓ anahtar geçerli')
+    except Exception as e:
+        print('Erişim       : ✗ anahtarla oturum açılamadı — dosya bozuk ya da anahtar iptal edilmiş (%s)'
+              % type(e).__name__)
+        return 4
+    # 2) Veritabanı: bu anahtar bu veritabanını okuyabiliyor mu
+    try:
+        n = db.oku(S.NABIZ_YOLU)
+        print('Veritabanı   : ✓ %s' % db.taban)
+        if isinstance(n, dict) and n.get('nabiz'):
+            yas = (time.time() * 1000 - n['nabiz']) / 1000
+            print('               son sunucu nabzı %d sn önce (%s)' % (yas, n.get('dil') or 'node'))
+    except Exception as e:
+        sorun += 1
+        print('Veritabanı   : ✗ okunamadı — %s' % str(e)[:160])
+    # 3) FCM: gönderme izni var mı. validate_only: hiçbir şey gönderilmiyor;
+    #    sahte belirteç için "geçersiz belirteç" yanıtı, izinlerin TAMAM
+    #    olduğunu gösteriyor (izin yoksa ondan önce 401/403 dönüyor).
+    try:
+        y = S.requests.post(fcm.url, headers=fcm.erisim.baslik(), timeout=S.ZAMAN_ASIMI, json={
+            'validate_only': True,
+            'message': {'token': 'meridyen-kurulum-kontrolu-' + 'x' * 20, 'data': {'k': 'v'}}})
+        if y.status_code in (200, 400):
+            print('FCM          : ✓ gönderme izni var (%s)' % ayar.proje)
+        else:
+            sorun += 1
+            try:
+                durum, kod, metin = B.fcm_hatasi_coz(y.status_code, y.json())
+            except ValueError:
+                durum, kod, metin = 'HTTP_%d' % y.status_code, '', ''
+            print('FCM          : ✗ %s %s — %s' % (durum, kod, metin[:120]))
+            print('               Firebase konsolunda "Cloud Messaging API (V1)" açık mı, anahtar bu projenin mi?')
+    except S.requests.RequestException as e:
+        sorun += 1
+        print('FCM          : ✗ ulaşılamadı — %s' % type(e).__name__)
+    print('\nKurulum %s.' % ('TAMAM' if not sorun else 'SORUNLU'))
+    return 4 if sorun else 0
 
 
 def main():
@@ -23,7 +76,11 @@ def main():
     if not arg:
         print(__doc__)
         return 1
+    ortam.yukle()
     ayar, db, fcm = S.kur()
+
+    if arg[0] == '--kontrol':
+        return kontrol(ayar, db, fcm)
 
     if arg[0] == '--durum':
         n = db.oku(S.NABIZ_YOLU) or {}

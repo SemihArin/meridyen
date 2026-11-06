@@ -25,13 +25,19 @@ class SahteFcm:
         self.denemeler = []         # her istek: (belirteç, data)
         self.basarilar = []         # yalnız başarılı olanlar
         self._sayac = {}
+        self.dogrulamalar = 0
         sahte = self
 
         class Isleyici(BaseHTTPRequestHandler):
             def do_POST(self):
                 govde = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)))
                 m = govde['message']
-                kod, yanit = sahte._karar(m)
+                if govde.get('validate_only'):      # dene.py --kontrol: hiçbir şey gönderilmez
+                    with sahte.kilit:
+                        sahte.dogrulamalar += 1
+                    kod, yanit = 200, {'name': 'projects/demo/messages/fake_message_id'}
+                else:
+                    kod, yanit = sahte._karar(m)
                 veri = json.dumps(yanit).encode()
                 self.send_response(kod)
                 self.send_header('Content-Type', 'application/json')

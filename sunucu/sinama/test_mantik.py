@@ -159,5 +159,30 @@ class Sahiplenme(unittest.TestCase):
         self.assertFalse(B.sahiplenilebilir_mi(None, 'BEN', SIMDI))
 
 
+class EnvDosyasi(unittest.TestCase):
+    def test_coz(self):
+        import ortam
+        d = ortam.coz('# yorum\n\nA=1\nexport B = iki kelime \nC="tırnaklı # değil yorum"\n'
+                      "D='tek'\nJSON={\"type\": \"service_account\", \"k\": \"a=b\"}\nbozuk satır\nE=\n")
+        self.assertEqual(d['A'], '1')
+        self.assertEqual(d['B'], 'iki kelime')
+        self.assertEqual(d['C'], 'tırnaklı # değil yorum')
+        self.assertEqual(d['D'], 'tek')
+        self.assertEqual(d['JSON'], '{"type": "service_account", "k": "a=b"}', 'JSON bozulmadan gelmeli')
+        self.assertEqual(d['E'], '')
+        self.assertNotIn('bozuk', ''.join(d))
+
+    def test_ortamdakinin_ustune_yazmaz(self):
+        import ortam
+        import tempfile
+        with tempfile.NamedTemporaryFile('w', suffix='.env', delete=False) as f:
+            f.write('PORT=1\nYENI=2\n')
+        o = {'PORT': '8080'}
+        self.assertEqual(ortam.yukle(f.name, o), f.name)
+        os.unlink(f.name)
+        self.assertEqual(o, {'PORT': '8080', 'YENI': '2'})
+        self.assertIsNone(ortam.yukle('/yok/boyle/bir/dosya', {}), 'dosya yoksa hata değil')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

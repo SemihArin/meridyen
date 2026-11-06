@@ -1,11 +1,12 @@
-# Meridyen bildirim sunucusu — systemd hizmeti.
+# Meridyen bildirim sunucusu — systemd hizmeti ŞABLONU.
 #
-# Kurulum (README.md'de adım adım):
-#   sudo cp meridyen-bildirim.service /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now meridyen-bildirim
+# Elle kopyalama: kur.sh @KULLANICI@ ve @DIZIN@ yerlerini doldurup
+# /etc/systemd/system/ altına kendisi kuruyor. Doldurulmuş hâlini görmek için:
+#   ./kur.sh --hizmet-dosyasi
 #
-# Yolları ve kullanıcıyı kendi kurulumuna göre düzelt.
+# Ayarlar (.env) hizmet tanımında DEĞİL: sunucu .env'i kendisi okuyor. Böylece
+# elle çalıştırmak ile hizmet olarak çalıştırmak aynı dosyayı aynı kurallarla
+# okuyor (systemd'nin kendi okuyucusu tırnakları farklı yorumluyordu).
 
 [Unit]
 Description=Meridyen bildirim sunucusu
@@ -15,10 +16,9 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/meridyen/sunucu
-EnvironmentFile=/home/pi/meridyen/sunucu/.env
-ExecStart=/home/pi/meridyen/sunucu/venv/bin/python sunucu.py
+User=@KULLANICI@
+WorkingDirectory=@DIZIN@
+ExecStart=@DIZIN@/venv/bin/python @DIZIN@/sunucu.py
 # Çökerse ya da bekçi takılmayı fark edip süreci bitirirse yeniden başlat.
 # Sınırsız: ağ saatlerce yoksa bile vazgeçmesin.
 Restart=always

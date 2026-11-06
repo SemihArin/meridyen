@@ -43,6 +43,7 @@ from urllib.parse import urlparse
 import requests
 
 import bildirim as B
+import ortam as env_dosyasi
 
 SURUM = '2.0'
 VARSAYILAN_DB = 'https://meridyen-830fb-default-rtdb.europe-west1.firebasedatabase.app'
@@ -752,14 +753,18 @@ def kur(ortam=os.environ):
     if not ayar.servis_hesabi and not ayar.emulator:
         cik('Servis hesabı anahtarı yok.\n'
             'MERIDYEN_SERVIS_HESABI_DOSYASI ile anahtar dosyasının yolunu ver (ya da\n'
-            'MERIDYEN_SERVIS_HESABI ile JSON içeriğini). Bkz. README.md')
+            'MERIDYEN_SERVIS_HESABI ile JSON içeriğini) — en kolayı: ./kur.sh')
     erisim = Erisim(ayar.servis_hesabi)
     return ayar, Veritabani(ayar, erisim), Fcm(ayar, erisim)
 
 
 def main():
+    # Sunucunun yanındaki .env (ortamda zaten olanların üstüne yazmadan).
+    okunan = env_dosyasi.yukle()
     logging.basicConfig(level=os.environ.get('MERIDYEN_GUNLUK', 'INFO'),
                         format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    if okunan:
+        log.info('ayarlar okundu: %s', okunan)
     ayar, db, fcm = kur()
     s = Sunucu(ayar, db, fcm, os.environ.get('MERIDYEN_KIMLIK') or kimlik_al(ayar.kimlik_dosyasi))
     signal.signal(signal.SIGTERM, s.durdur)

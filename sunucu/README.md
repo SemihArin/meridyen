@@ -20,52 +20,66 @@ push'u gönderiyor, sonra kaydı siliyor.
 
 ## Kurulum
 
-Gereken: Python 3.9+ ve Firebase servis hesabı anahtarı.
+Gereken: Python 3.9+ (Raspberry Pi OS ve güncel Linux'larda hazır) ve Firebase
+servis hesabı anahtarı.
 
-### 1. Servis hesabı anahtarı al
+**1. Anahtarı indir.** Firebase konsolu → ⚙ Proje ayarları → **Servis hesapları**
+→ *Yeni özel anahtar oluştur*. Bir JSON dosyası iner.
 
-Firebase konsolu → ⚙ Proje ayarları → **Servis hesapları** → *Yeni özel anahtar
-oluştur*. İnen JSON dosyasını `sunucu/servis-hesabi.json` olarak kaydet.
+> Bu dosya projenin tamamına yetki verir. Kimseyle paylaşma; depoya girmez
+> (`.gitignore`'da).
 
-> Bu dosya projenin tamamına yetki verir. **Depoya girmez** (`.gitignore`'da),
-> kimseyle paylaşma.
-
-### 2. Bağımlılıkları kur
+**2. Klasörü makineye koy ve kur.sh'ı çalıştır:**
 
 ```bash
+tar xzf meridyen-bildirim-sunucusu.tar.gz
 cd sunucu
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
+./kur.sh --anahtar ~/Downloads/meridyen-830fb-xxxxxxxx.json
 ```
 
-Yalnız `requests` ve `google-auth` kuruluyor. `firebase-admin` bilerek yok:
-grpc gibi ağır bağımlılıklar getiriyor, eski Raspberry Pi'de ya da Termux'ta
-derlenmesi saatler sürüyor veya hiç olmuyor.
+`--anahtar` vermezsen yolunu sorar. Kurulum betiği sırayla:
 
-### 3. Ayarları yaz ve dene
+1. Python'u ve `venv` modülünü denetler (Debian'da eksikse `python3-venv`'i
+   kurmayı önerir),
+2. `venv/` oluşturup bağımlılıkları kurar (yalnız `requests` ve `google-auth`),
+3. anahtarı `servis-hesabi.json` olarak yerleştirir ve `.env`'i yazar (ikisi de
+   yalnız sana okunur, izin 600),
+4. **bildirim göndermeden** kurulumu denetler: anahtar geçerli mi, veritabanı
+   okunuyor mu, FCM gönderme izni var mı — sorun varsa nerede olduğunu söyleyip
+   durur,
+5. pm2'de eski Node sunucusu kayıtlıysa durdurmayı önerir,
+6. sunucuyu açılışta kendiliğinden başlayan bir **systemd hizmeti** yapar,
+   başlatır ve çalıştığını sağlık ucundan doğrular.
 
-```bash
-cp ornek.env .env          # içindeki anahtar dosyası yolunu düzelt
-set -a; . ./.env; set +a
-venv/bin/python dene.py --cihazlar <kullanıcıUid>     # kayıtlı cihazlar
-venv/bin/python dene.py <kullanıcıUid> "merhaba"      # deneme bildirimi
-venv/bin/python sunucu.py                             # sunucuyu başlat (Ctrl+C ile dur)
-```
+Yeniden çalıştırmak güvenli: bağımlılıkları günceller, `.env`'deki ayarlarına
+dokunmaz. Güncelleme için yeni dosyaları üstüne açıp `./kur.sh`'ı yeniden
+çalıştırman yeterli.
+
+| Komut | Ne yapar |
+|---|---|
+| `./kur.sh --hizmet-yok` | hizmet kurmadan yalnız ortamı hazırlar |
+| `./kur.sh --hizmet-dosyasi` | doldurulmuş hizmet tanımını gösterir |
+| `./kur.sh --kaldir` | hizmeti durdurup kaldırır (ayarlar ve venv kalır) |
+| `journalctl -u meridyen-bildirim -f` | sunucunun günlüğü |
+| `sudo systemctl restart meridyen-bildirim` | yeniden başlat |
+| `venv/bin/python dene.py --kontrol` | kurulumu yeniden denetle |
+| `venv/bin/python dene.py <uid> "merhaba"` | deneme bildirimi gönder |
+| `venv/bin/python dene.py --cihazlar <uid>` | kullanıcının kayıtlı cihazları |
 
 Uid'yi Firebase konsolu → Authentication listesinden alabilirsin.
 
-### 4. Kalıcı hizmet yap (systemd)
+### Ayarlar: `.env`
+
+Sunucu ve `dene.py`, yanlarındaki `.env` dosyasını **kendileri okuyor** (paket
+gerekmiyor, `set -a` gerekmiyor). Ortamda zaten tanımlı bir değişken dosyadakini
+ezer. Kullanılabilen ayarlar `ornek.env`'de. Elle çalıştırmak için:
 
 ```bash
-# meridyen-bildirim.service içindeki User ve yolları kendine göre düzelt
-sudo cp meridyen-bildirim.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now meridyen-bildirim
-journalctl -u meridyen-bildirim -f          # günlüğü izle
+venv/bin/python sunucu.py
 ```
 
-Makine yeniden başlayınca sunucu kendiliğinden açılır. Çökerse ya da takılırsa
-5 sn sonra yeniden başlar.
+systemd olmayan bir makinede (örneğin Termux) kur.sh hizmet adımını atlayıp
+elle başlatma komutunu yazar.
 
 ---
 

@@ -176,6 +176,8 @@ jobs:
           "$RUNNER_TEMP/sunucu-venv/bin/pip" install --quiet -r sunucu/requirements.txt
           "$RUNNER_TEMP/sunucu-venv/bin/python" sunucu/sinama/test_mantik.py
           "$RUNNER_TEMP/sunucu-venv/bin/python" sunucu/sinama/test_uctan_uca.py
+          # Kurulum betiği: geçici kopyada, etkileşimsiz (systemd adımı atlanır)
+          python3 sunucu/sinama/test_kur.py
 
       # Aynı mesajın iki yoldan gelen bildirimi (alıcının uygulaması + sunucu
       # push'u) aynı anahtarı taşımalı; yoksa telefon iki kez gösterir.

@@ -133,6 +133,8 @@ class SunucuSureci:
             'MERIDYEN_FCM_URL': 'http://127.0.0.1:%d' % fcm.port,
             'MERIDYEN_PROJE': 'demo',
             'MERIDYEN_KIMLIK_DOSYASI': os.path.join(gecici, ad + '.kimlik'),
+            # Makinede gerçek bir sunucu/.env varsa sınama sunucuları onu OKUMASIN.
+            'MERIDYEN_ENV_DOSYASI': os.path.join(gecici, 'olmayan.env'),
             'MERIDYEN_GERI_CEKILME_SN': '0.25',
             'MERIDYEN_TARAMA_SN': '2',
             'MERIDYEN_NABIZ_SN': '1',
@@ -396,6 +398,29 @@ def senaryolar(emu, fcm, gecici):
     n = len(fcm.kopya()[1])
     ok('tek gönderenden 40 kayıt: en çok ~30 gönderildi (%d)' % n, 30 <= n <= 32)
     s.durdur()
+
+    # ---------------------------------------------------------------- .env
+    print('\n— ayarlar YALNIZ .env dosyasında (set -a yok)')
+    temiz({'cihazlar': {'ENV': {'a': {'belirtec': belirtec('ENVA'), 'ts': 1}}}})
+    s = SunucuSureci(gecici, emu, fcm, 's11')
+    env_yolu = os.path.join(gecici, 'sinama.env')
+    tasinan = ['FIREBASE_DATABASE_EMULATOR_HOST', 'MERIDYEN_DB_NS', 'MERIDYEN_FCM_URL', 'MERIDYEN_PROJE']
+    with open(env_yolu, 'w') as f:
+        f.write('# yorum\n')
+        for ad in tasinan:
+            f.write('%s="%s"\n' % (ad, s.ortam.pop(ad)))
+    s.ortam['MERIDYEN_ENV_DOSYASI'] = env_yolu
+    s.baslat()
+    emu.push('bildirimKuyrugu', kayit('ENV', mid='-ENV'))
+    ok('ortamda hiçbir ayar yokken .env ile bağlandı ve gönderdi',
+       bekle(lambda: sayim(fcm.kopya()[1]).get((belirtec('ENVA'), '-ENV')) == 1, 15))
+    ok('günlükte okunan dosya yazıyor', env_yolu in s.gunluk_metni())
+    s.durdur()
+    k = subprocess.run([sys.executable, os.path.join(KOK, 'dene.py'), '--kontrol'], cwd=gecici,
+                       env=s.ortam, capture_output=True, text=True, timeout=60)
+    ok('dene.py --kontrol .env ile "TAMAM" diyor, hiçbir şey göndermeden',
+       k.returncode == 0 and 'Kurulum TAMAM' in k.stdout and fcm.dogrulamalar == 1
+       and sayim(fcm.kopya()[1]).get((belirtec('ENVA'), '-ENV')) == 1, k.stdout + k.stderr)
 
     # ---------------------------------------------------------------- tek sefer
     print('\n— tek sefer kipi')
