@@ -11,8 +11,9 @@ süre çalışan bir süreç için güvenilmez: ağ kopunca dinleyici iş parça
 sessizce ölüyor, yarı açık bir bağlantıda (modem yeniden başladı) sonsuza
 kadar bekliyor ve bunu dışarıdan anlamanın yolu yok. Burada her istekte
 zaman aşımı var, akış kopunca yeniden bağlanılıyor ve akış ne olursa olsun
-kuyruk düzenli aralıkla ayrıca taranıyor. Bağımlılık yalnız `requests` ve
-`google-auth`: Raspberry Pi'ye de, eski bir bilgisayara da kurulabiliyor.
+kuyruk düzenli aralıkla ayrıca taranıyor. Tek bağımlılık `requests` ve o da
+saf Python: Raspberry Pi'ye de, eski bir bilgisayara da, Android'de Termux'a da
+kurulabiliyor (hiçbir şey derlenmiyor).
 
 ÇİFT BİLDİRİME KARŞI:
   - Kayıt göndermeden ÖNCE kira ile sahipleniliyor (koşullu yazma). İki
@@ -43,6 +44,7 @@ from urllib.parse import urlparse
 import requests
 
 import bildirim as B
+import erisim
 import ortam as env_dosyasi
 
 SURUM = '2.0'
@@ -129,32 +131,21 @@ def kimlik_al(dosya):
 
 class Erisim:
     """Google erişim belirteci. Servis hesabı yoksa (yalnız emülatörde)
-    emülatörün yönetici belirteci kullanılıyor."""
+    emülatörün yönetici belirteci kullanılıyor. Belirteci alan kod
+    erisim.py'de, saf Python (google-auth/cryptography yok)."""
 
     def __init__(self, servis_hesabi):
-        self._kilit = threading.Lock()
-        self._kimlik = None
-        if servis_hesabi:
-            from google.oauth2 import service_account
-            self._kimlik = service_account.Credentials.from_service_account_info(
-                servis_hesabi, scopes=KAPSAMLAR)
+        self._hesap = erisim.ServisHesabi(servis_hesabi, KAPSAMLAR) if servis_hesabi else None
 
     def baslik(self):
-        if self._kimlik is None:
+        if self._hesap is None:
             return {'Authorization': 'Bearer owner'}
-        with self._kilit:
-            if not self._kimlik.valid:
-                from google.auth.transport.requests import Request
-                self._kimlik.refresh(Request())
-            return {'Authorization': 'Bearer ' + self._kimlik.token}
+        return {'Authorization': 'Bearer ' + self._hesap.belirtec()}
 
     def yenile(self):
         """401 alındı: belirteç süresinden önce geçersiz olmuş olabilir."""
-        if self._kimlik is None:
-            return
-        with self._kilit:
-            from google.auth.transport.requests import Request
-            self._kimlik.refresh(Request())
+        if self._hesap is not None:
+            self._hesap.belirtec(zorla=True)
 
 
 class _Oturumlar:
@@ -754,8 +745,11 @@ def kur(ortam=os.environ):
         cik('Servis hesabı anahtarı yok.\n'
             'MERIDYEN_SERVIS_HESABI_DOSYASI ile anahtar dosyasının yolunu ver (ya da\n'
             'MERIDYEN_SERVIS_HESABI ile JSON içeriğini) — en kolayı: ./kur.sh')
-    erisim = Erisim(ayar.servis_hesabi)
-    return ayar, Veritabani(ayar, erisim), Fcm(ayar, erisim)
+    try:
+        e = Erisim(ayar.servis_hesabi)
+    except erisim.AnahtarHatasi as h:
+        cik('Servis hesabı anahtarı kullanılamıyor: %s' % h)
+    return ayar, Veritabani(ayar, e), Fcm(ayar, e)
 
 
 def main():

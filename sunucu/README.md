@@ -3,8 +3,9 @@
 Uygulama **tamamen kapalıyken** (görev listesinden atılmış, hiç açılmamış ya da
 telefon uykuda) gelen mesaj ve çağrılar için bildirim üretebilecek tek yol
 Google'ın push altyapısıdır: sayfada çalışan hiçbir kod kalmaz. Bu sunucu o
-boşluğu kapatıyor. 7/24 açık duran bir makinede (Raspberry Pi, eski bir
-bilgisayar, VPS) çalışmak üzere yazıldı.
+boşluğu kapatıyor. 7/24 açık duran bir makinede (Android'de Termux, Raspberry
+Pi, eski bir bilgisayar, VPS) çalışmak üzere yazıldı. Tek bağımlılığı `requests`;
+hiçbir şey derlenmiyor.
 
 **Ne yapıyor:** veritabanındaki `bildirimKuyrugu` düğümünü izliyor. Biri mesaj
 gönderdiğinde ya da aradığında istemci oraya bir kayıt bırakıyor; sunucu kaydı
@@ -20,7 +21,8 @@ push'u gönderiyor, sonra kaydı siliyor.
 
 ## Kurulum
 
-Gereken: Python 3.9+ (Raspberry Pi OS ve güncel Linux'larda hazır) ve Firebase
+Gereken: Python 3.9+ (Raspberry Pi OS ve güncel Linux'larda hazır; Termux'ta
+`pkg install python`) ve Firebase
 servis hesabı anahtarı.
 
 **1. Anahtarı indir.** Firebase konsolu → ⚙ Proje ayarları → **Servis hesapları**
@@ -41,14 +43,15 @@ cd sunucu
 
 1. Python'u ve `venv` modülünü denetler (Debian'da eksikse `python3-venv`'i
    kurmayı önerir),
-2. `venv/` oluşturup bağımlılıkları kurar (yalnız `requests` ve `google-auth`),
+2. `venv/` oluşturup bağımlılığı kurar (yalnız `requests`; derlenen paket yok),
 3. anahtarı `servis-hesabi.json` olarak yerleştirir ve `.env`'i yazar (ikisi de
    yalnız sana okunur, izin 600),
 4. **bildirim göndermeden** kurulumu denetler: anahtar geçerli mi, veritabanı
    okunuyor mu, FCM gönderme izni var mı — sorun varsa nerede olduğunu söyleyip
    durur,
 5. pm2'de eski Node sunucusu kayıtlıysa durdurmayı önerir,
-6. sunucuyu açılışta kendiliğinden başlayan bir **systemd hizmeti** yapar,
+6. sunucuyu kalıcı başlatır — Linux'ta açılışta başlayan bir **systemd
+   hizmeti**, Termux'ta arka plan çalıştırıcısı + Termux:Boot (aşağıda) —
    başlatır ve çalıştığını sağlık ucundan doğrular.
 
 Yeniden çalıştırmak güvenli: bağımlılıkları günceller, `.env`'deki ayarlarına
@@ -78,8 +81,35 @@ ezer. Kullanılabilen ayarlar `ornek.env`'de. Elle çalıştırmak için:
 venv/bin/python sunucu.py
 ```
 
-systemd olmayan bir makinede (örneğin Termux) kur.sh hizmet adımını atlayıp
+systemd olmayan (ve Termux olmayan) bir makinede kur.sh hizmet adımını atlayıp
 elle başlatma komutunu yazar.
+
+### Android telefonda (Termux)
+
+1. Termux'u **F-Droid**'den kur (Play Store sürümü eski ve güncellenmiyor).
+   Telefonun açılınca sunucuyu kendiliğinden başlatması için F-Droid'den
+   **Termux:Boot**'u da kur ve bir kez aç.
+2. Termux'ta:
+   ```bash
+   pkg install python
+   termux-setup-storage          # telefonun İndirilenler klasörüne erişim
+   tar xzf ~/storage/downloads/meridyen-bildirim-sunucusu.tar.gz -C ~
+   cd ~/sunucu
+   ./kur.sh --anahtar ~/storage/downloads/meridyen-830fb-xxxxxxxx.json
+   ```
+3. Telefonda **Ayarlar → Uygulamalar → Termux → Pil → "Kısıtlama yok"**. Bu
+   yapılmazsa Android ekran kapanınca Termux'u uyutur ya da öldürür ve
+   bildirimler kesilir.
+
+kur.sh Termux'ta systemd yerine `calistir.sh`'ı arka planda başlatıyor:
+sunucuyu çalıştırıyor, çökerse 5 sn sonra yeniden başlatıyor ve uyanık tutma
+kilidini (`termux-wake-lock`) alıyor. Telefon açılınca Termux:Boot aynı
+çalıştırıcıyı başlatıyor. Günlük `sunucu.log`'da (`tail -f sunucu.log`).
+
+> Android 12+ bazı telefonlarda arka plan süreçlerini yine de öldürebiliyor
+> ("[Process completed (signal 9)]"). Görürsen Termux'u bildirimdeki
+> "Acquire wakelock" ile kilitle; sürerse bilgisayardan bir kez
+> `adb shell "device_config put activity_manager max_phantom_processes 2147483647"`.
 
 ---
 
@@ -100,7 +130,7 @@ elle başlatma komutunu yazar.
 |---|---|
 | İnternet kesildi / modem yeniden başladı | Her istekte zaman aşımı var. Olay akışı koparsa artan beklemeyle yeniden bağlanıyor; bağlanınca kuyruğu baştan okuyor, arada kalan kayıt kaybolmuyor. Akıştan bağımsız olarak kuyruk 30 sn'de bir ayrıca taranıyor. |
 | Bağlantı "yarı açık" kaldı (veri gelmiyor ama kopmadı da) | Veritabanı 30 sn'de bir canlılık olayı yolluyor; 90 sn hiçbir şey gelmezse bağlantı ölü sayılıp yeniden kuruluyor. |
-| Sunucu bir yerde takıldı | Bekçi iş parçacığı ana döngü 3 dk ilerlemezse süreci bitiriyor, systemd yeniden başlatıyor. |
+| Sunucu bir yerde takıldı | Bekçi iş parçacığı ana döngü 3 dk ilerlemezse süreci bitiriyor; systemd (Termux'ta `calistir.sh`) yeniden başlatıyor. |
 | Sunucu gönderirken çöktü (elektrik gitti) | Kayıt silinmeden önce gönderiliyor; yeniden başlayınca kayıt tekrar işleniyor. Telefon aynı mesajı anahtarından (`mid`) tanıyıp **ikinci kez göstermiyor**. |
 | Yanlışlıkla iki sunucu çalışıyor | Her kayıt göndermeden önce bir **kira** ile sahipleniliyor (koşullu yazma). İki sunucu aynı kaydı gördüğünde yalnız biri gönderiyor; öbürü yedek gibi bekliyor. |
 | FCM geçici hata verdi | Yalnız **başarısız olan cihaza** artan beklemeyle (2, 4, 8, 16 sn) en çok 5 kez yeniden deneniyor. Başarılı cihazlara ikinci kez gitmiyor. Kalan cihazlar kayda yazılıyor: sunucu bu arada çökerse kaldığı yerden devam ediyor. |
@@ -158,6 +188,8 @@ bir çağrılabilir:
 
 ```bash
 python3 sinama/test_mantik.py          # saf mantık, ağ yok
+venv/bin/python sinama/test_erisim.py  # saf Python RSA/JWT imzası OpenSSL'e karşı
+python3 sinama/test_kur.py             # kur.sh (Linux ve Termux yolu) geçici kopyada
 venv/bin/python sinama/test_uctan_uca.py   # gerçek sunucu süreçleri + veritabanı emülatörü
 ```
 

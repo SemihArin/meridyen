@@ -9,3 +9,6 @@ servis-hesabi.json
 # Python sanal ortamı ve önbellekler
 /venv/
 __pycache__/
+.calistir.pid
+sunucu.log
+sunucu.log.1

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Meridyen bildirim sunucusu — KURULUM.
 #
-# Sunucunun çalışacağı makinede (Raspberry Pi, Linux bilgisayar, VPS) sunucu/
-# klasörünün içinden çalıştır:
+# Sunucunun çalışacağı makinede (Android'de Termux, Raspberry Pi, Linux
+# bilgisayar, VPS) sunucu/ klasörünün içinden çalıştır:
 #
 #   ./kur.sh                          her şeyi sorarak kurar
 #   ./kur.sh --anahtar ~/indir/meridyen-830fb-xxxx.json
@@ -14,14 +14,17 @@
 #   3. Servis hesabı anahtarını servis-hesabi.json olarak yerleştirir (izin 600)
 #   4. .env'i yazar (izin 600)
 #   5. Kurulumu doğrular: anahtar, veritabanı, FCM izni (bildirim GÖNDERMEDEN)
-#   6. systemd hizmetini kurar, açılışta başlatır, çalıştığını denetler
+#   6. Sunucuyu kalıcı başlatır ve çalıştığını denetler:
+#        Linux : systemd hizmeti (açılışta başlar)
+#        Termux: arka planda çalıştırıcı + Termux:Boot (telefon açılınca başlar)
 #
 # Seçenekler:
 #   --anahtar YOL        servis hesabı JSON dosyası (kopyalanır)
-#   --hizmet-yok         systemd hizmeti kurma (yalnız ortamı hazırla)
+#   --hizmet-yok         sunucuyu başlatma (yalnız ortamı hazırla)
 #   --kontrol-yok        bağlantı denetimini atla
 #   --hizmet-dosyasi     doldurulmuş hizmet tanımını ekrana yaz ve çık
-#   --kaldir             hizmeti durdur ve kaldır (ayarlar ve venv kalır)
+#   --kaldir             sunucuyu durdur, kendiliğinden başlamayı kaldır
+#                        (ayarlar ve venv kalır)
 #   -h, --yardim
 set -euo pipefail
 
@@ -60,6 +63,42 @@ systemd_var() {
   command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
 }
 
+termux_mu() {
+  [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *com.termux* ]]
+}
+BOOT_BETIGI="$HOME/.termux/boot/meridyen-bildirim"
+
+calistirici_durdur() {   # Termux: arka plandaki çalıştırıcıyı ve sunucuyu durdur
+  local pid
+  if [ -f "$DIZIN/.calistir.pid" ]; then
+    pid="$(cat "$DIZIN/.calistir.pid")"
+    kill "$pid" 2>/dev/null || true
+    for _ in $(seq 1 25); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    rm -f "$DIZIN/.calistir.pid"
+  fi
+  # Çalıştırıcı sert öldürüldüyse geride kalmış olabilecek, BU klasörün sunucusu
+  pkill -f "$DIZIN/venv/bin/python $DIZIN/sunucu.py" 2>/dev/null || true
+}
+
+saglik_denetle() {   # sağlık ucundan çalıştığını gör (port .env'den, yoksa 8080)
+  local port
+  port="$(venv/bin/python -c 'import ortam,os; ortam.yukle(); print(os.environ.get("PORT","8080"))')"
+  if [ "$port" = 0 ]; then echo "(sağlık ucu kapalı, denetlenmedi)"; return 0; fi
+  printf 'Sunucu ayağa kalkıyor'
+  for _ in $(seq 1 25); do
+    if venv/bin/python - "$port" <<'PYEOF' 2>/dev/null
+import json, sys, urllib.request
+d = json.load(urllib.request.urlopen('http://127.0.0.1:%s/' % sys.argv[1], timeout=2))
+print(' — çalışıyor.\n  akış bağlı: %s | saat farkı: %s ms' % (d['akisBagli'], d['saatFarkiMs']))
+PYEOF
+    then return 0; fi
+    printf '.'; sleep 1
+  done
+  echo
+  uyari "Sunucu 25 sn içinde sağlıklı yanıt vermedi. Günlüğe bak: $1"
+  return 1
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --anahtar) [ $# -ge 2 ] || olum "--anahtar bir dosya yolu ister"; ANAHTAR_KAYNAGI="$2"; shift 2 ;;
@@ -68,11 +107,18 @@ while [ $# -gt 0 ]; do
     --kontrol-yok) KONTROL=0; shift ;;
     --hizmet-dosyasi) hizmet_dosyasi; exit 0 ;;
     --kaldir)
-      systemd_var || olum "Bu makinede systemd yok."
-      yetkili systemctl disable --now "$HIZMET" 2>/dev/null || true
-      yetkili rm -f "/etc/systemd/system/$HIZMET.service"
-      yetkili systemctl daemon-reload
-      echo "Hizmet kaldırıldı. Ayarlar (.env), anahtar ve venv/ yerinde duruyor."
+      if termux_mu; then
+        calistirici_durdur
+        rm -f "$BOOT_BETIGI"
+        echo "Sunucu durduruldu, açılışta başlama kaldırıldı."
+      else
+        systemd_var || olum "Bu makinede systemd yok."
+        yetkili systemctl disable --now "$HIZMET" 2>/dev/null || true
+        yetkili rm -f "/etc/systemd/system/$HIZMET.service"
+        yetkili systemctl daemon-reload
+        echo "Hizmet kaldırıldı."
+      fi
+      echo "Ayarlar (.env), anahtar ve venv/ yerinde duruyor."
       exit 0 ;;
     -h|--yardim) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) olum "bilinmeyen seçenek: $1 (yardım: ./kur.sh --yardim)" ;;
@@ -82,13 +128,17 @@ done
 # ---------------------------------------------------------------- 1) Python
 adim "Python denetleniyor"
 PY="$(command -v python3 || true)"
-[ -n "$PY" ] || olum "python3 yok. Debian/Raspberry Pi OS: sudo apt install python3 python3-venv"
+if [ -z "$PY" ]; then
+  if termux_mu; then olum "python yok. Termux'ta: pkg install python"; fi
+  olum "python3 yok. Debian/Raspberry Pi OS: sudo apt install python3 python3-venv"
+fi
 "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' \
   || olum "Python 3.9 ya da daha yenisi gerekli; bu makinede: $("$PY" --version 2>&1)"
 echo "$("$PY" --version)"
 # Debian'da venv modülü ayrı pakette; ensurepip yoksa venv yarım kalıyor.
 if ! "$PY" -c 'import venv, ensurepip' >/dev/null 2>&1; then
   uyari "Python'un venv modülü eksik."
+  termux_mu && olum "Termux'ta python paketini yeniden kur: pkg install --reinstall python"
   if command -v apt-get >/dev/null 2>&1 && sor "python3-venv şimdi kurulsun mu (sudo apt)?" e; then
     yetkili apt-get update -qq && yetkili apt-get install -y -qq python3-venv
   else
@@ -104,8 +154,10 @@ if [ ! -x venv/bin/python ] || ! venv/bin/python -c 'import sys' >/dev/null 2>&1
 fi
 venv/bin/python -m pip install --quiet --disable-pip-version-check --upgrade pip >/dev/null 2>&1 || true
 venv/bin/python -m pip install --quiet --disable-pip-version-check -r requirements.txt \
-  || olum "Bağımlılıklar kurulamadı (internet var mı?)"
-echo "requests ve google-auth kurulu."
+  || olum "Bağımlılıklar kurulamadı; yukarıdaki pip çıktısına bak (internet var mı?)"
+echo "requests kurulu (tek bağımlılık; hiçbir şey derlenmedi)."
+# Eski sürümden kalan, artık kullanılmayan paketler (google-auth) sorun çıkarmasın diye
+venv/bin/python -m pip uninstall --quiet --yes google-auth >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------- 3) anahtar
 adim "Servis hesabı anahtarı"
@@ -216,6 +268,34 @@ if command -v pm2 >/dev/null 2>&1 && pm2 jlist 2>/dev/null | grep -q '"name":"me
 fi
 
 # ---------------------------------------------------------------- 6) hizmet
+if [ "$HIZMET_KUR" = 1 ] && termux_mu; then
+  if sor "Sunucu arka planda başlatılsın ve telefon açılınca kendiliğinden başlasın mı?" e; then
+    adim "Termux: arka planda çalıştırma"
+    calistirici_durdur
+    nohup "$DIZIN/calistir.sh" >/dev/null 2>&1 &
+    mkdir -p "$(dirname "$BOOT_BETIGI")"
+    cat > "$BOOT_BETIGI" <<BOOTEOF
+#!${PREFIX:-/data/data/com.termux/files/usr}/bin/sh
+# Meridyen bildirim sunucusu — telefon açılınca Termux:Boot çalıştırır (kur.sh yazdı).
+termux-wake-lock
+exec "$DIZIN/calistir.sh"
+BOOTEOF
+    chmod 700 "$BOOT_BETIGI"
+    sleep 1
+    saglik_denetle "$DIZIN/sunucu.log" || true
+    echo
+    echo "Günlük:          tail -f $DIZIN/sunucu.log"
+    echo "Yeniden başlat:  ./kur.sh --kontrol-yok"
+    echo "Durdur/kaldır:   ./kur.sh --kaldir"
+    echo
+    echo "${S}TELEFONDA BİR KEZ YAPILACAKLAR${N} (yoksa Android sunucuyu uyutur ya da öldürür):"
+    echo "  1. Ayarlar → Uygulamalar → Termux → Pil: \"Kısıtlama yok\" / \"Optimize etme\""
+    echo "  2. Telefon açılınca başlaması için F-Droid'den Termux:Boot uygulamasını kur"
+    echo "     ve BİR KEZ aç (Termux da F-Droid'den kurulmuş olmalı)."
+    echo "  3. Bildirim çubuğundaki Termux bildirimini kapatma; \"wake lock\" yazmalı."
+  fi
+  HIZMET_KUR=0
+fi
 if [ "$HIZMET_KUR" = 1 ] && ! systemd_var; then
   uyari "Bu makinede systemd yok; hizmet kurulmadı. Elle başlatmak için:"
   echo "    cd $DIZIN && nohup venv/bin/python sunucu.py >> sunucu.log 2>&1 &"
@@ -230,18 +310,7 @@ if [ "$HIZMET_KUR" = 1 ] && sor "Sunucu açılışta kendiliğinden başlayan bi
   yetkili systemctl daemon-reload
   yetkili systemctl enable "$HIZMET" >/dev/null 2>&1
   yetkili systemctl restart "$HIZMET"
-  # Sağlık ucundan çalıştığını gör (port .env'den, yoksa 8080)
-  PORT="$(venv/bin/python -c 'import ortam,os; ortam.yukle(); print(os.environ.get("PORT","8080"))')"
-  echo -n "Sunucu ayağa kalkıyor"
-  for _ in $(seq 1 20); do
-    if venv/bin/python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:$PORT/', timeout=2)" >/dev/null 2>&1; then
-      echo " — çalışıyor."
-      venv/bin/python -c "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:$PORT/', timeout=2)); print('  akış bağlı: %s | saat farkı: %s ms' % (d['akisBagli'], d['saatFarkiMs']))" 2>/dev/null || true
-      break
-    fi
-    if [ "$PORT" = 0 ]; then echo " (sağlık ucu kapalı)"; break; fi
-    echo -n "."; sleep 1
-  done
+  saglik_denetle "journalctl -u $HIZMET -e" || true
   yetkili systemctl --no-pager --lines=0 status "$HIZMET" | sed -n '1,3p' || true
   echo
   echo "Günlük:        journalctl -u $HIZMET -f"

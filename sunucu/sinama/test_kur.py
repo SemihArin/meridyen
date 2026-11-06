@@ -37,6 +37,74 @@ def izin(yol):
     return stat.S_IMODE(os.stat(yol).st_mode)
 
 
+def surecler(desen):
+    y = subprocess.run(['pgrep', '-f', desen], capture_output=True, text=True)
+    return [int(p) for p in y.stdout.split()]
+
+
+def termux(dizin, gecici):
+    import time
+    ev = os.path.join(gecici, 'ev')
+    os.makedirs(ev)
+    with open(os.path.join(dizin, '.env'), 'a') as f:
+        f.write('PORT=0\n')         # sağlık ucu kapalı: sahte anahtarla zaten sağlıksız olurdu
+    ortam = {k: v for k, v in os.environ.items() if not k.startswith('MERIDYEN_')}
+    ortam.update(TERMUX_VERSION='0.118.0', HOME=ev)
+    pidd = os.path.join(dizin, '.calistir.pid')
+    boot = os.path.join(ev, '.termux/boot/meridyen-bildirim')
+    sunucu_deseni = '%s/venv/bin/python %s/sunucu.py' % (dizin, dizin)
+
+    def kur(*arg):
+        return subprocess.run(['bash', os.path.join(dizin, 'kur.sh')] + list(arg), cwd=dizin, env=ortam,
+                              capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL)
+
+    def bekle(kosul, sure=15):
+        son = time.time() + sure
+        while time.time() < son:
+            if kosul():
+                return True
+            time.sleep(0.3)
+        return False
+
+    try:
+        y = kur('--kontrol-yok')
+        ok('Termux yolu seçildi, systemd/sudo denenmedi', y.returncode == 0 and 'Termux: arka planda' in y.stdout
+           and 'sudo' not in y.stdout + y.stderr, y.stdout[-500:] + y.stderr[-300:])
+        ok('çalıştırıcı başladı', bekle(lambda: os.path.exists(pidd) and surecler(sunucu_deseni)))
+        pid1 = int(open(pidd).read())
+        b = open(boot).read() if os.path.exists(boot) else ''
+        ok('Termux:Boot betiği yazıldı (700, doğru yol, uyanık tutma)',
+           izin(boot) == 0o700 and 'exec "%s/calistir.sh"' % dizin in b and 'termux-wake-lock' in b
+           and b.startswith('#!/data/data/com.termux/files/usr/bin/sh'), b)
+        ok('pil/Termux:Boot uyarısı verildi', 'Termux:Boot' in y.stdout and 'Pil' in y.stdout)
+
+        y = kur('--kontrol-yok')
+        ok('ikinci kurulum yeniden başlattı', y.returncode == 0 and bekle(
+            lambda: os.path.exists(pidd) and int(open(pidd).read()) != pid1 and surecler(sunucu_deseni)))
+        time.sleep(1)
+        ok('tek çalıştırıcı, tek sunucu (çift sunucu yok)',
+           len(surecler(os.path.join(dizin, 'calistir.sh'))) == 1 and len(surecler(sunucu_deseni)) == 1,
+           (surecler(os.path.join(dizin, 'calistir.sh')), surecler(sunucu_deseni)))
+
+        eski = surecler(sunucu_deseni)[0]
+        os.kill(eski, 9)
+        ok('sunucu kill -9 ile ölünce çalıştırıcı yeniden başlattı',
+           bekle(lambda: surecler(sunucu_deseni) and surecler(sunucu_deseni)[0] != eski, 15))
+        ok('ölüm günlüğe yazıldı', 'sunucu çıktı (kod' in open(os.path.join(dizin, 'sunucu.log')).read())
+
+        y = kur('--kaldir')
+        ok('kaldır: durdu, Termux:Boot betiği silindi',
+           y.returncode == 0 and bekle(lambda: not surecler(sunucu_deseni)
+                                       and not surecler(os.path.join(dizin, 'calistir.sh')))
+           and not os.path.exists(boot) and not os.path.exists(pidd), y.stdout + y.stderr)
+    finally:
+        for p in surecler(os.path.join(dizin, 'calistir.sh')) + surecler(sunucu_deseni):
+            try:
+                os.kill(p, 9)
+            except OSError:
+                pass
+
+
 def main():
     gecici = tempfile.mkdtemp(prefix='meridyen-kur-')
     dizin = os.path.join(gecici, 'sunucu')
@@ -54,9 +122,14 @@ def main():
     print('— ilk kurulum')
     y = kos(dizin, '--anahtar', anahtar, '--kontrol-yok')
     ok('başarıyla bitti', y.returncode == 0, y.stdout[-600:] + y.stderr[-600:])
-    ok('venv kuruldu, bağımlılıklar içinde', subprocess.run(
-        [os.path.join(dizin, 'venv/bin/python'), '-c', 'import requests, google.auth'],
+    ok('venv kuruldu, requests içinde', subprocess.run(
+        [os.path.join(dizin, 'venv/bin/python'), '-c', 'import requests'],
         capture_output=True).returncode == 0)
+    paketler = subprocess.run([os.path.join(dizin, 'venv/bin/python'), '-m', 'pip', 'list', '--format=freeze'],
+                              capture_output=True, text=True).stdout.lower()
+    # Termux'ta kurulum cryptography'yi derlemeye çalışırken çöküyordu (Rust yok).
+    ok('derlenmesi gereken paket YOK (cryptography, cffi, google-auth)',
+       not any(p in paketler for p in ('cryptography', 'cffi', 'google-auth')), paketler)
     hedef = os.path.join(dizin, 'servis-hesabi.json')
     ok('anahtar kopyalandı, izin 600', os.path.exists(hedef) and izin(hedef) == 0o600)
     env = open(os.path.join(dizin, '.env')).read()
@@ -109,6 +182,9 @@ def main():
                        env={k: v for k, v in os.environ.items() if not k.startswith('MERIDYEN_')})
     ok('sahte anahtarla "TAMAM" demiyor, çıkış kodu 4',
        y.returncode == 4 and 'Erişim       : ✗' in y.stdout, y.stdout[-400:] + y.stderr[-400:])
+
+    print('— Termux (Android): arka planda çalıştırıcı + Termux:Boot')
+    termux(dizin, gecici)
 
     shutil.rmtree(gecici, ignore_errors=True)
     kotu = [a for a, k in T if not k]

@@ -175,8 +175,10 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/sunucu-venv"
           "$RUNNER_TEMP/sunucu-venv/bin/pip" install --quiet -r sunucu/requirements.txt
           "$RUNNER_TEMP/sunucu-venv/bin/python" sunucu/sinama/test_mantik.py
+          # Erişim belirteci saf Python ile imzalanıyor: imza OpenSSL'e karşı
+          "$RUNNER_TEMP/sunucu-venv/bin/python" sunucu/sinama/test_erisim.py
           "$RUNNER_TEMP/sunucu-venv/bin/python" sunucu/sinama/test_uctan_uca.py
-          # Kurulum betiği: geçici kopyada, etkileşimsiz (systemd adımı atlanır)
+          # Kurulum betiği: geçici kopyada, etkileşimsiz (Linux + Termux benzetimi)
           python3 sunucu/sinama/test_kur.py
 
       # Aynı mesajın iki yoldan gelen bildirimi (alıcının uygulaması + sunucu

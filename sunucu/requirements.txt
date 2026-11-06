@@ -1,6 +1,12 @@
 # Meridyen bildirim sunucusu — bağımlılıklar.
-# firebase-admin BİLEREK yok: grpc gibi ağır bağımlılıklar getiriyor (eski
-# Raspberry Pi'de ve Termux'ta derlenmesi saatler sürüyor ya da hiç olmuyor);
-# sunucu Firebase'in REST arayüzlerini doğrudan kullanıyor.
+#
+# TEK bağımlılık requests (ve onun saf Python bağımlılıkları). Hiçbir şey
+# derlenmiyor; Android/Termux, Raspberry Pi, her yer.
+#
+# BİLEREK olmayanlar:
+#   firebase-admin : grpc gibi ağır, derlenen bağımlılıklar getiriyor.
+#   google-auth    : güncel sürümü `cryptography` istiyor; cryptography'nin
+#                    Termux (32 bit ARM) için hazır sürümü yok, kaynaktan
+#                    derlenmesi Rust istiyor ve kurulum orada bitmiyordu.
+#                    Servis hesabı belirteci erisim.py'de saf Python ile alınıyor.
 requests>=2.25,<3
-google-auth>=2.0,<3
