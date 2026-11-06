@@ -50,6 +50,12 @@ public final class MeridyenBildirimler {
     private static final int ENCOK_SATIR = 8;
     private static final String DEPO = "meridyen_bildirim";
     private static final String ANAHTAR = "birikenler";
+    /** Gösterilmiş mesaj anahtarları (tekilleştirme). Birikenlerden AYRI
+     *  tutuluyor: kullanıcı bildirimi kaydırıp atınca ya da sohbeti açınca
+     *  birikenler siliniyor, ama geç gelen bir kopya yine tanınmalı. */
+    private static final String ANAHTAR_GORULEN = "gorulenler";
+    static final long GORULEN_OMUR_MS = 48L * 60 * 60 * 1000;
+    static final int GORULEN_SINIR = 400;
     public static final String EK_GONDEREN = "meridyen_gonderen";
     public static final String EK_TUR = "meridyen_tur";
 
@@ -182,6 +188,73 @@ public final class MeridyenBildirimler {
         return depo.toString();
     }
 
+    /* ---- TEKİLLEŞTİRME ----
+     *
+     * Aynı mesajın bildirimi İKİ yoldan gelebiliyor:
+     *   (a) uygulamanın kendi veritabanı dinleyicisi — uygulama arka plandayken
+     *       de çalışıyor (nöbet servisi WebView'ı canlı tutuyor);
+     *   (b) bildirim sunucusunun FCM push'u — MeridyenMesajServisi.
+     * Uygulama arka plandayken ikisi de "öne değil" sayıyor ve ikisi de
+     * çiziyordu. Satırlar biriktiği için aynı mesaj bildirimde İKİ satır
+     * oluyor, telefon iki kez çalıyordu. Sunucu 7/24 çalışmaya başlayınca bu
+     * her mesajda olacaktı.
+     *
+     * Her iki yol da mesajın veritabanındaki anahtarını (mid) taşıyor; bir
+     * anahtar bir kez gösterildi mi, ikincisi sessizce atlanıyor. Sunucunun
+     * aynı kaydı çökme sonrası yeniden göndermesi de böyle tek bildirime
+     * iniyor. Anahtar yoksa (eski sürüm istemci, sınama düğmesi) eskisi gibi
+     * gösteriliyor: bir mesajı kaybetmektense fazladan göstermek yeğdir. */
+
+    /** Bu anahtar yakın zamanda gösterildi mi? */
+    static boolean gorulduMu(String hamGorulen, String anahtar, long simdi) throws Exception {
+        if (anahtar == null || anahtar.length() == 0) return false;
+        JSONObject g = (hamGorulen == null || hamGorulen.length() == 0)
+            ? new JSONObject() : new JSONObject(hamGorulen);
+        if (!g.has(anahtar)) return false;
+        return simdi - g.optLong(anahtar, 0) < GORULEN_OMUR_MS;
+    }
+
+    /** Anahtarı görülenlere ekler; eskiyenleri ve sınırı aşanları (en eskiden) atar. */
+    static String gorulenEkle(String hamGorulen, String anahtar, long simdi) throws Exception {
+        JSONObject g = (hamGorulen == null || hamGorulen.length() == 0)
+            ? new JSONObject() : new JSONObject(hamGorulen);
+        g.put(anahtar, simdi);
+        JSONArray adlar = g.names();
+        List<String> canli = new ArrayList<>();
+        for (int i = 0; adlar != null && i < adlar.length(); i++) {
+            String a = adlar.optString(i);
+            if (simdi - g.optLong(a, 0) < GORULEN_OMUR_MS) canli.add(a);
+        }
+        final JSONObject gg = g;
+        canli.sort((x, y) -> Long.compare(gg.optLong(x, 0), gg.optLong(y, 0)));
+        JSONObject cikti = new JSONObject();
+        for (int i = Math.max(0, canli.size() - GORULEN_SINIR); i < canli.size(); i++) {
+            cikti.put(canli.get(i), g.optLong(canli.get(i), 0));
+        }
+        return cikti.toString();
+    }
+
+    /**
+     * Bir mesajı birikime işler. Anahtar daha önce gösterildiyse null döner
+     * (hiçbir şey değişmez, bildirim çizilmez); yoksa {yeniDepo, yeniGorulen}.
+     */
+    static String[] birikimeIsle(String hamDepo, String hamGorulen, int id, String baslik,
+                                 String gonderen, String tur, String etiket, String metin,
+                                 long ts, String anahtar) throws Exception {
+        if (gorulduMu(hamGorulen, anahtar, ts)) return null;
+        String depo = depoyaEkle(hamDepo, id, baslik, gonderen, tur, etiket, metin, ts);
+        String gorulen = (anahtar == null || anahtar.length() == 0)
+            ? (hamGorulen == null ? "" : hamGorulen) : gorulenEkle(hamGorulen, anahtar, ts);
+        return new String[] { depo, gorulen };
+    }
+
+    /** Çağrı push'u gönderildiğinden bu yana 60 sn'den fazla geçtiyse bayat.
+     *  gonderimMs = RemoteMessage.getSentTime() (FCM'in kabul ettiği an);
+     *  0 ya da gelecekteyse (saat farkı) bayat SAYILMIYOR: çağrı kaçmasın. */
+    static boolean cagriBayatMi(long gonderimMs, long simdiMs) {
+        return gonderimMs > 0 && simdiMs - gonderimMs > 60000L;
+    }
+
     /** Bir sohbeti depodan düşürür. */
     static String depodanSil(String hamDepo, int id) throws Exception {
         JSONObject depo = (hamDepo == null || hamDepo.length() == 0)
@@ -235,31 +308,57 @@ public final class MeridyenBildirimler {
     /* ---- Android'e dokunan taraf ---- */
 
     private static String depoyuOku(Context c) {
+        return oku(c, ANAHTAR);
+    }
+
+    private static void depoyuYaz(Context c, String ham) {
+        yaz(c, ANAHTAR, ham);
+    }
+
+    private static String oku(Context c, String anahtar) {
         try {
-            String ham = c.getSharedPreferences(DEPO, Context.MODE_PRIVATE).getString(ANAHTAR, null);
+            String ham = c.getSharedPreferences(DEPO, Context.MODE_PRIVATE).getString(anahtar, null);
             if (ham != null) return ham;
         } catch (Exception e) {}
         return "";
     }
 
-    private static void depoyuYaz(Context c, String ham) {
+    private static void yaz(Context c, String anahtar, String ham) {
         try {
+            /* commit, apply değil: iki yol (FCM servisi ve köprü) art arda
+               yazdığında ikincisi diske inmemiş değeri okumasın. */
             c.getSharedPreferences(DEPO, Context.MODE_PRIVATE)
-                .edit().putString(ANAHTAR, ham).apply();
+                .edit().putString(anahtar, ham).commit();
         } catch (Exception e) {}
     }
 
     /** Tek mesaj bildirimi yayınlar; aynı sohbetin önceki mesajları korunur. */
     public static void mesaj(Context c, String baslik, String govde,
                              String etiket, String gonderen, String tur) {
+        mesaj(c, baslik, govde, etiket, gonderen, tur, null);
+    }
+
+    /**
+     * anahtar: mesajın veritabanı anahtarı (mid). Aynı anahtar ikinci kez
+     * gelirse (öbür yoldan ya da yeniden gönderimle) bildirim çizilmez.
+     *
+     * synchronized: FCM servisi ile köprü ayrı iş parçacıklarından AYNI ANDA
+     * gelebiliyor; ikisi birden "görülmedi" okuyup ikisi birden çizmesin.
+     */
+    public static synchronized void mesaj(Context c, String baslik, String govde,
+                                          String etiket, String gonderen, String tur,
+                                          String anahtar) {
         try {
             mesajKanaliniKur(c);
             int id = etiketId(etiket);
-            String yeni = depoyaEkle(depoyuOku(c), id, baslik, gonderen, tur,
-                                     etiket, govde, System.currentTimeMillis());
-            depoyuYaz(c, yeni);
-            yayinla(c, id, new JSONObject(yeni).optJSONObject(String.valueOf(id)));
-            ozetiTazele(c, yeni);
+            String[] sonuc = birikimeIsle(depoyuOku(c), oku(c, ANAHTAR_GORULEN), id, baslik,
+                                          gonderen, tur, etiket, govde,
+                                          System.currentTimeMillis(), anahtar);
+            if (sonuc == null) return;          // bu mesaj zaten gösterildi
+            depoyuYaz(c, sonuc[0]);
+            yaz(c, ANAHTAR_GORULEN, sonuc[1]);
+            yayinla(c, id, new JSONObject(sonuc[0]).optJSONObject(String.valueOf(id)));
+            ozetiTazele(c, sonuc[0]);
         } catch (SecurityException e) {
             // POST_NOTIFICATIONS izni yok: sessizce geç, uygulama çalışmaya devam etsin.
         } catch (Exception e) {}
@@ -364,7 +463,7 @@ public final class MeridyenBildirimler {
     /** Bir sohbetin bildirimini ve biriken satırlarını siler.
      *  Sohbet uygulamada açıldığında çağrılıyor: okunan mesaj bildirimde
      *  durmamalı. */
-    public static void temizle(Context c, int id) {
+    public static synchronized void temizle(Context c, int id) {
         try {
             String yeni = depodanSil(depoyuOku(c), id);
             depoyuYaz(c, yeni);
@@ -377,7 +476,7 @@ public final class MeridyenBildirimler {
         temizle(c, etiketId(etiket));
     }
 
-    public static void hepsiniTemizle(Context c) {
+    public static synchronized void hepsiniTemizle(Context c) {
         try {
             String ham = depoyuOku(c);
             JSONObject depo = (ham == null || ham.length() == 0)

@@ -7783,7 +7783,7 @@ function kanaliBaslat(){
         const yeniMi = veri.sonGonderen && veri.sonGonderen !== ben.uid && veri.sonTs &&
                        (!eski || (eski.sonTs || 0) < veri.sonTs) &&
                        (okunduVerisi[digeri] || 0) < veri.sonTs;
-        if (yeniMi) sistemBildirimi(digeri, veri.sonMesaj || 'Yeni mesaj');
+        if (yeniMi) sistemBildirimi(digeri, veri.sonMesaj || 'Yeni mesaj', veri.sonMid);
       });
     }
     if (ilkKisiYuklemesi) baglantiNotu('sohbet listesi geldi (' + acilisSuresi() + ')');
@@ -8178,7 +8178,10 @@ function sunucuNabziDurumu(n, simdi){
   }
   /* Sürekli kip: üç nabız kaçırmışsa durmuş sayıyoruz. */
   const tamam = yas <= 3 * (n.aralikMs || 60000);
-  return { calisiyor: tamam, metin: (tamam ? 'çalışıyor, son nabız ' : 'DURMUŞ, en son ') + once };
+  /* Sunucu, nabzının üstüne başka (kayıt sahiplenmeyi bilmeyen eski) bir
+     sunucunun yazdığını fark ettiyse: bildirimler gidiyor ama çift gidebilir. */
+  const cakisma = tamam && n.cakisma ? ' — UYARI: eski bir sunucu da çalışıyor, çift bildirim olabilir' : '';
+  return { calisiyor: tamam, metin: (tamam ? 'çalışıyor, son nabız ' : 'DURMUŞ, en son ') + once + cakisma };
 }
 async function sunucuNabziOku(){
   if (!db) return undefined;
@@ -15791,7 +15794,7 @@ async function bildirimIzniIste(){
   if (Notification.permission === 'granted') bildir('Bildirimler açıldı.');
 }
 
-function sistemBildirimi(digerUid, metin){
+function sistemBildirimi(digerUid, metin, mid){
   /* Bildirim yolunun her adımı bağlantı günlüğüne düşüyor: "bildirim
      gelmiyor" dendiğinde mesajın ulaşıp ulaşmadığını, izin var mı yok mu
      olduğunu tahmin etmeden görebilelim. */
@@ -15815,7 +15818,9 @@ function sistemBildirimi(digerUid, metin){
        sohbetin açılmasını sağlıyor. */
     const n = new Notification(baslik, {
       body: govde, tag: 'meridyen-' + digerUid, lang: 'tr',
-      data: { gonderen: digerUid, tur: 'mesaj' }
+      /* mid: APK'da yerli taraf bununla tekilleştiriyor — aynı mesajın
+         sunucudan gelen push'u da bu anahtarı taşıyor. */
+      data: { gonderen: digerUid, tur: 'mesaj', mid: mid || null }
     });
     /* APK'da bu çağrı köprü üstünden yerli bildirime gidiyor ve sessizce
        düşebiliyordu. Sonucu günlüğe yazıyoruz: "çizildi" satırından sonra
@@ -15835,7 +15840,7 @@ function sistemBildirimi(digerUid, metin){
    kapalıyken bildirim gelmesi için:
      1. Bu cihaz bir FCM belirteci (token) alır ve `cihazlar/<uid>` altına yazar.
      2. Mesaj/çağrı gönderirken `bildirimKuyrugu` düğümüne bir istek bırakılır.
-     3. Sürekli açık duran Node.js sunucusu bu düğümü dinler, isteği anında
+     3. Sürekli açık duran bildirim sunucusu (sunucu/sunucu.py) bu düğümü dinler, isteği anında
         yakalar ve hedef cihazlara push gönderir, sonra kaydı siler.
    Sunucu kapalıysa hiçbir şey bozulmaz: kuyruk birikir, sunucu açılınca
    işlenir; uygulama açıkken bildirimler zaten yerel olarak gösteriliyor.   */
@@ -15902,6 +15907,7 @@ function bildirimKuyruguna(hedefUid, tur, baslik, metin, ek){
     ts: firebase.database.ServerValue.TIMESTAMP
   };
   if (ek && ek.sid) kayit.sid = ek.sid;
+  if (ek && ek.mid) kayit.mid = ek.mid;
   /* Çağrıda ses mi görüntü mü: yerli taraf tam ekran çağrı ekranını buna
      göre kuruyor (bkz. MeridyenCagri). Metinden tahmin etmek kırılgandı. */
   if (ek && ek.aramaTuru) kayit.aramaTuru = ek.aramaTuru;
@@ -19249,7 +19255,7 @@ async function gonder(){
   const yanit = yanitlanan;
   const gonderilecek = ekler.slice();
   const gonderilenler = [];
-  let sonKayit = null, metinGitti = false;
+  let sonKayit = null, sonMid = null, metinGitti = false;
   /* Metni ve yanıtı, onları taşıyan mesaj YAZILDIKTAN sonra temizliyoruz;
      ortada hata olursa kullanıcı yazdığını kaybetmesin. */
   const metniTemizle = () => {
@@ -19301,7 +19307,7 @@ async function gonder(){
           gecici.kutu.classList.remove('basarisiz');
           geciciBaloncukIlerlemeGuncelle(gecici, 0);
           const medyaId = db.ref('medya').push().key;
-          let kayit;
+          let kayit, mid;
           try {
             /* Hem baloncuktaki halka hem de yerel bildirim aynı ilerlemeyi
                alıyor; bildirim, TÜM parti üzerinden hesaplanıyor. */
@@ -19332,7 +19338,7 @@ async function gonder(){
               metin: i === 0 && metin ? metin : null
             };
             if (i === 0 && yanit) Object.assign(kayit, { yanitId: yanit.id, yanitAd: yanit.ad, yanitOzet: yanit.ozet });
-            await mesajYaz(kayit, hedef, { bildirim: false });
+            mid = await mesajYaz(kayit, hedef, { bildirim: false });
           } catch (hata) {
             if (hata && hata.iptalEdildi) { geciciBaloncukKaldir(gecici); return; }
             console.error(hata);
@@ -19343,10 +19349,11 @@ async function gonder(){
           }
           geciciBaloncukKaldir(gecici);
           sonKayit = kayit;
+          sonMid = mid;
           if (ilkDeneme) gonderilenler.push(ek);
           // Geç (elle) tekrar deneme artık toplu bildirime dahil olamaz —
           // o zaten yollanıp gitti — kendi bildirimini kendisi yollar.
-          else bildirimKuyruguna(hedef.uid, 'mesaj', benimAdim, ozetle(kayit).slice(0, 120), { sid: hedef.sid });
+          else bildirimKuyruguna(hedef.uid, 'mesaj', benimAdim, ozetle(kayit).slice(0, 120), { sid: hedef.sid, mid });
         };
         await denemeYap(true);
         biten++;
@@ -19356,7 +19363,9 @@ async function gonder(){
       if (gonderilenler.length) {
         bildirimKuyruguna(hedef.uid, 'mesaj', benimAdim,
           (gonderilenler.length > 1 ? gonderilenler.length + ' dosya' : ozetle(sonKayit)).slice(0, 120),
-          { sid: hedef.sid });
+          /* Toplu bildirim SON mesajın anahtarını taşıyor: alıcının uygulaması
+             o mesajı kendi dinleyicisinden zaten gösterdiyse push'u atlıyor. */
+          { sid: hedef.sid, mid: sonMid });
       }
       } finally {
         yuklemeBildirimi.bitir(bildirimAnahtari);
@@ -19368,11 +19377,11 @@ async function gonder(){
     } else {
       const kayit = { ...temel(), tip: 'metin', metin };
       if (yanit) Object.assign(kayit, { yanitId: yanit.id, yanitAd: yanit.ad, yanitOzet: yanit.ozet });
-      await mesajYaz(kayit, hedef, { bildirim: false });
+      const mid = await mesajYaz(kayit, hedef, { bildirim: false });
       sonKayit = kayit;
       metinGitti = true;
       metniTemizle();
-      bildirimKuyruguna(hedef.uid, 'mesaj', benimAdim, ozetle(kayit).slice(0, 120), { sid: hedef.sid });
+      bildirimKuyruguna(hedef.uid, 'mesaj', benimAdim, ozetle(kayit).slice(0, 120), { sid: hedef.sid, mid });
     }
   } catch (e) {
     console.error(e);
@@ -19391,17 +19400,23 @@ async function mesajYaz(kayit, hedef, secenek){
   hedef = hedef || aktifSohbet;
   if (!hedef) throw new Error('hedef sohbet yok');
   const sid = hedef.sid, diger = hedef.uid;
-  await db.ref('sohbetler/' + sid + '/mesajlar').push(kayit);
+  const yeni = db.ref('sohbetler/' + sid + '/mesajlar').push(kayit);
+  await yeni;
+  /* mid: mesajın anahtarı. Alıcıya bildirim iki yoldan gidebiliyor (onun
+     uygulamasının kendi dinleyicisi ve sunucunun push'u); ikisi de bu
+     anahtarı taşıyor ki telefon aynı mesajı bir kez göstersin. */
+  const mid = yeni.key;
   /* sonTs artık SUNUCU saati: gönderenin saati geri kalınca okunmamış
      rozeti ve sıralama kayıyordu (mesajın kendi ts'i zaten sunucu saati). */
   const ozet = { sonMesaj: ozetle(kayit).slice(0, 60),
-                 sonTs: firebase.database.ServerValue.TIMESTAMP, sonGonderen: ben.uid };
+                 sonTs: firebase.database.ServerValue.TIMESTAMP, sonGonderen: ben.uid, sonMid: mid };
   db.ref('kisiler/' + ben.uid + '/' + diger).update(ozet).catch(() => {});
   db.ref('kisiler/' + diger + '/' + ben.uid).update(ozet).catch(() => {});
   okunduIsaretle(hedef);
   if (!secenek || secenek.bildirim !== false) {
-    bildirimKuyruguna(diger, 'mesaj', benimAdim, ozetle(kayit).slice(0, 120), { sid });
+    bildirimKuyruguna(diger, 'mesaj', benimAdim, ozetle(kayit).slice(0, 120), { sid, mid });
   }
+  return mid;
 }
 
 /* ================= EKLER ================= */

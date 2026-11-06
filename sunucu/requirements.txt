@@ -1,0 +1,6 @@
+# Meridyen bildirim sunucusu — bağımlılıklar.
+# firebase-admin BİLEREK yok: grpc gibi ağır bağımlılıklar getiriyor (eski
+# Raspberry Pi'de ve Termux'ta derlenmesi saatler sürüyor ya da hiç olmuyor);
+# sunucu Firebase'in REST arayüzlerini doğrudan kullanıyor.
+requests>=2.25,<3
+google-auth>=2.0,<3

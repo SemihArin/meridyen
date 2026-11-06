@@ -105,6 +105,16 @@ public final class MeridyenCagri {
                    kullanıcının cevaplama yolu kalmıyor. */
                 .setOngoing(true)
                 .setAutoCancel(false)
+                /* Aynı çağrı İKİ yoldan duyurulabiliyor: uygulamanın kendi
+                   dinleyicisi ve sunucunun push'u. Aynı id'ye yazıldıkları
+                   için tek bildirim kalıyor; bu bayrak ikincisinin zili
+                   baştan çaldırmasını engelliyor. */
+                .setOnlyAlertOnce(true)
+                /* Arayan vazgeçince bildirimi kaldıracak olan uygulamanın
+                   kendisi; uygulama kapalıysa kimse kaldırmıyordu ve "gelen
+                   çağrı" ekranda sonsuza kadar asılı kalıyordu. Arayan taraf
+                   45 sn'de vazgeçiyor; 60 sn sonra kendiliğinden kalkıyor. */
+                .setTimeoutAfter(60000)
                 /* İkinci parametre "yüksek öncelikli": telefon boştaysa ya da
                    kilitliyse sistem bu niyeti doğrudan AÇIYOR. Uygulamanın
                    arka plandan öne gelmesinin Android'deki tek meşru yolu. */

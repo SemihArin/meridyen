@@ -476,7 +476,10 @@ public class MeridyenIlerleme extends Plugin {
             call.getString("govde", ""),
             call.getString("etiket", "meridyen"),
             call.getString("gonderen", null),
-            call.getString("tur", null));
+            call.getString("tur", null),
+            /* Mesajın veritabanı anahtarı: aynı mesajın push'u da gelirse
+               ikinci kez gösterilmesin (MeridyenBildirimler tekilleştirme). */
+            call.getString("anahtar", null));
         call.resolve();
     }
 

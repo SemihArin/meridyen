@@ -161,12 +161,26 @@ jobs:
       - name: Diriltme mantığını sına (işleyici süreci ölümü)
         run: python3 scripts/test_dirilis.py
 
-      # Bildirim sunucusu (sunucu/): uygulama KAPALIYKEN bildirimin tek yolu.
-      # Yük biçimi bozulursa Android bildirimi hiç çizmez ya da web tarafı
-      # boş bildirim gösterir; ikisi de dışarıdan fark edilmez. Sınama ağsız
-      # çalışıyor (sahte Admin SDK), bu yüzden burada koşabiliyor.
+      # Bildirim sunucusu (sunucu/, Python): uygulama KAPALIYKEN bildirimin
+      # tek yolu. Saf mantık ağsız; uçtan uca sınama gerçek sunucu
+      # süreçlerini veritabanı emülatörüne bağlıyor (FCM sahte HTTP): iki
+      # sunucu aynı anda, kill -9 ile yeniden başlatma, bağlantı kopması —
+      # her bildirim her cihaza TAM bir kez mi. (firebase-tools kural
+      # sınaması adımında kuruldu.)
       - name: Bildirim sunucusunu sına
-        run: node sunucu/test.js
+        env:
+          MERIDYEN_FIREBASE: ${{ runner.temp }}/meridyen-araclar/node_modules/.bin/firebase
+        run: |
+          # Sistem Python'una paket kurulamıyor (PEP 668); sanal ortam.
+          python3 -m venv "$RUNNER_TEMP/sunucu-venv"
+          "$RUNNER_TEMP/sunucu-venv/bin/pip" install --quiet -r sunucu/requirements.txt
+          "$RUNNER_TEMP/sunucu-venv/bin/python" sunucu/sinama/test_mantik.py
+          "$RUNNER_TEMP/sunucu-venv/bin/python" sunucu/sinama/test_uctan_uca.py
+
+      # Aynı mesajın iki yoldan gelen bildirimi (alıcının uygulaması + sunucu
+      # push'u) aynı anahtarı taşımalı; yoksa telefon iki kez gösterir.
+      - name: Bildirim anahtarı zincirini sına
+        run: python3 scripts/test_bildirim_tekil.py
 
       # Firebase SDK APK'nın İÇİNE: her açılışta gstatic'ten dört dosya
       # indirmek mobil ağda saniyeler demekti ve uygulama açılır açılmaz

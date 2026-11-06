@@ -1,0 +1,32 @@
+# Meridyen bildirim sunucusu — systemd hizmeti.
+#
+# Kurulum (README.md'de adım adım):
+#   sudo cp meridyen-bildirim.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now meridyen-bildirim
+#
+# Yolları ve kullanıcıyı kendi kurulumuna göre düzelt.
+
+[Unit]
+Description=Meridyen bildirim sunucusu
+# Ağ gerçekten gelmeden başlamasın (Raspberry Pi açılışında Wi-Fi geç gelebiliyor).
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/meridyen/sunucu
+EnvironmentFile=/home/pi/meridyen/sunucu/.env
+ExecStart=/home/pi/meridyen/sunucu/venv/bin/python sunucu.py
+# Çökerse ya da bekçi takılmayı fark edip süreci bitirirse yeniden başlat.
+# Sınırsız: ağ saatlerce yoksa bile vazgeçmesin.
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+# SIGTERM'den sonra düzgün kapanması için süre
+TimeoutStopSec=20
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

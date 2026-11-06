@@ -3,10 +3,9 @@ servis-hesabi.json
 *.serviceaccount.json
 .env
 
-# Kurulan bağımlılıklar
-/node_modules/
+# Sunucunun kalıcı kimliği (makineye özel, sunucu kendisi üretiyor)
+.sunucu-kimligi
 
-# Sınama çıktıları (üretiliyor)
-sinama/veri.json
-sinama/kayit.json
-kayit.json
+# Python sanal ortamı ve önbellekler
+/venv/
+__pycache__/

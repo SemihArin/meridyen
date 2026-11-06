@@ -1,125 +1,115 @@
-# Meridyen bildirim sunucusu
+# Meridyen bildirim sunucusu (Python)
 
 Uygulama **tamamen kapalıyken** (görev listesinden atılmış, hiç açılmamış ya da
 telefon uykuda) gelen mesaj ve çağrılar için bildirim üretebilecek tek yol
 Google'ın push altyapısıdır: sayfada çalışan hiçbir kod kalmaz. Bu sunucu o
-boşluğu kapatıyor.
+boşluğu kapatıyor. 7/24 açık duran bir makinede (Raspberry Pi, eski bir
+bilgisayar, VPS) çalışmak üzere yazıldı.
 
-**Ne yapıyor:** veritabanındaki `bildirimKuyrugu` düğümünü dinliyor. Biri mesaj
-gönderdiğinde ya da aradığında istemci oraya bir kayıt bırakıyor; sunucu o
-kaydı anında yakalayıp hedefin **bütün cihazlarına** (Android APK + web
-tarayıcısı) FCM push'u gönderiyor, sonra kaydı siliyor.
+**Ne yapıyor:** veritabanındaki `bildirimKuyrugu` düğümünü izliyor. Biri mesaj
+gönderdiğinde ya da aradığında istemci oraya bir kayıt bırakıyor; sunucu kaydı
+yakalayıp hedefin **bütün cihazlarına** (Android APK + web tarayıcısı) FCM
+push'u gönderiyor, sonra kaydı siliyor.
 
-**Ne yapmıyor:** uygulama açıkken bildirimlere karışmıyor. Android tarafı
-uygulamayı önde bulursa push'u yok sayıyor, web tarafında da service worker
-yalnız sayfa kapalı/arka plandayken çalışıyor. Yani aynı mesaj iki kez
-görünmüyor.
+> Eski Node.js sunucusu (`index.js`) kaldırıldı. Bir yerde hâlâ çalışıyorsa
+> **kapat**: kayıt sahiplenmeyi bilmiyor, ikisi birlikte çalışırsa alıcılar çift
+> bildirim alır. Python sunucusu bunu fark edip günlüğe ve uygulamanın
+> tanısına yazıyor.
 
 ---
 
-## Kurulum — üç adım
+## Kurulum
+
+Gereken: Python 3.9+ ve Firebase servis hesabı anahtarı.
 
 ### 1. Servis hesabı anahtarı al
 
-1. [Firebase konsolu](https://console.firebase.google.com/) → **meridyen-830fb** projesi
-2. Sol üstte dişli → **Proje ayarları**
-3. **Servis hesapları** sekmesi
-4. **Yeni özel anahtar oluştur** → **Anahtar oluştur** → bir `.json` dosyası iniyor
+Firebase konsolu → ⚙ Proje ayarları → **Servis hesapları** → *Yeni özel anahtar
+oluştur*. İnen JSON dosyasını `sunucu/servis-hesabi.json` olarak kaydet.
 
-> Bu dosya projenin tamamına yetki verir. Kimseyle paylaşma, depoya koyma.
-> (`.gitignore` zaten engelliyor.)
+> Bu dosya projenin tamamına yetki verir. **Depoya girmez** (`.gitignore`'da),
+> kimseyle paylaşma.
 
 ### 2. Bağımlılıkları kur
 
 ```bash
 cd sunucu
-npm install
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
 ```
 
-### 3. Çalıştır
+Yalnız `requests` ve `google-auth` kuruluyor. `firebase-admin` bilerek yok:
+grpc gibi ağır bağımlılıklar getiriyor, eski Raspberry Pi'de ya da Termux'ta
+derlenmesi saatler sürüyor veya hiç olmuyor.
+
+### 3. Ayarları yaz ve dene
 
 ```bash
-# Anahtarı dosya olarak verirsen:
-GOOGLE_APPLICATION_CREDENTIALS=/tam/yol/anahtar.json npm start
-
-# ya da içeriğini tek satır olarak (barındırma sağlayıcıları böyle istiyor):
-MERIDYEN_SERVIS_HESABI='{"type":"service_account", ...}' npm start
+cp ornek.env .env          # içindeki anahtar dosyası yolunu düzelt
+set -a; . ./.env; set +a
+venv/bin/python dene.py --cihazlar <kullanıcıUid>     # kayıtlı cihazlar
+venv/bin/python dene.py <kullanıcıUid> "merhaba"      # deneme bildirimi
+venv/bin/python sunucu.py                             # sunucuyu başlat (Ctrl+C ile dur)
 ```
 
-Ekranda şunu görmelisin:
+Uid'yi Firebase konsolu → Authentication listesinden alabilirsin.
 
+### 4. Kalıcı hizmet yap (systemd)
+
+```bash
+# meridyen-bildirim.service içindeki User ve yolları kendine göre düzelt
+sudo cp meridyen-bildirim.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now meridyen-bildirim
+journalctl -u meridyen-bildirim -f          # günlüğü izle
 ```
-[2026-01-01 10:00:00] Meridyen bildirim sunucusu başladı. Kuyruk: bildirimKuyrugu
-[2026-01-01 10:00:01] veritabanına bağlandı
-```
+
+Makine yeniden başlayınca sunucu kendiliğinden açılır. Çökerse ya da takılırsa
+5 sn sonra yeniden başlar.
 
 ---
 
 ## Çalıştığını doğrula
 
-Gerçek bir mesaj beklemeden dene:
-
-```bash
-# Hedefin kayıtlı cihazlarını gör
-node dene.js --cihazlar <kullanıcıUid>
-
-# Deneme bildirimi gönder
-node dene.js <kullanıcıUid> "merhaba"
-```
-
-Uid'yi uygulamada Ayarlar > hesap bölümünden ya da Firebase konsolu >
-Authentication listesinden alabilirsin.
-
-Sunucu ayrıca bir **sağlık ucu** açıyor: `http://localhost:8080` adresine
-bakınca çalışma süresi ve sayaçlar JSON olarak görünüyor.
-
-**Uygulamadan da görünüyor.** Sunucu dakikada bir (`MERIDYEN_NABIZ_MS`)
-veritabanındaki `sistem/bildirimSunucusu` düğümüne zamanını yazıyor.
-Uygulamada Ayarlar → Bildirimler tanısı ve bağlantı tanısı "bildirim sunucusu:
-çalışıyor, son nabız 30 sn önce" ya da "DURMUŞ, en son 3 saat önce" diyor.
-Ücretsiz barındırmalar boşta kalan sunucuyu uyutuyor; "bildirim gelmedi"
-dendiğinde ilk bakılacak yer bu satır.
+- **Uygulamada:** Ayarlar → Bildirimler tanısı "bildirim sunucusu: çalışıyor,
+  son nabız 30 sn önce" demeli. Sunucu her dakika veritabanına nabız yazıyor;
+  durursa birkaç dakika içinde "DURMUŞ" görünür.
+- **Sunucuda:** `curl localhost:8080` çalışma süresini, sayaçları, akışın bağlı
+  olup olmadığını ve varsa kurulum hatasını gösterir (sorun varsa HTTP 503).
+- `venv/bin/python dene.py --durum` nabzı veritabanından okur.
 
 ---
 
-## Nerede çalıştırmalı
+## Sağlamlık: nelere karşı korunuyor
 
-Sunucunun **sürekli açık** olması gerekiyor; kapalıyken kuyruk birikir, açılınca
-(30 dakikadan yeni olanlar) teslim edilir.
-
-| Yer | Nasıl |
+| Durum | Ne oluyor |
 |---|---|
-| Kendi bilgisayarın | `npm start` — yalnız bilgisayar açıkken çalışır, denemek için iyi |
-| Ücretsiz bulut (Render, Railway, Fly.io) | Depoyu bağla, kök dizin `sunucu`, başlangıç komutu `npm start`, ortam değişkeni `MERIDYEN_SERVIS_HESABI` |
-| Kendi sunucun (VPS) | `pm2 start index.js --name meridyen-bildirim` ya da systemd servisi |
-
-Sağlayıcı bir port bekliyorsa `PORT` değişkenini kendisi veriyor; sağlık ucu
-onu kullanıyor, ek ayar gerekmiyor.
-
-### Sürekli çalıştıramıyorsan
-
-`MERIDYEN_TEK_SEFER=1` ile başlatırsan kuyruğu boşaltıp çıkar. Zamanlanmış bir
-görevle (cron) örneğin dakikada bir çağırabilirsin — anlık olmaz ama hiç
-yoktan iyidir:
-
-```
-* * * * * cd /yol/sunucu && MERIDYEN_TEK_SEFER=1 GOOGLE_APPLICATION_CREDENTIALS=... node index.js
-```
+| İnternet kesildi / modem yeniden başladı | Her istekte zaman aşımı var. Olay akışı koparsa artan beklemeyle yeniden bağlanıyor; bağlanınca kuyruğu baştan okuyor, arada kalan kayıt kaybolmuyor. Akıştan bağımsız olarak kuyruk 30 sn'de bir ayrıca taranıyor. |
+| Bağlantı "yarı açık" kaldı (veri gelmiyor ama kopmadı da) | Veritabanı 30 sn'de bir canlılık olayı yolluyor; 90 sn hiçbir şey gelmezse bağlantı ölü sayılıp yeniden kuruluyor. |
+| Sunucu bir yerde takıldı | Bekçi iş parçacığı ana döngü 3 dk ilerlemezse süreci bitiriyor, systemd yeniden başlatıyor. |
+| Sunucu gönderirken çöktü (elektrik gitti) | Kayıt silinmeden önce gönderiliyor; yeniden başlayınca kayıt tekrar işleniyor. Telefon aynı mesajı anahtarından (`mid`) tanıyıp **ikinci kez göstermiyor**. |
+| Yanlışlıkla iki sunucu çalışıyor | Her kayıt göndermeden önce bir **kira** ile sahipleniliyor (koşullu yazma). İki sunucu aynı kaydı gördüğünde yalnız biri gönderiyor; öbürü yedek gibi bekliyor. |
+| FCM geçici hata verdi | Yalnız **başarısız olan cihaza** artan beklemeyle (2, 4, 8, 16 sn) en çok 5 kez yeniden deneniyor. Başarılı cihazlara ikinci kez gitmiyor. Kalan cihazlar kayda yazılıyor: sunucu bu arada çökerse kaldığı yerden devam ediyor. |
+| Sunucu saatlerce kapalı kaldı | 30 dk'dan eski mesajlar, 60 sn'den eski **çağrılar** gönderilmeden atılıyor: biten bir aramanın zili çalmıyor. Yaş, bu makinenin saatiyle değil ölçülmüş **sunucu saatiyle** hesaplanıyor. |
+| Telefonda hesap değiştirildi | Aynı belirteç yeni hesapta daha yeni kayıtlıysa eski hesabın mesajları o telefona **gönderilmiyor**, eski kayıt siliniyor (eskiden telefon iki hesabın bildirimini birden alıyordu). |
+| Aynı telefon iki kez kayıtlı | Aynı belirtece tek push. |
+| Servis hesabı yanlış projenin | Cihaz kayıtlarına **dokunulmuyor** (silseydik tek yanlış anahtar bütün kayıtları uçururdu); günlüğe büyük uyarı, uygulamada "KURULUM HATASI". |
+| Bozuk/kötü niyetli istemci kuyruğu dolduruyor | Gönderen başına hız sınırı: 30'luk patlama, sonra saniyede bir. |
 
 ---
 
-## Web bildirimleri için ek şart
+## Çift bildirime karşı uçtan uca
 
-Android tarafı APK'nın içinde hazır. **Web** tarafında iki şey gerekiyor:
+Bir mesajın bildirimi iki yoldan gelebiliyor: alıcının **kendi uygulaması**
+(arka planda canlıyken veritabanı dinleyicisi) ve bu **sunucunun push'u**.
 
-1. `www/firebase-messaging-sw.js` dosyası sitenin **kök dizininde** yayında
-   olmalı (index.html ile aynı klasör). Yoksa tarayıcı push alamaz — hata da
-   vermez, sessizce çalışmaz.
-2. Site **HTTPS** olmalı (web push'un şartı).
-
-Kullanıcı tarafında: siteyi açıp bildirim iznini vermiş olması gerekiyor. İzin
-verildiğinde cihaz `cihazlar/<uid>` altına kendi belirtecini yazıyor; sunucu
-oradan okuyor. `node dene.js --cihazlar <uid>` ile kontrol edebilirsin.
+- **APK:** iki yol da mesajın anahtarını (`mid`) taşıyor; telefon bir anahtarı
+  bir kez gösteriyor (`MeridyenBildirimler`, 48 saatlik görülenler listesi).
+  Sohbet açılıp bildirim silindikten sonra geç gelen bir kopya da tanınıyor.
+- **Web:** iki yol aynı etiketi (`meridyen-<gönderen>`) kullanıyor; tarayıcı
+  aynı etiketli bildirimi yenisiyle değiştiriyor, ikinci bir bildirim çıkmıyor.
+- **Çağrı:** iki yol aynı çağrı bildirimine yazıyor ve zil bir kez çalıyor;
+  uygulama kapalıyken arayan vazgeçerse çağrı bildirimi 60 sn sonra kalkıyor.
 
 ---
 
@@ -127,36 +117,40 @@ oradan okuyor. `node dene.js --cihazlar <uid>` ile kontrol edebilirsin.
 
 Bildirimde mesaj metninin görünüp görünmeyeceği **cihaz başına** ayarlanıyor
 (uygulamada Ayarlar > bildirimde içerik). Kapalıysa metin sunucudan **hiç
-çıkmıyor**: o cihaza yalnız "Yeni bir mesajın var." gidiyor. Telefonunda kapalı,
-masaüstünde açık olabilir; sunucu her cihaza kendi ayarına göre gönderiyor.
-
-Çağrılarda arayanın adı gönderiliyor (kimin aradığını bilmeden çağrıyı
-yanıtlamak anlamsız), metin yine ayara tabi.
+çıkmıyor**: o cihaza yalnız "Yeni bir mesajın var." gidiyor. Çağrılarda arayanın
+adı gönderiliyor, metin yine ayara tabi.
 
 ---
 
-## Bakım
+## Web bildirimleri için ek şart
 
-- **Ölü belirteçler** kendiliğinden temizleniyor: uygulama silinmiş bir cihaza
-  gönderim "kayıtlı değil" hatası verince o kayıt `cihazlar` altından düşüyor.
-- **Eski kayıtlar** gönderilmiyor: sunucu uzun süre kapalı kaldıysa 30
-  dakikadan eski bildirimler sessizce siliniyor (gece yarısı dünkü mesajın
-  bildirimi gelmesin). `MERIDYEN_EN_ESKI_DK` ile değiştirilebilir.
-- **Ölü belirteçler** cihaz listesinden siliniyor — ama yalnız gerçekten ölü
-  olanlar. Servis hesabı yanlış projeye aitse FCM her gönderimi reddeder; o
-  hata belirteçle ilgili değil, bu yüzden cihaz kayıtlarına dokunulmuyor ve
-  konsola büyük bir kurulum uyarısı yazılıyor. (Silseydik tek yanlış anahtar
-  veritabanındaki bütün cihaz kayıtlarını uçururdu.)
-- **Geçici hatalarda** artan beklemeyle 5 kez yeniden deneniyor, sonra kayıt
-  düşürülüyor ve günlüğe yazılıyor.
+1. `www/firebase-messaging-sw.js` sitenin **kök dizininde** yayında olmalı.
+2. Site **HTTPS** olmalı (web push'un şartı).
+
+---
+
+## Zamanlanmış görevle (sürekli açık makine yoksa)
+
+`MERIDYEN_TEK_SEFER=1` ile kuyruğu boşaltıp çıkar. Anlık olmaz; cron ile dakikada
+bir çağrılabilir:
+
+```
+* * * * * cd /yol/sunucu && MERIDYEN_TEK_SEFER=1 PORT=0 MERIDYEN_SERVIS_HESABI_DOSYASI=/yol/servis-hesabi.json venv/bin/python sunucu.py
+```
+
+---
 
 ## Sınama
 
 ```bash
-npm test
+python3 sinama/test_mantik.py          # saf mantık, ağ yok
+venv/bin/python sinama/test_uctan_uca.py   # gerçek sunucu süreçleri + veritabanı emülatörü
 ```
 
-Ağ ve gerçek anahtar gerektirmiyor: yük biçimi, gizlilik kuralı, çağrı ayrımı,
-ölü belirteç temizliği, eski/bozuk kayıt eleme ve kuyruk silme davranışları
-sahte bir Firebase Admin SDK'sı üstünde **gerçek `index.js`** çalıştırılarak
-doğrulanıyor.
+Uçtan uca sınama (Java ve firebase-tools gerekir) gerçek `sunucu.py`
+süreçlerini Realtime Database emülatörüne bağlıyor; FCM'in yerinde sahte bir
+HTTP sunucusu var. Ölçülenler: iki sunucu aynı anda çalışırken 40 kaydın her
+birinin her cihaza **tam bir kez** gitmesi; sunucu yeniden denemenin ortasında
+`kill -9` ile öldürülüp yeniden başlatılınca başarılı cihaza ikinci kez
+gitmemesi; veritabanı bağlantısı kopup geri gelince yeni kaydın işlenmesi;
+bayat çağrı, hesap değişimi, kurulum hatası, hız sınırı ve tek sefer kipi.

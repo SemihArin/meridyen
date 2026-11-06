@@ -117,7 +117,10 @@
           govde: String(this.body),
           etiket: String(secenekler.tag == null ? 'meridyen-' + this._id : secenekler.tag),
           gonderen: d.gonderen ? String(d.gonderen) : null,
-          tur: d.tur ? String(d.tur) : null
+          tur: d.tur ? String(d.tur) : null,
+          /* Mesajın veritabanı anahtarı: sunucunun push'u da aynı anahtarla
+             geliyor, yerli taraf ikisinden yalnız birini gösteriyor. */
+          anahtar: d.mid ? String(d.mid) : null
         }).then(function () {
           if (typeof self.onshow === 'function') { try { self.onshow(); } catch (e) {} }
         }).catch(function () {

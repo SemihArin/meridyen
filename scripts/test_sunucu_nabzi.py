@@ -37,6 +37,9 @@ ok('tek sefer: 2 dk önce → çalışıyor ama "anlık değil"',
 ok('tek sefer: 10 dk önce → durmuş', !d({ nabiz: S, kip: 'tek' }, 10 * DK).calisiyor);
 ok('kurulum hatası → taze olsa da çalışmıyor', !d(Object.assign({ kurulumHatasi: true }, surekli), 0).calisiyor);
 ok('saat farkıyla gelecekte görünen nabız → çalışıyor', d(surekli, -30000).calisiyor);
+const ikili = d(Object.assign({ cakisma: true }, surekli), DK);
+ok('eski sunucu da çalışıyor → çalışıyor ama UYARI', ikili.calisiyor && /UYARI/.test(ikili.metin));
+ok('çakışma yoksa uyarı yok', !/UYARI/.test(d(surekli, DK).metin));
 console.log(JSON.stringify(sonuc));
 """
 cikti = subprocess.run(["node", "-e", js], capture_output=True, text=True)

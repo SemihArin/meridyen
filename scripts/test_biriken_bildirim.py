@@ -62,6 +62,10 @@ METOTLAR = [
     ("static List<String> ozetSatirlari(", "\n    }"),
     ("static int ozetMesajSayisi(", "\n    }"),
     ("static boolean ozetGerekliMi(", "\n    }"),
+    ("static boolean gorulduMu(", "\n    }"),
+    ("static String gorulenEkle(", "\n    }"),
+    ("static String[] birikimeIsle(", "\n    }"),
+    ("static boolean cagriBayatMi(", "\n    }"),
 ]
 
 SURUCU = r"""
@@ -118,6 +122,43 @@ SURUCU = r"""
         depoyaEkle(null, 44, "A", null, null, "e", "x", 1)).length(), 1);
     esit("boş depoda özet yok", ozetSatirlari("").size(), 0);
 
+    // ---- TEKİLLEŞTİRME: aynı mesaj iki yoldan (uygulama + sunucu push'u) ----
+    long t = 1_000_000L;
+    String[] ilk = birikimeIsle("", "", 55, "Ayse", "U", "mesaj", "meridyen-U", "selam", t, "-MID1");
+    esit("ilk yol mesajı gösterir", ilk != null, true);
+    String[] ikinci = birikimeIsle(ilk[0], ilk[1], 55, "Ayse", "U", "mesaj", "meridyen-U", "selam", t + 300, "-MID1");
+    esit("AYNI anahtarlı ikinci yol atlanır", ikinci == null, true);
+    esit("birikimde tek satır kaldı",
+         new org.json.JSONObject(ilk[0]).getJSONObject("55").getJSONArray("satirlar").length(), 1);
+    String[] baska = birikimeIsle(ilk[0], ilk[1], 55, "Ayse", "U", "mesaj", "meridyen-U", "naber", t + 400, "-MID2");
+    esit("farklı anahtarlı mesaj eklenir", baska != null
+         && new org.json.JSONObject(baska[0]).getJSONObject("55").getJSONArray("satirlar").length() == 2, true);
+    String[] anahtarsiz1 = birikimeIsle("", "", 66, "A", null, null, "e", "x", t, null);
+    String[] anahtarsiz2 = birikimeIsle(anahtarsiz1[0], anahtarsiz1[1], 66, "A", null, null, "e", "x", t, null);
+    esit("anahtarsız (eski istemci) mesaj ATLANMAZ — kaybolmasın", anahtarsiz2 != null, true);
+    esit("anahtarsız mesaj görülenleri değiştirmez", anahtarsiz2[1], "");
+
+    // Sohbet açılıp birikim silinse bile geç gelen kopya tanınmalı.
+    String bosaltilmis = depodanSil(ilk[0], 55);
+    esit("sohbet açıldıktan sonra geç gelen kopya yine atlanır",
+         birikimeIsle(bosaltilmis, ilk[1], 55, "Ayse", "U", "mesaj", "meridyen-U", "selam", t + 9000, "-MID1") == null, true);
+    esit("48 saatten eski anahtar unutulur",
+         gorulduMu(ilk[1], "-MID1", t + GORULEN_OMUR_MS + 1), false);
+
+    // Görülenler sınırsız büyümesin; en ESKİ düşsün.
+    String g = "";
+    for (int i = 0; i < GORULEN_SINIR + 25; i++) g = gorulenEkle(g, "k" + i, t + i);
+    esit("görülenler üst sınırda", new org.json.JSONObject(g).length(), GORULEN_SINIR);
+    esit("en eski düştü", gorulduMu(g, "k0", t + GORULEN_SINIR + 30), false);
+    esit("en yeni duruyor", gorulduMu(g, "k" + (GORULEN_SINIR + 24), t + GORULEN_SINIR + 30), true);
+    esit("bozuk/boş görülenler çökertmiyor", gorulduMu(null, "x", t), false);
+
+    // ---- bayat çağrı push'u ----
+    esit("az önceki çağrı bayat değil", cagriBayatMi(t - 20000, t), false);
+    esit("2 dk önceki çağrı bayat", cagriBayatMi(t - 120000, t), true);
+    esit("gönderim zamanı bilinmiyorsa çağrı kaçmasın", cagriBayatMi(0, t), false);
+    esit("saat farkıyla gelecekte görünen çağrı bayat değil", cagriBayatMi(t + 5000, t), false);
+
     if (hata > 0) { System.out.println("\n" + hata + " BASARISIZ"); System.exit(1); }
     System.out.println("\nTUMU GECTI");
   }
@@ -132,9 +173,11 @@ def main():
     with io.open(KAYNAK, encoding="utf-8") as f:
         kaynak = f.read()
 
-    # Üst sınır sabiti de gerçek kaynaktan gelsin: sınama onu varsaymasın.
-    i = kaynak.index("ENCOK_SATIR = ")
-    encok = kaynak[i + len("ENCOK_SATIR = "):kaynak.index(";", i)].strip()
+    # Sabitler de gerçek kaynaktan gelsin: sınama onları varsaymasın.
+    def sabit(ad):
+        i = kaynak.index(ad + " = ")
+        return kaynak[i + len(ad + " = "):kaynak.index(";", i)].strip()
+    encok = sabit("ENCOK_SATIR")
 
     govdeler = []
     for bas, son in METOTLAR:
@@ -149,6 +192,8 @@ def main():
                     "import java.util.ArrayList;\nimport java.util.List;\n\n"
                     "public class Bt {\n"
                     "  static final int ENCOK_SATIR = " + encok + ";\n"
+                    "  static final long GORULEN_OMUR_MS = " + sabit("GORULEN_OMUR_MS") + ";\n"
+                    "  static final int GORULEN_SINIR = " + sabit("GORULEN_SINIR") + ";\n"
                     + "\n".join("  " + g for g in govdeler) + "\n"
                     + SURUCU + "\n}\n")
         subprocess.check_call(["javac", "-encoding", "UTF-8", "-cp", json_jar, "Bt.java"],

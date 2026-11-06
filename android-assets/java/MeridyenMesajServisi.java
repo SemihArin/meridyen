@@ -62,6 +62,13 @@ public class MeridyenMesajServisi extends MessagingService {
                tek meşru yolu o. Sıradan mesaj bildirimi bunu yapamaz.
                Sunucu yükünde tür alanı "arama" ya da "cagri" olabiliyor. */
             if ("arama".equals(tur) || "cagri".equals(tur)) {
+                /* BAYAT ÇAĞRI: telefon kapalıyken/çekmezken gelen çağrı push'u
+                   FCM'de bekleyip saatler sonra teslim edilebiliyor (çağrının
+                   ömrü 45 sn ama gecikmiş teslim yine olabiliyor). Çoktan
+                   bitmiş bir aramanın zili çalmasın. */
+                if (MeridyenBildirimler.cagriBayatMi(mesaj.getSentTime(), System.currentTimeMillis())) {
+                    return;
+                }
                 String aramaTuru = ilk(d.get("aramaTuru"), d.get("aramaTur"), "ses");
                 MeridyenCagri.goster(this, baslik, gonderen, aramaTuru);
                 return;
@@ -79,7 +86,10 @@ public class MeridyenMesajServisi extends MessagingService {
                     : "meridyen-msg-" + mesaj.getMessageId();
             }
 
-            MeridyenBildirimler.mesaj(this, baslik, govde, etiket, gonderen, tur);
+            /* mid: mesajın veritabanı anahtarı. Uygulamanın kendi dinleyicisi
+               aynı mesajı zaten gösterdiyse (uygulama arka planda canlıyken)
+               ikinci kez gösterilmiyor. */
+            MeridyenBildirimler.mesaj(this, baslik, govde, etiket, gonderen, tur, d.get("mid"));
         } catch (Exception e) {
             // Bildirim çizilemese bile servis çökmesin.
         }

@@ -125,12 +125,24 @@ else
   gunluk "firebase emülatör araçları zaten var"
 fi
 
+# Bildirim sunucusu (sunucu/, Python) sınamaları için sanal ortam.
+if [ ! -x "$ARACLAR/pyenv/bin/python" ]; then
+  gunluk "Python sanal ortamı kuruluyor"
+  python3 -m venv "$ARACLAR/pyenv" \
+    && "$ARACLAR/pyenv/bin/pip" install --quiet --disable-pip-version-check \
+         -r "$CLAUDE_PROJECT_DIR/sunucu/requirements.txt" pyflakes \
+    || gunluk "UYARI: Python sanal ortamı kurulamadı (yalnız sunucu sınamasını etkiler)"
+else
+  gunluk "Python sanal ortamı zaten var"
+fi
+
 # ---- 5) Oturum ortamı -------------------------------------------------------
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   {
     echo "export ANDROID_HOME=\"$ANDROID_HOME\""
     echo "export ANDROID_SDK_ROOT=\"$ANDROID_HOME\""
     echo "export MERIDYEN_PLAYWRIGHT=\"$ARACLAR/node_modules/playwright-core\""
+    echo "export MERIDYEN_PYTHON=\"$ARACLAR/pyenv/bin/python\""
   } >> "$CLAUDE_ENV_FILE"
 fi
 
